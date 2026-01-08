@@ -1,10 +1,24 @@
-# Market Data Python SDK
+<div align="center">
 
-[![codecov](https://codecov.io/gh/MarketDataApp/sdk-py/branch/main/graph/badge.svg)](https://codecov.io/gh/MarketDataApp/sdk-py)
+# Market Data Python SDK v1.0
+### Access Financial Data with Ease
 
-**Official Python SDK for the Market Data API** - Access real-time and historical market data through a simple, Pythonic interface. Get stock prices, options chains, market status, earnings, news, and more.
+> This is the official Python SDK for [Market Data](https://www.marketdata.app/). It provides developers with a powerful, easy-to-use interface to obtain real-time and historical financial data. Ideal for building financial applications, trading bots, and investment strategies.
 
-> **Get Started Free**: Sign up at [www.marketdata.app/signup/](https://www.marketdata.app/signup/) to get your free API token. Includes a 1-month free trial (no credit card required).
+[![Tests](https://github.com/MarketDataApp/sdk-py/actions/workflows/test.yml/badge.svg)](https://github.com/MarketDataApp/sdk-py/actions/workflows/test.yml)
+[![Coverage](https://codecov.io/gh/MarketDataApp/sdk-py/branch/main/graph/badge.svg)](https://codecov.io/gh/MarketDataApp/sdk-py)
+[![License](https://img.shields.io/github/license/MarketDataApp/sdk-py.svg)](https://github.com/MarketDataApp/sdk-py/blob/main/LICENSE)
+[![PyPI version](https://img.shields.io/pypi/v/marketdata-sdk-py.svg)](https://pypi.org/project/marketdata-sdk-py/)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
+
+#### Connect With The Market Data Community
+
+[![Website](https://img.shields.io/badge/Website-marketdata.app-blue)](https://www.marketdata.app/)
+[![Discord](https://img.shields.io/badge/Discord-join%20chat-7389D8.svg?logo=discord&logoColor=ffffff)](https://discord.com/invite/GmdeAVRtnT)
+[![Twitter](https://img.shields.io/twitter/follow/MarketDataApp?style=social)](https://twitter.com/MarketDataApp)
+[![Helpdesk](https://img.shields.io/badge/Support-Ticketing-ff69b4.svg?logo=TicketTailor&logoColor=white)](https://www.marketdata.app/dashboard/)
+
+</div>
 
 ## Features
 
