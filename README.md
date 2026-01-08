@@ -1,8 +1,6 @@
 # MarketData Python SDK
 
-**Official Python SDK for the Market Data API** - Access real-time and historical market data with ease. Get stock prices, options chains, market status, earnings, news, and more through a simple, Pythonic interface.
-
-> **Official Release**: This is the official, production-ready Python SDK for Market Data.app, maintained by the Market Data team.
+**Official Python SDK for MarketData.app** - Access real-time and historical market data through a simple, Pythonic interface. Get stock prices, options chains, market status, earnings, news, and more.
 
 ## Features
 
