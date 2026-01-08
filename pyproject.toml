@@ -1,15 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "MarketData-Python-SDK"
+name = "marketdata-sdk"
 version = "0.0.1"
 description = "Python SDK client for MarketData API"
 readme = "README.md"
 requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Market Data", email = "support@marketdata.app"}
+]
+keywords = [
+    "marketdata",
+    "finance",
+    "stocks",
+    "options",
+    "api",
+    "sdk",
+    "trading",
+    "market-data",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "httpx>=0.28.1",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.12.0",
     "tenacity>=9.1.2",
 ]
+
+[project.urls]
+Homepage = "https://www.marketdata.app"
+Repository = "https://github.com/MarketDataApp/sdk-py"
+Documentation = "https://www.marketdata.app/docs/sdk/py"
+Issues = "https://github.com/MarketDataApp/sdk-py/issues"
 
 [project.optional-dependencies]
 pandas = [
@@ -33,6 +71,9 @@ dev = [
     "pytest-xdist>=3.8.0",
     "respx>=0.22.0",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/marketdata"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

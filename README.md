@@ -649,23 +649,23 @@ The SDK supports multiple DataFrame libraries for `OutputFormat.DATAFRAME`. You 
 
 Install with pandas (recommended):
 ```bash
-pip install "marketdata-python-sdk[pandas]"
+pip install "marketdata-sdk[pandas]"
 # or using uv
-uv pip install "marketdata-python-sdk[pandas]"
+uv pip install "marketdata-sdk[pandas]"
 ```
 
 Install with polars:
 ```bash
-pip install "marketdata-python-sdk[polars]"
+pip install "marketdata-sdk[polars]"
 # or using uv
-uv pip install "marketdata-python-sdk[polars]"
+uv pip install "marketdata-sdk[polars]"
 ```
 
 Install with both:
 ```bash
-pip install "marketdata-python-sdk[pandas,polars]"
+pip install "marketdata-sdk[pandas,polars]"
 # or using uv
-uv pip install "marketdata-python-sdk[pandas,polars]"
+uv pip install "marketdata-sdk[pandas,polars]"
 ```
 
 #### DataFrame Handler Priority
