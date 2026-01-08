@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "marketdata-sdk-py"
 version = "0.0.1"
-description = "Python SDK client for MarketData API"
+description = "Official Python SDK for the Market Data API - Real-time stock prices, options data, market status, and more"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -14,13 +14,31 @@ authors = [
 ]
 keywords = [
     "marketdata",
+    "market-data",
+    "marketdata-app",
     "finance",
+    "financial-data",
     "stocks",
+    "stock-market",
+    "stock-prices",
     "options",
+    "options-trading",
+    "options-chain",
     "api",
     "sdk",
     "trading",
-    "market-data",
+    "trading-data",
+    "real-time-data",
+    "market-status",
+    "ohlcv",
+    "candles",
+    "quotes",
+    "earnings",
+    "financial-news",
+    "mutual-funds",
+    "pandas",
+    "polars",
+    "dataframe",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -34,7 +52,9 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Office/Business :: Financial",
+    "Topic :: Office/Business :: Financial :: Investment",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
 ]
 dependencies = [
     "httpx>=0.28.1",
