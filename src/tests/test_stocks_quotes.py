@@ -2,6 +2,8 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytz
+
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.stocks_quotes import StockQuote, StockQuotesHumanReadable
 from marketdata.sdk_error import MarketDataClientErrorResult
@@ -9,7 +11,7 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_stock_quote_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
 
     instance = StockQuote(
@@ -31,7 +33,7 @@ def test_stock_quote_str():
 
 def test_stock_quotes_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
     instance = StockQuotesHumanReadable(
         Symbol="AAPL",
@@ -66,7 +68,7 @@ def test_stock_quote_post_init():
     instance = StockQuote(**data)
     instance.updated = 1765478200
     instance.__post_init__()
-    assert instance.updated == datetime.datetime.fromtimestamp(1765478200)
+    assert instance.updated == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
 
 
 def test_stock_quote_from_dict():
@@ -94,7 +96,7 @@ def test_stock_quote_from_dict():
     assert instance.change == -0.0112
     assert instance.changepct == 0.0
     assert instance.volume == 4964676
-    assert instance.updated == datetime.datetime.fromtimestamp(1765478200)
+    assert instance.updated == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
 
 
 def test_stock_quotes_human_readable_str():
@@ -132,7 +134,7 @@ def test_stock_quotes_human_readable_post_init():
     instance = StockQuotesHumanReadable(**data)
     instance.Date = 1765478200
     instance.__post_init__()
-    assert instance.Date == datetime.datetime.fromtimestamp(1765478200)
+    assert instance.Date == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
 
 
 def test_stock_quotes_human_readable_from_dict():
@@ -160,12 +162,12 @@ def test_stock_quotes_human_readable_from_dict():
     assert instance.Change_Price == 0.51
     assert instance.Change_Percent == 0.0018
     assert instance.Volume == 4964676
-    assert instance.Date == datetime.datetime.fromtimestamp(1765478200)
+    assert instance.Date == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
 
 
 def test_get_stocks_quotes_response_200_internal(load_json, respx_mock, client):
     mock_data = load_json("stocks_quotes_response_200")
-    updated = datetime.datetime.fromtimestamp(1765552906)
+    updated = datetime.datetime.fromtimestamp(1765552906, tz=pytz.timezone('US/Eastern'))
 
     respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
         json=mock_data,
@@ -235,7 +237,7 @@ def test_get_stocks_quotes_human_response_200(load_json, respx_mock, client):
     assert quotes[0].Change_Price == 0.51
     assert quotes[0].Change_Percent == 0.0018
     assert quotes[0].Volume == 17525589
-    assert quotes[0].Date == datetime.datetime.fromtimestamp(1765565453)
+    assert quotes[0].Date == datetime.datetime.fromtimestamp(1765565453, tz=pytz.timezone('US/Eastern'))
 
 
 def test_get_stocks_quotes_response_200_dataframe_pandas(load_json, respx_mock, client):

@@ -2,6 +2,8 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytz
+
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.markets import MarketStatusInput
 from marketdata.output_types.markets_status import (
@@ -13,7 +15,7 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_markets_status_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
 
     instance = MarketStatus(
@@ -26,7 +28,7 @@ def test_markets_status_str():
 
 def test_markets_status_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
     instance = MarketStatusHumanReadable(
         Date=timestamp,
@@ -57,8 +59,10 @@ def test_get_markets_status_response_200_internal(load_json, respx_mock, client)
     )
 
     assert status_list[0].status == "closed"
-    assert status_list[0].date == datetime.datetime(2025, 1, 1, 2, 0)
-    assert str(status_list[0]) == "Market Status: closed, Date: 2025-01-01 02:00:00"
+    # format_timestamp now returns US/Eastern, so compare directly
+    expected = datetime.datetime.fromtimestamp(1735707600, tz=pytz.timezone('US/Eastern'))
+    assert status_list[0].date == expected
+    assert str(status_list[0]) == "Market Status: closed, Date: 2025-01-01 00:00:00-05:00"
 
 
 def test_get_markets_status_response_200_json(load_json, respx_mock, client):
@@ -86,8 +90,10 @@ def test_get_markets_status_response_200_human_readable(load_json, respx_mock, c
     )
 
     assert status_list[0].Status == "closed"
-    assert status_list[0].Date == datetime.datetime(2025, 1, 1, 2, 0)
-    assert str(status_list[0]) == "Market Status: closed, Date: 2025-01-01 02:00:00"
+    # format_timestamp now returns US/Eastern, so compare directly
+    expected = datetime.datetime.fromtimestamp(1735707600, tz=pytz.timezone('US/Eastern'))
+    assert status_list[0].Date == expected
+    assert str(status_list[0]) == "Market Status: closed, Date: 2025-01-01 00:00:00-05:00"
 
 
 def test_get_markets_status_response_200_dataframe_pandas(

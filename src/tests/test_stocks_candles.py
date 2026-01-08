@@ -3,6 +3,7 @@ import pathlib
 from unittest.mock import patch
 
 import pytest
+import pytz
 from freezegun import freeze_time
 
 from marketdata.input_types.base import OutputFormat
@@ -28,7 +29,7 @@ def test_stock_candle_str():
 
 def test_stocks_candles_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
     data = {
         "Date": timestamp,
@@ -103,7 +104,7 @@ def test_get_stocks_candles_response_200_internal(load_json, respx_mock, client)
         output_format=OutputFormat.INTERNAL,
     )
     assert len(candles) == 253
-    assert candles[0].t == datetime.datetime.fromtimestamp(1577941200)
+    assert candles[0].t == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
     assert candles[0].o == 74.06
     assert candles[0].h == 75.15
     assert candles[0].l == 73.7975
@@ -142,7 +143,7 @@ def test_get_stocks_candles_response_200_internal_human_readable(
         use_human_readable=True,
     )
     assert len(candles) == 253
-    assert candles[0].Date == datetime.datetime.fromtimestamp(1577941200)
+    assert candles[0].Date == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
     assert candles[0].Open == 74.06
     assert candles[0].High == 75.15
     assert candles[0].Low == 73.7975
@@ -229,8 +230,8 @@ def test_get_stocks_candles_response_200_dataframe_multiple_years_hourly(
     candles = client.stocks.candles(
         symbol="AAPL",
         resolution="H",
-        from_date=datetime.datetime(2020, 1, 1),
-        to_date=datetime.datetime(2022, 10, 1),
+        from_date=datetime.datetime(2020, 1, 1, tzinfo=pytz.timezone('US/Eastern')),
+        to_date=datetime.datetime(2022, 10, 1, tzinfo=pytz.timezone('US/Eastern')),
         output_format=OutputFormat.DATAFRAME,
     )
 
@@ -266,8 +267,8 @@ def test_get_stocks_candles_response_200_dataframe_multiple_years_daily(
     candles = client.stocks.candles(
         symbol="AAPL",
         resolution="D",
-        from_date=datetime.datetime(2020, 1, 1),
-        to_date=datetime.datetime(2022, 10, 1),
+        from_date=datetime.datetime(2020, 1, 1, tzinfo=pytz.timezone('US/Eastern')),
+        to_date=datetime.datetime(2022, 10, 1, tzinfo=pytz.timezone('US/Eastern')),
         output_format=OutputFormat.DATAFRAME,
     )
 
@@ -315,7 +316,7 @@ def test_get_stocks_candles_response_200_dataframe_multiple_years_hourly_no_to_d
         candles = client.stocks.candles(
             symbol="AAPL",
             resolution="H",
-            from_date=datetime.datetime(2020, 1, 10),
+            from_date=datetime.datetime(2020, 1, 10, tzinfo=pytz.timezone('US/Eastern')),
             output_format=OutputFormat.DATAFRAME,
         )
 

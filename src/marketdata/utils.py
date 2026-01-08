@@ -4,6 +4,8 @@ from enum import Enum
 from io import StringIO
 from typing import Any
 
+import pytz
+
 
 def format_timestamp(value: str | int | float | None) -> datetime.datetime:
     if isinstance(value, str):
@@ -20,7 +22,7 @@ def format_timestamp(value: str | int | float | None) -> datetime.datetime:
         if 0 < value < 60000:
             return datetime.datetime(1899, 12, 30) + datetime.timedelta(days=value)
         try:
-            return datetime.datetime.fromtimestamp(value)
+            return datetime.datetime.fromtimestamp(value, tz=pytz.timezone('US/Eastern'))
         except:
             raise ValueError("Unrecognized date format")
 
