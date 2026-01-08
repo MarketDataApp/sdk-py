@@ -2,6 +2,8 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytz
+
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.stocks_news import StockNews, StockNewsHumanReadable
 from marketdata.sdk_error import MarketDataClientErrorResult
@@ -9,7 +11,7 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_stock_news_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
     instance = StockNews(
         symbol="AAPL",
@@ -24,7 +26,7 @@ def test_stock_news_str():
 
 def test_stock_news_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
     instance = StockNewsHumanReadable(
         Symbol="AAPL",
@@ -53,8 +55,8 @@ def test_get_stocks_news_response_200_internal(load_json, respx_mock, client):
         news[0].source
         == "https://finance.yahoo.com/video/top-10-trending-tickers-2025-110024376.html"
     )
-    assert news[0].publicationDate == datetime.datetime.fromtimestamp(1766120400)
-    assert news[0].updated == datetime.datetime.fromtimestamp(1766120400)
+    assert news[0].publicationDate == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
+    assert news[0].updated == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
 
 
 def test_get_stocks_news_response_200_json(load_json, respx_mock, client):
@@ -85,8 +87,8 @@ def test_get_stocks_news_human_response_200(load_json, respx_mock, client):
         news[0].source
         == "https://finance.yahoo.com/video/top-10-trending-tickers-2025-110024376.html"
     )
-    assert news[0].publicationDate == datetime.datetime.fromtimestamp(1766120400)
-    assert news[0].Date == datetime.datetime.fromtimestamp(1766120400)
+    assert news[0].publicationDate == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
+    assert news[0].Date == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
 
 
 def test_get_stocks_news_response_200_dataframe_pandas(load_json, respx_mock, client):

@@ -3,6 +3,7 @@ import pathlib
 from unittest.mock import patch
 
 import pytest
+import pytz
 
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.funds import FundsCandlesInput
@@ -12,7 +13,7 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_fund_candle_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
 
     instance = FundsCandle(
@@ -28,7 +29,7 @@ def test_fund_candle_str():
 
 def test_funds_candles_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
     instance = FundsCandlesHumanReadable(
         Date=timestamp,
@@ -103,7 +104,7 @@ def test_get_funds_candles_response_200_internal(load_json, respx_mock, client):
 
     assert len(candles) == 7
 
-    assert candles[0].t == datetime.datetime.fromtimestamp(1577941200)
+    assert candles[0].t == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
     assert candles[0].o == 300.69
     assert candles[0].h == 300.69
     assert candles[0].l == 300.69
@@ -188,7 +189,7 @@ def test_get_funds_candles_human_response_200(load_json, respx_mock, client):
     )
 
     assert len(candles) == 7
-    assert candles[0].Date == datetime.datetime.fromtimestamp(1577941200)
+    assert candles[0].Date == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
     assert candles[0].Open == 300.69
     assert candles[0].High == 300.69
     assert candles[0].Low == 300.69

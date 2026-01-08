@@ -2,6 +2,8 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytz
+
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.options_expirations import (
     OptionsExpirations,
@@ -12,7 +14,7 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_options_expirations_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
 
     instance = OptionsExpirations(
@@ -26,7 +28,7 @@ def test_options_expirations_str():
 
 def test_options_expirations_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
     instance = OptionsExpirationsHumanReadable(
         Expirations=[timestamp],
@@ -48,8 +50,11 @@ def test_get_options_expirations_response_200_internal(load_json, respx_mock, cl
     )
     assert expirations.s == "ok"
     assert len(expirations.expirations) == 22
+    # Date strings are parsed as naive datetimes by format_timestamp
     assert expirations.expirations[0] == datetime.datetime(2025, 12, 5, 0, 0)
-    assert expirations.updated == datetime.datetime(2025, 12, 5, 10, 39, 23)
+    # API returns UTC, convert to US/Eastern for comparison
+    expected = datetime.datetime(2025, 12, 5, 13, 39, 23, tzinfo=datetime.timezone.utc).astimezone(pytz.timezone('US/Eastern'))
+    assert expirations.updated.astimezone(pytz.timezone('US/Eastern')) == expected
 
 
 def test_get_options_expirations_response_200_json(load_json, respx_mock, client):
@@ -75,8 +80,11 @@ def test_get_options_expirations_human_response_200(load_json, respx_mock, clien
     expirations = client.options.expirations(
         symbol="AAPL", output_format=OutputFormat.INTERNAL, use_human_readable=True
     )
+    # Date strings are parsed as naive datetimes by format_timestamp
     assert expirations.Expirations[0] == datetime.datetime(2025, 12, 12, 0, 0)
-    assert expirations.Date == datetime.datetime.fromtimestamp(1765561297)
+    # API returns UTC, convert to US/Eastern for comparison
+    expected = datetime.datetime(2025, 12, 12, 17, 41, 37, tzinfo=datetime.timezone.utc).astimezone(pytz.timezone('US/Eastern'))
+    assert expirations.Date.astimezone(pytz.timezone('US/Eastern')) == expected
 
 
 def test_get_options_expirations_response_200_dataframe_pandas(

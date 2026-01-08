@@ -2,6 +2,8 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytz
+
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.stocks_earnings import (
     StockEarnings,
@@ -12,7 +14,7 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_stock_earnings_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
     instance = StockEarnings(
         s="ok",
@@ -34,7 +36,7 @@ def test_stock_earnings_str():
 
 def test_stock_earnings_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
     instance = StockEarningsHumanReadable(
         Symbol=["AAPL"],
@@ -66,12 +68,12 @@ def test_get_stocks_earnings_response_200_internal(load_json, respx_mock, client
     assert earnings.fiscalYear == [2026, 2026]
     assert earnings.fiscalQuarter == [1, 2]
     assert earnings.date == [
-        datetime.datetime.fromtimestamp(1767157200),
-        datetime.datetime.fromtimestamp(1774929600),
+        datetime.datetime.fromtimestamp(1767157200, tz=pytz.timezone('US/Eastern')),
+        datetime.datetime.fromtimestamp(1774929600, tz=pytz.timezone('US/Eastern')),
     ]
     assert earnings.reportDate == [
-        datetime.datetime.fromtimestamp(1769576400),
-        datetime.datetime.fromtimestamp(1777435200),
+        datetime.datetime.fromtimestamp(1769576400, tz=pytz.timezone('US/Eastern')),
+        datetime.datetime.fromtimestamp(1777435200, tz=pytz.timezone('US/Eastern')),
     ]
     assert earnings.reportTime == ["after close", "before open"]
     assert earnings.currency == ["USD", None]
@@ -80,8 +82,8 @@ def test_get_stocks_earnings_response_200_internal(load_json, respx_mock, client
     assert earnings.surpriseEPS == [None, None]
     assert earnings.surpriseEPSpct == [None, None]
     assert earnings.updated == [
-        datetime.datetime.fromtimestamp(1765861200),
-        datetime.datetime.fromtimestamp(1765861200),
+        datetime.datetime.fromtimestamp(1765861200, tz=pytz.timezone('US/Eastern')),
+        datetime.datetime.fromtimestamp(1765861200, tz=pytz.timezone('US/Eastern')),
     ]
 
 
@@ -108,12 +110,12 @@ def test_get_stocks_earnings_human_response_200(load_json, respx_mock, client):
     assert earnings.Fiscal_Year == [2026, 2026]
     assert earnings.Fiscal_Quarter == [1, 2]
     assert earnings.Date == [
-        datetime.datetime.fromtimestamp(1767157200),
-        datetime.datetime.fromtimestamp(1774929600),
+        datetime.datetime.fromtimestamp(1767157200, tz=pytz.timezone('US/Eastern')),
+        datetime.datetime.fromtimestamp(1774929600, tz=pytz.timezone('US/Eastern')),
     ]
     assert earnings.Report_Date == [
-        datetime.datetime.fromtimestamp(1769576400),
-        datetime.datetime.fromtimestamp(1777435200),
+        datetime.datetime.fromtimestamp(1769576400, tz=pytz.timezone('US/Eastern')),
+        datetime.datetime.fromtimestamp(1777435200, tz=pytz.timezone('US/Eastern')),
     ]
     assert earnings.Report_Time == ["after close", "before open"]
     assert earnings.Currency == ["USD", None]
@@ -122,8 +124,8 @@ def test_get_stocks_earnings_human_response_200(load_json, respx_mock, client):
     assert earnings.Surprise_EPS == [None, None]
     assert earnings.Surprise_EPS_Percent == [None, None]
     assert earnings.Updated == [
-        datetime.datetime.fromtimestamp(1765861200),
-        datetime.datetime.fromtimestamp(1765861200),
+        datetime.datetime.fromtimestamp(1765861200, tz=pytz.timezone('US/Eastern')),
+        datetime.datetime.fromtimestamp(1765861200, tz=pytz.timezone('US/Eastern')),
     ]
 
 

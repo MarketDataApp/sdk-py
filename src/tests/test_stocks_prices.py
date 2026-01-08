@@ -2,6 +2,8 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytz
+
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.stocks_prices import StockPrice, StockPricesHumanReadable
 from marketdata.sdk_error import MarketDataClientErrorResult
@@ -9,7 +11,7 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_stock_price_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
 
     instance = StockPrice(
@@ -26,7 +28,7 @@ def test_stock_price_str():
 
 def test_stock_prices_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
     data = {
         "Symbol": "AAPL",
@@ -65,10 +67,12 @@ def test_get_stocks_prices_response_200_internal(load_json, respx_mock, client):
     assert changepcts == [-0.0024, 0.0027]
 
     updateds = [price.updated for price in prices]
-    assert updateds == [
-        datetime.datetime(2025, 12, 5, 13, 2, 26),
-        datetime.datetime(2025, 12, 5, 13, 2, 20),
+    # API returns UTC, convert to US/Eastern for comparison
+    expected = [
+        datetime.datetime(2025, 12, 5, 16, 2, 26, tzinfo=datetime.timezone.utc).astimezone(pytz.timezone('US/Eastern')),
+        datetime.datetime(2025, 12, 5, 16, 2, 20, tzinfo=datetime.timezone.utc).astimezone(pytz.timezone('US/Eastern')),
     ]
+    assert [dt.astimezone(pytz.timezone('US/Eastern')) for dt in updateds] == expected
 
 
 def test_get_stocks_prices_response_200_json(load_json, respx_mock, client):
@@ -101,8 +105,8 @@ def test_get_stocks_prices_human_response_200(load_json, respx_mock, client):
     assert changepcts == [0.0025, 0.0196]
     updateds = [price.Date for price in prices]
     assert updateds == [
-        datetime.datetime.fromtimestamp(1765564415),
-        datetime.datetime.fromtimestamp(1765564416),
+        datetime.datetime.fromtimestamp(1765564415, tz=pytz.timezone('US/Eastern')),
+        datetime.datetime.fromtimestamp(1765564416, tz=pytz.timezone('US/Eastern')),
     ]
 
 

@@ -2,6 +2,8 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytz
+
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.options_quotes import (
     OptionsQuotes,
@@ -12,7 +14,7 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_options_quotes_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
 
     instance = OptionsQuotes(
@@ -48,7 +50,7 @@ def test_options_quotes_str():
 
 def test_options_quotes_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, datetime.timezone.utc).timestamp()
+        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
     )
     instance = OptionsQuotesHumanReadable(
         Symbol=["AAPL271217C00255000"],
@@ -95,7 +97,9 @@ def test_get_options_quotes_response_200_internal(load_json, respx_mock, client)
     )
     assert quotes.s == "ok"
     assert quotes.optionSymbol == ["AAPL271217C00255000"]
-    assert quotes.updated[0] == datetime.datetime(2025, 12, 10, 16, 49, 56)
+    # API returns UTC, convert to US/Eastern for comparison
+    expected = datetime.datetime(2025, 12, 10, 19, 49, 56, tzinfo=datetime.timezone.utc).astimezone(pytz.timezone('US/Eastern'))
+    assert quotes.updated[0].astimezone(pytz.timezone('US/Eastern')) == expected
     assert quotes.bid[0] == 65.1
     assert quotes.bidSize[0] == 29
     assert quotes.mid[0] == 65.75
@@ -132,12 +136,12 @@ def test_get_options_quotes_human_response_200(load_json, respx_mock, client):
     )
     assert quotes.Symbol[0] == "AAPL271217C00250000"
     assert quotes.Underlying[0] == "AAPL"
-    assert quotes.Expiration_Date[0] == datetime.datetime.fromtimestamp(1829077200)
+    assert quotes.Expiration_Date[0] == datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone('US/Eastern'))
     assert quotes.Option_Side[0] == "call"
     assert quotes.Strike[0] == 250
-    assert quotes.First_Traded[0] == datetime.datetime.fromtimestamp(1741872600)
+    assert quotes.First_Traded[0] == datetime.datetime.fromtimestamp(1741872600, tz=pytz.timezone('US/Eastern'))
     assert quotes.Days_To_Expiration[0] == 735
-    assert quotes.Date[0] == datetime.datetime.fromtimestamp(1765562189)
+    assert quotes.Date[0] == datetime.datetime.fromtimestamp(1765562189, tz=pytz.timezone('US/Eastern'))
     assert quotes.Bid[0] == 67.05
     assert quotes.Bid_Size[0] == 337
     assert quotes.Mid[0] == 68.18
