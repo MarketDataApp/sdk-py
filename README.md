@@ -10,14 +10,16 @@ Python SDK for interacting with the MarketData API.
 
 ### Basic Installation
 
+Install from PyPI:
+
 ```bash
-pip install .
+pip install marketdata-sdk
 ```
 
 Or if you're using `uv`:
 
 ```bash
-uv pip install .
+uv pip install marketdata-sdk
 ```
 
 ### Installation with DataFrame Support
@@ -26,16 +28,33 @@ To use `OutputFormat.DATAFRAME`, you need to install at least one DataFrame libr
 
 Install with pandas (recommended):
 ```bash
-pip install ".[pandas]"
+pip install "marketdata-sdk[pandas]"
 # or using uv
-uv pip install ".[pandas]"
+uv pip install "marketdata-sdk[pandas]"
 ```
 
 Install with polars:
 ```bash
-pip install ".[polars]"
+pip install "marketdata-sdk[polars]"
 # or using uv
-uv pip install ".[polars]"
+uv pip install "marketdata-sdk[polars]"
+```
+
+Install with both:
+```bash
+pip install "marketdata-sdk[pandas,polars]"
+# or using uv
+uv pip install "marketdata-sdk[pandas,polars]"
+```
+
+### Local Development Installation
+
+For local development, install from the project directory:
+
+```bash
+pip install .
+# or with optional dependencies
+pip install ".[pandas]"
 ```
 
 ## Configuration
