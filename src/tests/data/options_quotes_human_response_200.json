@@ -1,0 +1,77 @@
+{
+    "Symbol": [
+        "AAPL271217C00250000"
+    ],
+    "Underlying": [
+        "AAPL"
+    ],
+    "Expiration Date": [
+        1829077200
+    ],
+    "Option Side": [
+        "call"
+    ],
+    "Strike": [
+        250
+    ],
+    "First Traded": [
+        1741872600
+    ],
+    "Days To Expiration": [
+        735
+    ],
+    "Date": [
+        1765562189
+    ],
+    "Bid": [
+        67.05
+    ],
+    "Bid Size": [
+        337
+    ],
+    "Mid": [
+        68.18
+    ],
+    "Ask": [
+        69.3
+    ],
+    "Ask Size": [
+        365
+    ],
+    "Last": [
+        67.46
+    ],
+    "Open Interest": [
+        5094
+    ],
+    "Volume": [
+        10
+    ],
+    "In The Money": [
+        true
+    ],
+    "Intrinsic Value": [
+        28.7943
+    ],
+    "Extrinsic Value": [
+        39.3857
+    ],
+    "Underlying Price": [
+        278.7943
+    ],
+    "IV": [
+        0.2974
+    ],
+    "Delta": [
+        0.7336
+    ],
+    "Gamma": [
+        0.0028
+    ],
+    "Theta": [
+        -0.0396
+    ],
+    "Vega": [
+        1.2996
+    ]
+}

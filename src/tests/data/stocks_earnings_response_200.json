@@ -1,0 +1,51 @@
+{
+    "s": "ok",
+    "symbol": [
+        "AAPL",
+        "AAPL"
+    ],
+    "fiscalYear": [
+        2026,
+        2026
+    ],
+    "fiscalQuarter": [
+        1,
+        2
+    ],
+    "date": [
+        1767157200,
+        1774929600
+    ],
+    "reportDate": [
+        1769576400,
+        1777435200
+    ],
+    "reportTime": [
+        "after close",
+        "before open"
+    ],
+    "currency": [
+        "USD",
+        null
+    ],
+    "reportedEPS": [
+        null,
+        null
+    ],
+    "estimatedEPS": [
+        2.67,
+        null
+    ],
+    "surpriseEPS": [
+        null,
+        null
+    ],
+    "surpriseEPSpct": [
+        null,
+        null
+    ],
+    "updated": [
+        1765861200,
+        1765861200
+    ]
+}

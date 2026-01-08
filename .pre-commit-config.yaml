@@ -1,0 +1,26 @@
+fail_fast: true
+
+repos:
+  - repo: local
+
+    hooks:
+      - id: check_black
+        name: Check black
+        entry: uv run black . --check
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: check_isort
+        name: Check isort
+        entry: uv run isort . --profile black --check-only
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: unit_tests
+        name: Run unit tests
+        entry: uv run pytest -n 4 --cov="marketdata"
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
