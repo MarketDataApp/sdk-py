@@ -1,5 +1,7 @@
 # Market Data Python SDK
 
+[![codecov](https://codecov.io/gh/MarketDataApp/sdk-py/branch/main/graph/badge.svg)](https://codecov.io/gh/MarketDataApp/sdk-py)
+
 **Official Python SDK for the Market Data API** - Access real-time and historical market data through a simple, Pythonic interface. Get stock prices, options chains, market status, earnings, news, and more.
 
 > **Get Started Free**: Sign up at [www.marketdata.app/signup/](https://www.marketdata.app/signup/) to get your free API token. Includes a 1-month free trial (no credit card required).
