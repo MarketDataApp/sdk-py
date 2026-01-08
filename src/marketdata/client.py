@@ -24,7 +24,7 @@ class MarketDataClient:
 
     def __init__(self, token: str = None, logger: Logger = None):
         self.token = token or settings.marketdata_token
-        self.library_version = version("marketdata-sdk")
+        self.library_version = version("marketdata-sdk-py")
         self.library_user_agent = self._get_user_agent()
 
         self.logger = logger or get_logger()

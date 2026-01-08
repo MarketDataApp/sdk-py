@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/marketdata-sdk/
+      url: https://test.pypi.org/p/marketdata-sdk-py/
     permissions:
       id-token: write
     steps:
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/marketdata-sdk/
+      url: https://pypi.org/project/marketdata-sdk-py/
     permissions:
       id-token: write
     needs: publish-testpypi

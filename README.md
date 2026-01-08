@@ -13,13 +13,13 @@ Python SDK for interacting with the MarketData API.
 Install from PyPI:
 
 ```bash
-pip install marketdata-sdk
+pip install marketdata-sdk-py
 ```
 
 Or if you're using `uv`:
 
 ```bash
-uv pip install marketdata-sdk
+uv pip install marketdata-sdk-py
 ```
 
 ### Installation with DataFrame Support
@@ -28,23 +28,23 @@ To use `OutputFormat.DATAFRAME`, you need to install at least one DataFrame libr
 
 Install with pandas (recommended):
 ```bash
-pip install "marketdata-sdk[pandas]"
+pip install "marketdata-sdk-py[pandas]"
 # or using uv
-uv pip install "marketdata-sdk[pandas]"
+uv pip install "marketdata-sdk-py[pandas]"
 ```
 
 Install with polars:
 ```bash
-pip install "marketdata-sdk[polars]"
+pip install "marketdata-sdk-py[polars]"
 # or using uv
-uv pip install "marketdata-sdk[polars]"
+uv pip install "marketdata-sdk-py[polars]"
 ```
 
 Install with both:
 ```bash
-pip install "marketdata-sdk[pandas,polars]"
+pip install "marketdata-sdk-py[pandas,polars]"
 # or using uv
-uv pip install "marketdata-sdk[pandas,polars]"
+uv pip install "marketdata-sdk-py[pandas,polars]"
 ```
 
 ### Local Development Installation
@@ -668,23 +668,23 @@ The SDK supports multiple DataFrame libraries for `OutputFormat.DATAFRAME`. You 
 
 Install with pandas (recommended):
 ```bash
-pip install "marketdata-sdk[pandas]"
+pip install "marketdata-sdk-py[pandas]"
 # or using uv
-uv pip install "marketdata-sdk[pandas]"
+uv pip install "marketdata-sdk-py[pandas]"
 ```
 
 Install with polars:
 ```bash
-pip install "marketdata-sdk[polars]"
+pip install "marketdata-sdk-py[polars]"
 # or using uv
-uv pip install "marketdata-sdk[polars]"
+uv pip install "marketdata-sdk-py[polars]"
 ```
 
 Install with both:
 ```bash
-pip install "marketdata-sdk[pandas,polars]"
+pip install "marketdata-sdk-py[pandas,polars]"
 # or using uv
-uv pip install "marketdata-sdk[pandas,polars]"
+uv pip install "marketdata-sdk-py[pandas,polars]"
 ```
 
 #### DataFrame Handler Priority
