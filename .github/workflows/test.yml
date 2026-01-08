@@ -35,11 +35,21 @@ jobs:
     - name: Run tests with coverage
       run: uv run pytest -n 4 --cov="marketdata" --cov-report=term --cov-report=xml
     
+    - name: Verify coverage file exists
+      run: |
+        if [ ! -f coverage.xml ]; then
+          echo "Error: coverage.xml not found!"
+          exit 1
+        fi
+        echo "Coverage file found:"
+        ls -lh coverage.xml
+    
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage.xml
+        files: ./coverage.xml
         flags: unittests
-        name: codecov-umbrella
-        fail_ci_if_error: false
+        name: codecov-python-${{ matrix.python-version }}
+        fail_ci_if_error: true
+        verbose: true

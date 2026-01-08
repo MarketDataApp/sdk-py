@@ -6,7 +6,7 @@
 > This is the official Python SDK for [Market Data](https://www.marketdata.app/). It provides developers with a powerful, easy-to-use interface to obtain real-time and historical financial data. Ideal for building financial applications, trading bots, and investment strategies.
 
 [![Tests](https://github.com/MarketDataApp/sdk-py/actions/workflows/test.yml/badge.svg)](https://github.com/MarketDataApp/sdk-py/actions/workflows/test.yml)
-[![Coverage](https://codecov.io/gh/MarketDataApp/sdk-py/branch/main/graph/badge.svg)](https://codecov.io/gh/MarketDataApp/sdk-py)
+[![Coverage](https://codecov.io/gh/MarketDataApp/sdk-py/graph/badge.svg)](https://codecov.io/gh/MarketDataApp/sdk-py)
 [![License](https://img.shields.io/github/license/MarketDataApp/sdk-py.svg)](https://github.com/MarketDataApp/sdk-py/blob/main/LICENSE)
 [![PyPI version](https://img.shields.io/pypi/v/marketdata-sdk-py.svg)](https://pypi.org/project/marketdata-sdk-py/)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
