@@ -108,7 +108,7 @@ def test_get_options_expirations_response_200_dataframe_pandas(
         )
         assert "s" not in expirations.columns
         assert len(expirations) == 22
-        assert expirations["updated"].iloc[0] == 1764941963
+        assert expirations["updated"].iloc[0] == datetime.datetime.fromtimestamp(1764941963, tz=pytz.timezone('US/Eastern'))
 
 
 def test_get_options_expirations_response_200_dataframe_polars(
@@ -131,7 +131,7 @@ def test_get_options_expirations_response_200_dataframe_polars(
         )
         assert "s" not in expirations.columns
         assert len(expirations) == 22
-        assert expirations["updated"][0] == 1764941963
+        assert expirations["updated"][0] == datetime.datetime.fromtimestamp(1764941963, tz=pytz.timezone('US/Eastern'))
 
 
 def test_get_options_expirations_response_400(respx_mock, client):

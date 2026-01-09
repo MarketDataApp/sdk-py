@@ -49,7 +49,7 @@ def status(
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
         data = response.json()
         handler = get_dataframe_output_handler()
-        return handler(data).get_result(index_columns=["Date", "date"])
+        return handler(data, date_format=user_universal_params.date_format).get_result(index_columns=["Date", "date"])
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         data = response.json()

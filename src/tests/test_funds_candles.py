@@ -142,7 +142,7 @@ def test_get_funds_candles_response_200_dataframe_pandas(load_json, respx_mock, 
         )
 
         assert len(candles) == 7
-        assert candles.index[0] == 1577941200
+        assert candles.index[0] == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
         assert candles.o.tolist()[0] == 300.69
         assert candles.h.tolist()[0] == 300.69
         assert candles.l.tolist()[0] == 300.69
@@ -166,7 +166,7 @@ def test_get_funds_candles_response_200_dataframe_polars(load_json, respx_mock, 
             output_format=OutputFormat.DATAFRAME,
         )
         assert len(candles) == 7
-        assert candles["t"][0] == 1577941200
+        assert candles["t"][0] == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
         assert candles["o"][0] == 300.69
         assert candles["h"][0] == 300.69
         assert candles["l"][0] == 300.69

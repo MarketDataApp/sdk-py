@@ -114,7 +114,7 @@ def test_get_markets_status_response_200_dataframe_pandas(
             output_format=OutputFormat.DATAFRAME,
         )
 
-        assert status_df.index.tolist()[0] == 1735707600
+        assert status_df.index.tolist()[0] == datetime.datetime.fromtimestamp(1735707600, tz=pytz.timezone('US/Eastern'))
         assert status_df.status.tolist()[0] == "closed"
         assert status_df.index.name == "date"
 
@@ -136,7 +136,7 @@ def test_get_markets_status_response_200_dataframe_polars(
             output_format=OutputFormat.DATAFRAME,
         )
 
-        assert status_df["date"][0] == 1735707600
+        assert status_df["date"][0] == datetime.datetime.fromtimestamp(1735707600, tz=pytz.timezone('US/Eastern'))
         assert status_df["status"][0] == "closed"
 
 

@@ -1,6 +1,8 @@
 import pandas as pd
+import pytz
 
-from marketdata.output_handlers.base import BaseOutputHandler
+from marketdata.input_types.base import DateFormat
+from marketdata.output_handlers.base import BaseOutputHandler, TIMESTAMP_COLUMN_NAMES
 
 
 class PandasOutputHandler(BaseOutputHandler):
@@ -20,7 +22,7 @@ class PandasOutputHandler(BaseOutputHandler):
                 pd.Series(value) if isinstance(value, list) else [value] * max_length
             )
             df = pd.DataFrame({k: _get_value(v) for k, v in self.data.items()})
-        except Exception as e:
+        except Exception:
             return None
         return df
 
@@ -37,10 +39,36 @@ class PandasOutputHandler(BaseOutputHandler):
             df.drop("s", axis=1, inplace=True)
         return df
 
+    def _is_timestamp_column(self, col_name: str) -> bool:
+        """Check if a column is likely a timestamp column by column name."""
+        return col_name.lower() in TIMESTAMP_COLUMN_NAMES
+
+    def _convert_timestamp_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Convert Unix timestamp columns to timezone-aware datetime objects."""
+        # Only skip conversion if date_format is explicitly set to UNIX
+        # If date_format is None (not specified), apply conversion (default behavior)
+        if self.date_format is not None and self.date_format == DateFormat.UNIX:
+            return df
+
+        # Default timezone for US markets (NYSE/NASDAQ)
+        default_tz = pytz.timezone('US/Eastern')
+
+        for col in df.columns:
+            if self._is_timestamp_column(col):
+                try:
+                    # Convert to UTC first, then to exchange timezone
+                    df[col] = pd.to_datetime(df[col], unit='s', utc=True).dt.tz_convert(default_tz)
+                except Exception:
+                    # If conversion fails, leave the column as-is
+                    pass
+
+        return df
+
     def get_result(self, *args, **kwargs) -> pd.DataFrame:
         index_columns = kwargs.get("index_columns", [])
         df = self._initialize_dataframe()
         df = self._validate_dataframe(df)
+        df = self._convert_timestamp_columns(df)
 
         for column in index_columns:
             if column in df.columns:

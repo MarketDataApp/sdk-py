@@ -200,7 +200,7 @@ def test_get_options_strikes_response_200_dataframe_pandas(
         )
 
         strikes = client.options.strikes("AAPL", output_format=OutputFormat.DATAFRAME)
-        assert strikes.updated[0] == 1765478200
+        assert strikes.updated[0] == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
         for key in strikes.columns:
             if key in ["s", "updated"]:
                 continue
@@ -222,7 +222,7 @@ def test_get_options_strikes_response_200_dataframe_polars(
         )
 
         strikes = client.options.strikes("AAPL", output_format=OutputFormat.DATAFRAME)
-        assert strikes["updated"][0] == 1765478200
+        assert strikes["updated"][0] == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
         for key in strikes.columns:
             if key == "updated":
                 continue

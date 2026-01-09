@@ -147,14 +147,26 @@ def test_get_stocks_earnings_response_200_dataframe_pandas(
         assert earnings.index.tolist() == ["AAPL", "AAPL"]
         assert earnings["fiscalYear"].tolist() == [2026, 2026]
         assert earnings["fiscalQuarter"].tolist() == [1, 2]
-        assert earnings["date"].tolist() == [1767157200, 1774929600]
-        assert earnings["reportDate"].tolist() == [1769576400, 1777435200]
+        expected_date = [
+            datetime.datetime.fromtimestamp(1767157200, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(1774929600, tz=pytz.timezone('US/Eastern')),
+        ]
+        expected_report_date = [
+            datetime.datetime.fromtimestamp(1769576400, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(1777435200, tz=pytz.timezone('US/Eastern')),
+        ]
+        assert earnings["date"].tolist() == expected_date
+        assert earnings["reportDate"].tolist() == expected_report_date
         assert earnings["reportTime"].tolist() == ["after close", "before open"]
         assert earnings["currency"].tolist() == ["USD", None]
         assert earnings["reportedEPS"].tolist() == [None, None]
         assert earnings["surpriseEPS"].tolist() == [None, None]
         assert earnings["surpriseEPSpct"].tolist() == [None, None]
-        assert earnings["updated"].tolist() == [1765861200, 1765861200]
+        expected_updated = [
+            datetime.datetime.fromtimestamp(1765861200, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(1765861200, tz=pytz.timezone('US/Eastern')),
+        ]
+        assert earnings["updated"].tolist() == expected_updated
 
 
 def test_get_stocks_earnings_response_200_dataframe_polars(
@@ -175,14 +187,26 @@ def test_get_stocks_earnings_response_200_dataframe_polars(
         assert earnings["symbol"].to_list() == ["AAPL", "AAPL"]
         assert earnings["fiscalYear"].to_list() == [2026, 2026]
         assert earnings["fiscalQuarter"].to_list() == [1, 2]
-        assert earnings["date"].to_list() == [1767157200, 1774929600]
-        assert earnings["reportDate"].to_list() == [1769576400, 1777435200]
+        expected_date = [
+            datetime.datetime.fromtimestamp(1767157200, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(1774929600, tz=pytz.timezone('US/Eastern')),
+        ]
+        expected_report_date = [
+            datetime.datetime.fromtimestamp(1769576400, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(1777435200, tz=pytz.timezone('US/Eastern')),
+        ]
+        assert earnings["date"].to_list() == expected_date
+        assert earnings["reportDate"].to_list() == expected_report_date
         assert earnings["reportTime"].to_list() == ["after close", "before open"]
         assert earnings["currency"].to_list() == ["USD", None]
         assert earnings["reportedEPS"].to_list() == [None, None]
         assert earnings["surpriseEPS"].to_list() == [None, None]
         assert earnings["surpriseEPSpct"].to_list() == [None, None]
-        assert earnings["updated"].to_list() == [1765861200, 1765861200]
+        expected_updated = [
+            datetime.datetime.fromtimestamp(1765861200, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(1765861200, tz=pytz.timezone('US/Eastern')),
+        ]
+        assert earnings["updated"].to_list() == expected_updated
 
 
 def test_get_stocks_earnings_response_bad_status_code(respx_mock, client):

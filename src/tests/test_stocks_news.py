@@ -112,8 +112,8 @@ def test_get_stocks_news_response_200_dataframe_pandas(load_json, respx_mock, cl
             news.source.tolist()[0]
             == "https://finance.yahoo.com/video/top-10-trending-tickers-2025-110024376.html"
         )
-        assert news.publicationDate.tolist()[0] == 1766120400
-        assert news.updated.tolist()[0] == 1766120400
+        assert news.publicationDate.tolist()[0] == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
+        assert news.updated.tolist()[0] == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
 
 
 def test_get_stocks_news_response_200_dataframe_polars(load_json, respx_mock, client):
@@ -139,8 +139,8 @@ def test_get_stocks_news_response_200_dataframe_polars(load_json, respx_mock, cl
             news["source"].to_list()[0]
             == "https://finance.yahoo.com/video/top-10-trending-tickers-2025-110024376.html"
         )
-        assert news["publicationDate"].to_list()[0] == 1766120400
-        assert news["updated"].to_list()[0] == 1766120400
+        assert news["publicationDate"].to_list()[0] == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
+        assert news["updated"].to_list()[0] == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
 
 
 def test_get_stocks_news_response_bad_status_code(respx_mock, client):

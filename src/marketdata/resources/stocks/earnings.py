@@ -54,7 +54,7 @@ def earnings(
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
         data = response.json()
         handler = get_dataframe_output_handler()
-        return handler(data).get_result(index_columns=["symbol", "Symbol"])
+        return handler(data, date_format=user_universal_params.date_format).get_result(index_columns=["symbol", "Symbol"])
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         output_model = (

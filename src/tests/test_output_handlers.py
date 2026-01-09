@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+import polars as pl
 
 from marketdata.output_handlers import _try_get_handler, get_dataframe_output_handler
 from marketdata.output_handlers.base import BaseOutputHandler
@@ -183,3 +184,244 @@ def test_polars_output_handler_get_result():
     assert df is not None
     assert df.columns == ["a", "b"]
     assert "s" not in df.columns
+
+
+def test_pandas_output_handler_convert_timestamp_by_name():
+    """Test that timestamp columns are converted by column name."""
+    # Unix timestamp: 1765552906 = 2026-01-08 19:55:06 EST
+    handler = PandasOutputHandler(
+        data={
+            "symbol": ["AAPL", "MSFT"],
+            "updated": [1765552906, 1765552906],
+            "price": [278.02, 479.45],
+        }
+    )
+    df = handler.get_result()
+    assert df is not None
+    assert "updated" in df.columns
+    # Check that updated is now a datetime type
+    assert hasattr(df["updated"].dtype, "tz") or "datetime" in str(df["updated"].dtype)
+    # Check that it's timezone-aware
+    assert df["updated"].iloc[0].tz is not None
+    # Check that price is still numeric
+    assert df["price"].dtype in ["float64", "float32", "float"]
+
+
+def test_pandas_output_handler_non_timestamp_column_not_converted():
+    """Test that non-timestamp columns are not converted."""
+    handler = PandasOutputHandler(
+        data={
+            "symbol": ["AAPL"],
+            "price": [278.02],
+            "volume": [1000],
+        }
+    )
+    df = handler.get_result()
+    assert df is not None
+    # Non-timestamp columns should remain as numeric types
+    assert df["price"].dtype in ["float64", "float32", "float"]
+    assert df["volume"].dtype in ["int64", "int32", "int"]
+
+
+def test_pandas_output_handler_timestamp_timezone():
+    """Test that converted timestamps are in US/Eastern timezone."""
+    # Unix timestamp: 1765552906 = 2026-01-08 19:55:06 EST
+    handler = PandasOutputHandler(
+        data={
+            "updated": [1765552906],
+        }
+    )
+    df = handler.get_result()
+    assert df is not None
+    dt = df["updated"].iloc[0]
+    assert dt.tz is not None
+    # Check timezone is US/Eastern
+    assert str(dt.tz) == "US/Eastern" or "US/Eastern" in str(dt.tz)
+
+
+def test_pandas_output_handler_multiple_timestamp_columns():
+    """Test that multiple timestamp columns are converted."""
+    handler = PandasOutputHandler(
+        data={
+            "updated": [1765552906],
+            "date": [1765552906],
+            "t": [1765552906],
+        }
+    )
+    df = handler.get_result()
+    assert df is not None
+    for col in ["updated", "date", "t"]:
+        assert hasattr(df[col].dtype, "tz") or "datetime" in str(df[col].dtype)
+
+
+def test_polars_output_handler_convert_timestamp_by_name():
+    """Test that timestamp columns are converted by column name."""
+
+    # Unix timestamp: 1765552906 = 2026-01-08 19:55:06 EST
+    handler = PolarsOutputHandler(
+        data={
+            "symbol": ["AAPL", "MSFT"],
+            "updated": [1765552906, 1765552906],
+            "price": [278.02, 479.45],
+        }
+    )
+    df = handler.get_result()
+    assert df is not None
+    assert "updated" in df.columns
+    # Check that updated is now a datetime type
+    assert df["updated"].dtype == pl.Datetime("us", "US/Eastern")
+    # Check that price is still numeric
+    assert df["price"].dtype in [pl.Float64, pl.Float32]
+
+
+def test_polars_output_handler_non_timestamp_column_not_converted():
+    """Test that non-timestamp columns are not converted."""
+
+    handler = PolarsOutputHandler(
+        data={
+            "symbol": ["AAPL"],
+            "price": [278.02],
+            "volume": [1000],
+        }
+    )
+    df = handler.get_result()
+    assert df is not None
+    # Non-timestamp columns should remain as numeric types
+    assert df["price"].dtype in [pl.Float64, pl.Float32]
+    assert df["volume"].dtype in [pl.Int64, pl.Int32]
+
+
+def test_polars_output_handler_timestamp_timezone():
+    """Test that converted timestamps are in US/Eastern timezone."""
+
+    # Unix timestamp: 1765552906 = 2026-01-08 19:55:06 EST
+    handler = PolarsOutputHandler(
+        data={
+            "updated": [1765552906],
+        }
+    )
+    df = handler.get_result()
+    assert df is not None
+    # Check timezone is US/Eastern
+    assert df["updated"].dtype == pl.Datetime("us", "US/Eastern")
+
+
+def test_polars_output_handler_multiple_timestamp_columns():
+    """Test that multiple timestamp columns are converted."""
+
+    handler = PolarsOutputHandler(
+        data={
+            "updated": [1765552906],
+            "date": [1765552906],
+            "t": [1765552906],
+        }
+    )
+    df = handler.get_result()
+    assert df is not None
+    for col in ["updated", "date", "t"]:
+        assert df[col].dtype == pl.Datetime("us", "US/Eastern")
+
+
+def test_pandas_output_handler_timestamp_conversion_failure():
+    """Test that timestamp conversion failure is handled gracefully."""
+    handler = PandasOutputHandler(
+        data={
+            "updated": ["invalid_timestamp"],  # This will fail conversion
+            "price": [278.02],
+        }
+    )
+    df = handler.get_result()
+    assert df is not None
+    # Column should remain as-is when conversion fails
+    assert "updated" in df.columns
+    # Price should still be numeric
+    assert df["price"].dtype in ["float64", "float32", "float"]
+
+
+def test_polars_output_handler_timestamp_conversion_failure():
+    """Test that timestamp conversion failure is handled gracefully."""
+
+    handler = PolarsOutputHandler(
+        data={
+            "updated": ["invalid_timestamp"],  # This will fail conversion
+            "price": [278.02],
+        }
+    )
+    df = handler.get_result()
+    assert df is not None
+    # Column should remain as-is when conversion fails
+    assert "updated" in df.columns
+    # Price should still be numeric
+    assert df["price"].dtype in [pl.Float64, pl.Float32]
+
+
+def test_pandas_output_handler_normalized_dataframe_fallback():
+    """Test that normalized dataframe fallback path is used when plain dataframe fails."""
+    handler = PandasOutputHandler(
+        data={
+            "a": [1],  # Single value, not a list
+            "b": [2, 3],  # List with different length
+        }
+    )
+    df = handler.get_result()
+    assert df is not None
+    assert "a" in df.columns
+    assert "b" in df.columns
+    assert len(df) == 2
+
+
+def test_polars_output_handler_normalized_dataframe_fallback():
+    """Test that normalized dataframe fallback path is used when plain dataframe fails."""
+
+    handler = PolarsOutputHandler(
+        data={
+            "a": [1],  # Single value, not a list
+            "b": [2, 3],  # List with different length
+        }
+    )
+    df = handler.get_result()
+    assert df is not None
+    assert "a" in df.columns
+    assert "b" in df.columns
+    assert len(df) == 2
+
+
+def test_pandas_output_handler_unix_date_format_no_conversion():
+    """Test that timestamps are NOT converted when date_format=DateFormat.UNIX is explicitly set."""
+    from marketdata.input_types.base import DateFormat
+    
+    handler = PandasOutputHandler(
+        data={
+            "updated": [1765552906],
+            "price": [278.02],
+        },
+        date_format=DateFormat.UNIX,
+    )
+    df = handler.get_result()
+    assert df is not None
+    # updated should remain as integer (Unix timestamp)
+    assert df["updated"].dtype in ["int64", "int32", "int"]
+    assert df["updated"].iloc[0] == 1765552906
+    # price should still be numeric
+    assert df["price"].dtype in ["float64", "float32", "float"]
+
+
+def test_polars_output_handler_unix_date_format_no_conversion():
+    """Test that timestamps are NOT converted when date_format=DateFormat.UNIX is explicitly set."""
+    import polars as pl
+    from marketdata.input_types.base import DateFormat
+    
+    handler = PolarsOutputHandler(
+        data={
+            "updated": [1765552906],
+            "price": [278.02],
+        },
+        date_format=DateFormat.UNIX,
+    )
+    df = handler.get_result()
+    assert df is not None
+    # updated should remain as integer (Unix timestamp)
+    assert df["updated"].dtype in [pl.Int64, pl.Int32]
+    assert df["updated"][0] == 1765552906
+    # price should still be numeric
+    assert df["price"].dtype in [pl.Float64, pl.Float32]
