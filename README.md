@@ -9,6 +9,7 @@
 [![Coverage](https://codecov.io/gh/MarketDataApp/sdk-py/graph/badge.svg)](https://codecov.io/gh/MarketDataApp/sdk-py)
 [![License](https://img.shields.io/github/license/MarketDataApp/sdk-py.svg)](https://github.com/MarketDataApp/sdk-py/blob/main/LICENSE)
 [![PyPI version](https://img.shields.io/pypi/v/marketdata-sdk-py)](https://pypi.org/project/marketdata-sdk-py/)
+[![Downloads](https://pepy.tech/badge/marketdata-sdk-py)](https://pepy.tech/project/marketdata-sdk-py)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/)
 
 #### Connect With The Market Data Community
