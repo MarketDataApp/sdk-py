@@ -46,19 +46,22 @@ def status(
 
     response = self.client._make_request(method="GET", url=url)
 
+    output_model = (
+        MarketStatusHumanReadable
+        if user_universal_params.use_human_readable
+        else MarketStatus
+    )
+
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
         data = response.json()
         handler = get_dataframe_output_handler()
-        return handler(data, date_format=user_universal_params.date_format).get_result(index_columns=["Date", "date"])
+        return handler(data, output_model, user_universal_params).get_result(
+            index_columns=["Date", "date"]
+        )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         data = response.json()
         data = get_data_records(data, exclude_keys=["s"])
-        output_model = (
-            MarketStatusHumanReadable
-            if user_universal_params.use_human_readable
-            else MarketStatus
-        )
         return [output_model(**row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:

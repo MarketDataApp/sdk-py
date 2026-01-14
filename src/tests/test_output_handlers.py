@@ -1,12 +1,54 @@
+import datetime
+from dataclasses import dataclass
+from typing import Union
 from unittest.mock import patch
 
 import pytest
 import polars as pl
+import pytz
 
+from marketdata.input_types.base import DateFormat, UserUniversalAPIParams
 from marketdata.output_handlers import _try_get_handler, get_dataframe_output_handler
 from marketdata.output_handlers.base import BaseOutputHandler
 from marketdata.output_handlers.pandas import PandasOutputHandler
 from marketdata.output_handlers.polars import PolarsOutputHandler
+
+
+@dataclass
+class DummySchemaNoDates:
+    a: int
+    b: int
+
+
+@dataclass
+class DummySchemaUpdated:
+    updated: datetime.datetime
+    price: float | None = None
+    volume: int | None = None
+
+
+@dataclass
+class DummySchemaMultipleDates:
+    updated: datetime.datetime
+    date: datetime.datetime
+    t: datetime.datetime
+
+
+@dataclass
+class DummySchemaOptionalDates:
+    dates: list[datetime.date]
+    updated: Union[datetime.datetime, None] = None
+
+
+class PassthroughHandler(BaseOutputHandler):
+    def _get_result(self, *args, **kwargs):
+        return {"ok": True}
+
+
+def _make_params(date_format: DateFormat | None = None) -> UserUniversalAPIParams:
+    if date_format is None:
+        return UserUniversalAPIParams()
+    return UserUniversalAPIParams(date_format=date_format)
 
 
 def test_malformed_output_handler_class():
@@ -19,11 +61,15 @@ def test_malformed_output_handler_class():
 
 def test_malformed_output_handler_get_result():
     class MalformedOutputHandler(BaseOutputHandler):
-        def get_result(self, *args, **kwargs):
-            return super().get_result(*args, **kwargs)
+        def _get_result(self, *args, **kwargs):
+            return super()._get_result(*args, **kwargs)
 
     with pytest.raises(NotImplementedError):
-        MalformedOutputHandler(data={}).get_result()
+        MalformedOutputHandler(
+            data={},
+            output_schema=DummySchemaNoDates,
+            user_universal_params=_make_params(),
+        ).get_result()
 
 
 def test_get_dataframe_output_handler_pandas():
@@ -59,14 +105,52 @@ def test_try_get_handler():
     assert handler is None
 
 
+def test_base_output_handler_date_columns_from_schema():
+    handler = PassthroughHandler(
+        data={},
+        output_schema=DummySchemaOptionalDates,
+        user_universal_params=_make_params(),
+    )
+    assert handler._get_date_columns() == ["dates"]
+    assert handler._get_datetime_columns() == ["updated"]
+
+
+def test_base_output_handler_non_dataclass_schema():
+    handler = PassthroughHandler(
+        data={},
+        output_schema=dict,
+        user_universal_params=_make_params(),
+    )
+    assert handler._get_date_columns() == []
+    assert handler._get_datetime_columns() == []
+
+
+def test_base_output_handler_validate_result_passthrough():
+    handler = PassthroughHandler(
+        data={},
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
+    )
+    result = {"ok": True}
+    assert handler._validate_result(result) is result
+
+
 def test_pandas_output_handler_bad_data():
-    handler = PandasOutputHandler(data=Exception("test"))
+    handler = PandasOutputHandler(
+        data=Exception("test"),
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
+    )
     with pytest.raises(ValueError):
         handler._initialize_dataframe()
 
 
 def test_polars_output_handler_bad_data():
-    handler = PolarsOutputHandler(data=Exception("test"))
+    handler = PolarsOutputHandler(
+        data=Exception("test"),
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
+    )
     with pytest.raises(ValueError):
         handler._initialize_dataframe()
 
@@ -76,7 +160,9 @@ def test_pandas_output_handler_initialize_dataframe():
         data={
             "a": [1, 2, 3],
             "b": [4, 5, 6],
-        }
+        },
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
     )
     df = handler._initialize_dataframe()
     assert df is not None
@@ -93,7 +179,9 @@ def test_pandas_output_handler_validate_dataframe():
             "a": [1, 2, 3],
             "b": [4, 5, 6],
             "s": [7, 8, 9],
-        }
+        },
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
     )
     df = handler._validate_dataframe(handler._initialize_dataframe())
     assert df is not None
@@ -107,7 +195,9 @@ def test_pandas_output_handler_get_result():
             "a": [1, 2, 3],
             "b": [4, 5, 6],
             "s": [7, 8, 9],
-        }
+        },
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result(index_columns=["a"])
     assert df is not None
@@ -124,7 +214,9 @@ def test_pandas_output_handler_get_result_index_columns():
             "a": [1, 2, 3],
             "b": [4, 5, 6],
             "s": [7, 8, 9],
-        }
+        },
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result(index_columns=["a"])
     assert df is not None
@@ -137,7 +229,9 @@ def test_polars_output_handler_initialize_dataframe():
         data={
             "a": [1, 2, 3],
             "b": [4, 5, 6],
-        }
+        },
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
     )
     df = handler._initialize_dataframe()
     assert df is not None
@@ -149,7 +243,9 @@ def test_polars_output_handler_normalize_value():
         data={
             "a": [1, 2, 3],
             "b": [4, 5, 6],
-        }
+        },
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
     )
     value = handler._normalize_value([1, 2, 3], 3)
     assert value is not None
@@ -165,7 +261,9 @@ def test_polars_output_handler_initialize_dataframe():
         data={
             "a": [1, 2, 3],
             "b": [4, 5, 6],
-        }
+        },
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
     )
     df = handler._initialize_dataframe()
     assert df is not None
@@ -178,7 +276,9 @@ def test_polars_output_handler_get_result():
             "a": [1, 2, 3],
             "b": [4, 5, 6],
             "s": [7, 8, 9],
-        }
+        },
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result(index_columns=["a"])
     assert df is not None
@@ -194,7 +294,9 @@ def test_pandas_output_handler_convert_timestamp_by_name():
             "symbol": ["AAPL", "MSFT"],
             "updated": [1765552906, 1765552906],
             "price": [278.02, 479.45],
-        }
+        },
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result()
     assert df is not None
@@ -214,7 +316,9 @@ def test_pandas_output_handler_non_timestamp_column_not_converted():
             "symbol": ["AAPL"],
             "price": [278.02],
             "volume": [1000],
-        }
+        },
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result()
     assert df is not None
@@ -229,7 +333,9 @@ def test_pandas_output_handler_timestamp_timezone():
     handler = PandasOutputHandler(
         data={
             "updated": [1765552906],
-        }
+        },
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result()
     assert df is not None
@@ -246,7 +352,9 @@ def test_pandas_output_handler_multiple_timestamp_columns():
             "updated": [1765552906],
             "date": [1765552906],
             "t": [1765552906],
-        }
+        },
+        output_schema=DummySchemaMultipleDates,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result()
     assert df is not None
@@ -263,7 +371,9 @@ def test_polars_output_handler_convert_timestamp_by_name():
             "symbol": ["AAPL", "MSFT"],
             "updated": [1765552906, 1765552906],
             "price": [278.02, 479.45],
-        }
+        },
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result()
     assert df is not None
@@ -282,7 +392,9 @@ def test_polars_output_handler_non_timestamp_column_not_converted():
             "symbol": ["AAPL"],
             "price": [278.02],
             "volume": [1000],
-        }
+        },
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result()
     assert df is not None
@@ -298,7 +410,9 @@ def test_polars_output_handler_timestamp_timezone():
     handler = PolarsOutputHandler(
         data={
             "updated": [1765552906],
-        }
+        },
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result()
     assert df is not None
@@ -314,7 +428,9 @@ def test_polars_output_handler_multiple_timestamp_columns():
             "updated": [1765552906],
             "date": [1765552906],
             "t": [1765552906],
-        }
+        },
+        output_schema=DummySchemaMultipleDates,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result()
     assert df is not None
@@ -328,7 +444,9 @@ def test_pandas_output_handler_timestamp_conversion_failure():
         data={
             "updated": ["invalid_timestamp"],  # This will fail conversion
             "price": [278.02],
-        }
+        },
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result()
     assert df is not None
@@ -345,7 +463,9 @@ def test_polars_output_handler_timestamp_conversion_failure():
         data={
             "updated": ["invalid_timestamp"],  # This will fail conversion
             "price": [278.02],
-        }
+        },
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result()
     assert df is not None
@@ -361,7 +481,9 @@ def test_pandas_output_handler_normalized_dataframe_fallback():
         data={
             "a": [1],  # Single value, not a list
             "b": [2, 3],  # List with different length
-        }
+        },
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result()
     assert df is not None
@@ -377,7 +499,9 @@ def test_polars_output_handler_normalized_dataframe_fallback():
         data={
             "a": [1],  # Single value, not a list
             "b": [2, 3],  # List with different length
-        }
+        },
+        output_schema=DummySchemaNoDates,
+        user_universal_params=_make_params(),
     )
     df = handler.get_result()
     assert df is not None
@@ -388,14 +512,13 @@ def test_polars_output_handler_normalized_dataframe_fallback():
 
 def test_pandas_output_handler_unix_date_format_no_conversion():
     """Test that timestamps are NOT converted when date_format=DateFormat.UNIX is explicitly set."""
-    from marketdata.input_types.base import DateFormat
-    
     handler = PandasOutputHandler(
         data={
             "updated": [1765552906],
             "price": [278.02],
         },
-        date_format=DateFormat.UNIX,
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(date_format=DateFormat.UNIX),
     )
     df = handler.get_result()
     assert df is not None
@@ -408,15 +531,13 @@ def test_pandas_output_handler_unix_date_format_no_conversion():
 
 def test_polars_output_handler_unix_date_format_no_conversion():
     """Test that timestamps are NOT converted when date_format=DateFormat.UNIX is explicitly set."""
-    import polars as pl
-    from marketdata.input_types.base import DateFormat
-    
     handler = PolarsOutputHandler(
         data={
             "updated": [1765552906],
             "price": [278.02],
         },
-        date_format=DateFormat.UNIX,
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(date_format=DateFormat.UNIX),
     )
     df = handler.get_result()
     assert df is not None

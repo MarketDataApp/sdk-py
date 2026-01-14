@@ -2,7 +2,7 @@ import pandas as pd
 import pytz
 
 from marketdata.input_types.base import DateFormat
-from marketdata.output_handlers.base import BaseOutputHandler, TIMESTAMP_COLUMN_NAMES
+from marketdata.output_handlers.base import BaseOutputHandler
 
 
 class PandasOutputHandler(BaseOutputHandler):
@@ -39,39 +39,57 @@ class PandasOutputHandler(BaseOutputHandler):
             df.drop("s", axis=1, inplace=True)
         return df
 
-    def _is_timestamp_column(self, col_name: str) -> bool:
-        """Check if a column is likely a timestamp column by column name."""
-        return col_name.lower() in TIMESTAMP_COLUMN_NAMES
-
-    def _convert_timestamp_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Convert Unix timestamp columns to timezone-aware datetime objects."""
-        # Only skip conversion if date_format is explicitly set to UNIX
-        # If date_format is None (not specified), apply conversion (default behavior)
-        if self.date_format is not None and self.date_format == DateFormat.UNIX:
+    def _convert_timestamp_columns(
+        self,
+        df: pd.DataFrame,
+        date_columns: list[str],
+        date_format: DateFormat | None,
+    ) -> pd.DataFrame:
+        """Convert date/time columns to timezone-aware datetime objects."""
+        if date_format == DateFormat.UNIX:
             return df
 
-        # Default timezone for US markets (NYSE/NASDAQ)
-        default_tz = pytz.timezone('US/Eastern')
+        format_to_use = date_format or DateFormat.UNIX
+        default_tz = pytz.timezone("US/Eastern")
 
         for col in df.columns:
-            if self._is_timestamp_column(col):
-                try:
-                    # Convert to UTC first, then to exchange timezone
-                    df[col] = pd.to_datetime(df[col], unit='s', utc=True).dt.tz_convert(default_tz)
-                except Exception:
-                    # If conversion fails, leave the column as-is
-                    pass
+            if col not in date_columns:
+                continue
+            try:
+                if format_to_use == DateFormat.TIMESTAMP:
+                    df[col] = pd.to_datetime(df[col], utc=True).dt.tz_convert(default_tz)
+                elif format_to_use == DateFormat.SPREADSHEET:
+                    df[col] = (
+                        pd.to_datetime(df[col], unit="D", origin="1899-12-30", utc=True)
+                        .dt.tz_convert(default_tz)
+                    )
+                else:
+                    df[col] = (
+                        pd.to_datetime(df[col], unit="s", utc=True)
+                        .dt.tz_convert(default_tz)
+                    )
+            except (ValueError, TypeError, AttributeError):
+                pass
 
         return df
 
-    def get_result(self, *args, **kwargs) -> pd.DataFrame:
+    def _validate_result(self, result: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        date_columns = self._get_date_columns() + self._get_datetime_columns()
+        manual_date_columns = kwargs.get("date_columns", [])
+        date_columns.extend(manual_date_columns)
+
         index_columns = kwargs.get("index_columns", [])
-        df = self._initialize_dataframe()
-        df = self._validate_dataframe(df)
-        df = self._convert_timestamp_columns(df)
+        date_format = self.user_universal_params.date_format
+
+        result = self._convert_timestamp_columns(result, date_columns, date_format)
 
         for column in index_columns:
-            if column in df.columns:
-                df.set_index(column, inplace=True)
+            if column in result.columns:
+                result.set_index(column, inplace=True)
 
+        return result
+
+    def _get_result(self, *args, **kwargs) -> pd.DataFrame:
+        df = self._initialize_dataframe()
+        df = self._validate_dataframe(df)
         return df

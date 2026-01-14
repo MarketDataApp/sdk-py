@@ -101,7 +101,9 @@ def quotes(
 
         if user_universal_params.output_format == OutputFormat.DATAFRAME:
             handler = get_dataframe_output_handler()
-            return handler(data, date_format=user_universal_params.date_format).get_result(index_columns=["optionSymbol", "Symbol"])
+            return handler(data, output_model, user_universal_params).get_result(
+                index_columns=["optionSymbol", "Symbol"]
+            )
 
         if user_universal_params.output_format == OutputFormat.INTERNAL:
             return output_model(**data)

@@ -1,10 +1,11 @@
+import copy
 import datetime
 import pathlib
 from unittest.mock import patch
 
 import pytz
 
-from marketdata.input_types.base import OutputFormat
+from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.output_types.stocks_quotes import StockQuote, StockQuotesHumanReadable
 from marketdata.sdk_error import MarketDataClientErrorResult
 
@@ -302,6 +303,66 @@ def test_get_stocks_quotes_response_200_dataframe_polars(load_json, respx_mock, 
         expected_updated = [
             datetime.datetime.fromtimestamp(1765552906, tz=pytz.timezone('US/Eastern')),
             datetime.datetime.fromtimestamp(1765552906, tz=pytz.timezone('US/Eastern')),
+        ]
+        assert quotes["updated"].to_list() == expected_updated
+
+
+def test_get_stocks_quotes_response_200_dataframe_pandas_timestamp_dateformat(
+    load_json, respx_mock, client
+):
+    with patch(
+        "marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY",
+        ["pandas"],
+    ):
+        mock_data = copy.deepcopy(load_json("stocks_quotes_response_200"))
+        updated_ts = mock_data["updated"][0]
+        updated_iso = datetime.datetime.fromtimestamp(
+            updated_ts, tz=datetime.timezone.utc
+        ).isoformat()
+        mock_data["updated"] = [updated_iso, updated_iso]
+        respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
+            json=mock_data,
+            status_code=200,
+        )
+
+        quotes = client.stocks.quotes(
+            symbols=["AAPL", "MSFT"],
+            output_format=OutputFormat.DATAFRAME,
+            date_format=DateFormat.TIMESTAMP,
+        )
+        expected_updated = [
+            datetime.datetime.fromtimestamp(updated_ts, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(updated_ts, tz=pytz.timezone('US/Eastern')),
+        ]
+        assert quotes.updated.tolist() == expected_updated
+
+
+def test_get_stocks_quotes_response_200_dataframe_polars_timestamp_dateformat(
+    load_json, respx_mock, client
+):
+    with patch(
+        "marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY",
+        ["polars"],
+    ):
+        mock_data = copy.deepcopy(load_json("stocks_quotes_response_200"))
+        updated_ts = mock_data["updated"][0]
+        updated_iso = datetime.datetime.fromtimestamp(
+            updated_ts, tz=datetime.timezone.utc
+        ).isoformat()
+        mock_data["updated"] = [updated_iso, updated_iso]
+        respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
+            json=mock_data,
+            status_code=200,
+        )
+
+        quotes = client.stocks.quotes(
+            symbols=["AAPL", "MSFT"],
+            output_format=OutputFormat.DATAFRAME,
+            date_format=DateFormat.TIMESTAMP,
+        )
+        expected_updated = [
+            datetime.datetime.fromtimestamp(updated_ts, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(updated_ts, tz=pytz.timezone('US/Eastern')),
         ]
         assert quotes["updated"].to_list() == expected_updated
 
