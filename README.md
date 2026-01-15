@@ -131,7 +131,7 @@ client = MarketDataClient(token="your_token_here", logger=custom_logger)
 **Client Initialization Details:**
 
 - The client automatically fetches rate limits by making a request to `/user/` endpoint during initialization
-- The client includes a User-Agent header with the format `marketdata-py-{version}` (e.g., `marketdata-py-0.0.1`)
+- The client includes a User-Agent header with the format `marketdata-sdk-py-{version}` (e.g., `marketdata-sdk-py-1.1.0`)
 - The library version is automatically detected from the installed package
 - All requests include an `Authorization: Bearer {token}` header
 - The client uses `httpx.Client` for HTTP requests with automatic connection pooling
