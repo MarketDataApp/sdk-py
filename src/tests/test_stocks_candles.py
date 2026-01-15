@@ -30,7 +30,9 @@ def test_stock_candle_str():
 
 def test_stocks_candles_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
     data = {
         "Date": timestamp,
@@ -105,7 +107,9 @@ def test_get_stocks_candles_response_200_internal(load_json, respx_mock, client)
         output_format=OutputFormat.INTERNAL,
     )
     assert len(candles) == 253
-    assert candles[0].t == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
+    assert candles[0].t == datetime.datetime.fromtimestamp(
+        1577941200, tz=pytz.timezone("US/Eastern")
+    )
     assert candles[0].o == 74.06
     assert candles[0].h == 75.15
     assert candles[0].l == 73.7975
@@ -144,7 +148,9 @@ def test_get_stocks_candles_response_200_internal_human_readable(
         use_human_readable=True,
     )
     assert len(candles) == 253
-    assert candles[0].Date == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
+    assert candles[0].Date == datetime.datetime.fromtimestamp(
+        1577941200, tz=pytz.timezone("US/Eastern")
+    )
     assert candles[0].Open == 74.06
     assert candles[0].High == 75.15
     assert candles[0].Low == 73.7975
@@ -172,7 +178,9 @@ def test_get_stocks_candles_response_200_dataframe_pandas(
             output_format=OutputFormat.DATAFRAME,
         )
         assert len(candles) == 253
-        assert candles.index[0] == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
+        assert candles.index[0] == datetime.datetime.fromtimestamp(
+            1577941200, tz=pytz.timezone("US/Eastern")
+        )
         assert candles.o.tolist()[0] == 74.06
         assert candles.h.tolist()[0] == 75.15
         assert candles.l.tolist()[0] == 73.7975
@@ -199,7 +207,9 @@ def test_get_stocks_candles_response_200_dataframe_polars(
             output_format=OutputFormat.DATAFRAME,
         )
         assert len(candles) == 253
-        assert candles["t"][0] == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
+        assert candles["t"][0] == datetime.datetime.fromtimestamp(
+            1577941200, tz=pytz.timezone("US/Eastern")
+        )
         assert candles["o"][0] == 74.06
         assert candles["h"][0] == 75.15
         assert candles["l"][0] == 73.7975
@@ -217,7 +227,9 @@ def test_get_stocks_candles_response_200_dataframe_pandas_spreadsheet_dateformat
         mock_data = copy.deepcopy(load_json("stocks_candles_response_200"))
         epoch = datetime.datetime(1899, 12, 30, tzinfo=datetime.timezone.utc)
         mock_data["t"] = [
-            (datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc) - epoch).total_seconds()
+            (
+                datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc) - epoch
+            ).total_seconds()
             / 86400
             for ts in mock_data["t"]
         ]
@@ -247,7 +259,9 @@ def test_get_stocks_candles_response_200_dataframe_polars_spreadsheet_dateformat
         mock_data = copy.deepcopy(load_json("stocks_candles_response_200"))
         epoch = datetime.datetime(1899, 12, 30, tzinfo=datetime.timezone.utc)
         mock_data["t"] = [
-            (datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc) - epoch).total_seconds()
+            (
+                datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc) - epoch
+            ).total_seconds()
             / 86400
             for ts in mock_data["t"]
         ]
@@ -290,15 +304,17 @@ def test_get_stocks_candles_response_200_dataframe_multiple_years_hourly(
     candles = client.stocks.candles(
         symbol="AAPL",
         resolution="H",
-        from_date=datetime.datetime(2020, 1, 1, tzinfo=pytz.timezone('US/Eastern')),
-        to_date=datetime.datetime(2022, 10, 1, tzinfo=pytz.timezone('US/Eastern')),
+        from_date=datetime.datetime(2020, 1, 1, tzinfo=pytz.timezone("US/Eastern")),
+        to_date=datetime.datetime(2022, 10, 1, tzinfo=pytz.timezone("US/Eastern")),
         output_format=OutputFormat.DATAFRAME,
     )
 
     assert len(candles) == 253 * 3
 
     def _validate_candle(index: int, candle: StockCandle):
-        assert candles.index[index] == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
+        assert candles.index[index] == datetime.datetime.fromtimestamp(
+            1577941200, tz=pytz.timezone("US/Eastern")
+        )
         assert candles.o.tolist()[index] == 74.06
         assert candles.h.tolist()[index] == 75.15
         assert candles.l.tolist()[index] == 73.7975
@@ -327,13 +343,15 @@ def test_get_stocks_candles_response_200_dataframe_multiple_years_daily(
     candles = client.stocks.candles(
         symbol="AAPL",
         resolution="D",
-        from_date=datetime.datetime(2020, 1, 1, tzinfo=pytz.timezone('US/Eastern')),
-        to_date=datetime.datetime(2022, 10, 1, tzinfo=pytz.timezone('US/Eastern')),
+        from_date=datetime.datetime(2020, 1, 1, tzinfo=pytz.timezone("US/Eastern")),
+        to_date=datetime.datetime(2022, 10, 1, tzinfo=pytz.timezone("US/Eastern")),
         output_format=OutputFormat.DATAFRAME,
     )
 
     assert len(candles) == 253
-    assert candles.index[0] == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
+    assert candles.index[0] == datetime.datetime.fromtimestamp(
+        1577941200, tz=pytz.timezone("US/Eastern")
+    )
     assert candles.o.tolist()[0] == 74.06
     assert candles.h.tolist()[0] == 75.15
     assert candles.l.tolist()[0] == 73.7975
@@ -376,7 +394,9 @@ def test_get_stocks_candles_response_200_dataframe_multiple_years_hourly_no_to_d
         candles = client.stocks.candles(
             symbol="AAPL",
             resolution="H",
-            from_date=datetime.datetime(2020, 1, 10, tzinfo=pytz.timezone('US/Eastern')),
+            from_date=datetime.datetime(
+                2020, 1, 10, tzinfo=pytz.timezone("US/Eastern")
+            ),
             output_format=OutputFormat.DATAFRAME,
         )
 

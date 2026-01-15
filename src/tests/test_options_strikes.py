@@ -25,7 +25,9 @@ def test_options_strikes_str():
 
 def test_options_strikes_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
     data = {
         "Date": timestamp,
@@ -44,7 +46,9 @@ def test_options_strikes_post_init():
     instance = OptionsStrikes(**data)
     instance.updated = 1765478200
     instance.__post_init__()
-    assert instance.updated == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
+    assert instance.updated == datetime.datetime.fromtimestamp(
+        1765478200, tz=pytz.timezone("US/Eastern")
+    )
 
 
 def test_options_strikes_to_float_list():
@@ -94,7 +98,9 @@ def test_options_strikes_human_readable_post_init():
     instance = OptionsStrikesHumanReadable(**data)
     instance.Date = 1765478200
     instance.__post_init__()
-    assert instance.Date == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
+    assert instance.Date == datetime.datetime.fromtimestamp(
+        1765478200, tz=pytz.timezone("US/Eastern")
+    )
 
 
 def test_options_strikes_human_readable_formats_timestamps():
@@ -102,7 +108,9 @@ def test_options_strikes_human_readable_formats_timestamps():
         "Date": 1765478200,
     }
     instance = OptionsStrikesHumanReadable(**data)
-    assert instance.Date == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
+    assert instance.Date == datetime.datetime.fromtimestamp(
+        1765478200, tz=pytz.timezone("US/Eastern")
+    )
     data = {
         "Date": "2025-12-12",
     }
@@ -150,7 +158,9 @@ def test_get_options_strikes_response_200_internal(load_json, respx_mock, client
     strikes = client.options.strikes("AAPL", output_format=OutputFormat.INTERNAL)
     assert isinstance(strikes, OptionsStrikes)
     assert strikes.s == "ok"
-    assert strikes.updated == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
+    assert strikes.updated == datetime.datetime.fromtimestamp(
+        1765478200, tz=pytz.timezone("US/Eastern")
+    )
     for key, value in strikes.__dict__.items():
         if key in ["s", "updated"]:
             continue
@@ -178,7 +188,9 @@ def test_get_options_strikes_human_response_200(load_json, respx_mock, client):
     strikes = client.options.strikes(
         "AAPL", output_format=OutputFormat.INTERNAL, use_human_readable=True
     )
-    assert strikes.Date == datetime.datetime.fromtimestamp(1765563517, tz=pytz.timezone('US/Eastern'))
+    assert strikes.Date == datetime.datetime.fromtimestamp(
+        1765563517, tz=pytz.timezone("US/Eastern")
+    )
     for key, value in strikes.__dict__.items():
         if key in ["Date"]:
             continue
@@ -200,7 +212,9 @@ def test_get_options_strikes_response_200_dataframe_pandas(
         )
 
         strikes = client.options.strikes("AAPL", output_format=OutputFormat.DATAFRAME)
-        assert strikes.updated[0] == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
+        assert strikes.updated[0] == datetime.datetime.fromtimestamp(
+            1765478200, tz=pytz.timezone("US/Eastern")
+        )
         for key in strikes.columns:
             if key in ["s", "updated"]:
                 continue
@@ -222,7 +236,9 @@ def test_get_options_strikes_response_200_dataframe_polars(
         )
 
         strikes = client.options.strikes("AAPL", output_format=OutputFormat.DATAFRAME)
-        assert strikes["updated"][0] == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
+        assert strikes["updated"][0] == datetime.datetime.fromtimestamp(
+            1765478200, tz=pytz.timezone("US/Eastern")
+        )
         for key in strikes.columns:
             if key == "updated":
                 continue

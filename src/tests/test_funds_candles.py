@@ -13,7 +13,9 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_fund_candle_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
 
     instance = FundsCandle(
@@ -29,7 +31,9 @@ def test_fund_candle_str():
 
 def test_funds_candles_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
     instance = FundsCandlesHumanReadable(
         Date=timestamp,
@@ -104,7 +108,9 @@ def test_get_funds_candles_response_200_internal(load_json, respx_mock, client):
 
     assert len(candles) == 7
 
-    assert candles[0].t == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
+    assert candles[0].t == datetime.datetime.fromtimestamp(
+        1577941200, tz=pytz.timezone("US/Eastern")
+    )
     assert candles[0].o == 300.69
     assert candles[0].h == 300.69
     assert candles[0].l == 300.69
@@ -142,7 +148,9 @@ def test_get_funds_candles_response_200_dataframe_pandas(load_json, respx_mock, 
         )
 
         assert len(candles) == 7
-        assert candles.index[0] == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
+        assert candles.index[0] == datetime.datetime.fromtimestamp(
+            1577941200, tz=pytz.timezone("US/Eastern")
+        )
         assert candles.o.tolist()[0] == 300.69
         assert candles.h.tolist()[0] == 300.69
         assert candles.l.tolist()[0] == 300.69
@@ -166,7 +174,9 @@ def test_get_funds_candles_response_200_dataframe_polars(load_json, respx_mock, 
             output_format=OutputFormat.DATAFRAME,
         )
         assert len(candles) == 7
-        assert candles["t"][0] == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
+        assert candles["t"][0] == datetime.datetime.fromtimestamp(
+            1577941200, tz=pytz.timezone("US/Eastern")
+        )
         assert candles["o"][0] == 300.69
         assert candles["h"][0] == 300.69
         assert candles["l"][0] == 300.69
@@ -189,7 +199,9 @@ def test_get_funds_candles_human_response_200(load_json, respx_mock, client):
     )
 
     assert len(candles) == 7
-    assert candles[0].Date == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
+    assert candles[0].Date == datetime.datetime.fromtimestamp(
+        1577941200, tz=pytz.timezone("US/Eastern")
+    )
     assert candles[0].Open == 300.69
     assert candles[0].High == 300.69
     assert candles[0].Low == 300.69

@@ -14,7 +14,9 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_options_expirations_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
 
     instance = OptionsExpirations(
@@ -28,7 +30,9 @@ def test_options_expirations_str():
 
 def test_options_expirations_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
     instance = OptionsExpirationsHumanReadable(
         Expirations=[timestamp],
@@ -53,8 +57,10 @@ def test_get_options_expirations_response_200_internal(load_json, respx_mock, cl
     # Date strings are parsed as naive datetimes by format_timestamp
     assert expirations.expirations[0] == datetime.datetime(2025, 12, 5, 0, 0)
     # API returns UTC, convert to US/Eastern for comparison
-    expected = datetime.datetime(2025, 12, 5, 13, 39, 23, tzinfo=datetime.timezone.utc).astimezone(pytz.timezone('US/Eastern'))
-    assert expirations.updated.astimezone(pytz.timezone('US/Eastern')) == expected
+    expected = datetime.datetime(
+        2025, 12, 5, 13, 39, 23, tzinfo=datetime.timezone.utc
+    ).astimezone(pytz.timezone("US/Eastern"))
+    assert expirations.updated.astimezone(pytz.timezone("US/Eastern")) == expected
 
 
 def test_get_options_expirations_response_200_json(load_json, respx_mock, client):
@@ -83,8 +89,10 @@ def test_get_options_expirations_human_response_200(load_json, respx_mock, clien
     # Date strings are parsed as naive datetimes by format_timestamp
     assert expirations.Expirations[0] == datetime.datetime(2025, 12, 12, 0, 0)
     # API returns UTC, convert to US/Eastern for comparison
-    expected = datetime.datetime(2025, 12, 12, 17, 41, 37, tzinfo=datetime.timezone.utc).astimezone(pytz.timezone('US/Eastern'))
-    assert expirations.Date.astimezone(pytz.timezone('US/Eastern')) == expected
+    expected = datetime.datetime(
+        2025, 12, 12, 17, 41, 37, tzinfo=datetime.timezone.utc
+    ).astimezone(pytz.timezone("US/Eastern"))
+    assert expirations.Date.astimezone(pytz.timezone("US/Eastern")) == expected
 
 
 def test_get_options_expirations_response_200_dataframe_pandas(
@@ -108,7 +116,9 @@ def test_get_options_expirations_response_200_dataframe_pandas(
         )
         assert "s" not in expirations.columns
         assert len(expirations) == 22
-        assert expirations["updated"].iloc[0] == datetime.datetime.fromtimestamp(1764941963, tz=pytz.timezone('US/Eastern'))
+        assert expirations["updated"].iloc[0] == datetime.datetime.fromtimestamp(
+            1764941963, tz=pytz.timezone("US/Eastern")
+        )
 
 
 def test_get_options_expirations_response_200_dataframe_polars(
@@ -131,7 +141,9 @@ def test_get_options_expirations_response_200_dataframe_polars(
         )
         assert "s" not in expirations.columns
         assert len(expirations) == 22
-        assert expirations["updated"][0] == datetime.datetime.fromtimestamp(1764941963, tz=pytz.timezone('US/Eastern'))
+        assert expirations["updated"][0] == datetime.datetime.fromtimestamp(
+            1764941963, tz=pytz.timezone("US/Eastern")
+        )
 
 
 def test_get_options_expirations_response_400(respx_mock, client):

@@ -1,8 +1,8 @@
 import datetime
-
-import pytz
 import pathlib
 from unittest.mock import patch
+
+import pytz
 
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.options import LookupOptionSide
@@ -23,7 +23,9 @@ def test_options_lookup_str():
 
 def test_options_lookup_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
     instance = OptionsLookupHumanReadable(
         Symbol="AAPL230728C00200000",

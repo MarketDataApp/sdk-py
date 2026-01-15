@@ -19,8 +19,12 @@ def test_format_timestamp():
     assert format_timestamp("2024-01-01 12:00:00") == datetime.datetime(
         2024, 1, 1, 12, 0, 0
     )
-    assert format_timestamp(1714732800) == datetime.datetime.fromtimestamp(1714732800, tz=pytz.timezone('US/Eastern'))
-    assert format_timestamp(1714732800.0) == datetime.datetime.fromtimestamp(1714732800, tz=pytz.timezone('US/Eastern'))
+    assert format_timestamp(1714732800) == datetime.datetime.fromtimestamp(
+        1714732800, tz=pytz.timezone("US/Eastern")
+    )
+    assert format_timestamp(1714732800.0) == datetime.datetime.fromtimestamp(
+        1714732800, tz=pytz.timezone("US/Eastern")
+    )
     with pytest.raises(ValueError):
         format_timestamp("2024-01-01 12:00:00.0:00:00")
     with pytest.raises(ValueError):
@@ -76,16 +80,19 @@ def test_merge_csv_texts():
 
 
 def test_split_dates_by_timeframe():
-    start = datetime.datetime(2024, 1, 1, tzinfo=pytz.timezone('US/Eastern'))
-    end = datetime.datetime(2024, 1, 31, tzinfo=pytz.timezone('US/Eastern'))
+    start = datetime.datetime(2024, 1, 1, tzinfo=pytz.timezone("US/Eastern"))
+    end = datetime.datetime(2024, 1, 31, tzinfo=pytz.timezone("US/Eastern"))
     timeframe = datetime.timedelta(days=1)
     result = split_dates_by_timeframe(start, end, timeframe)
     assert len(result) == 30
 
-    assert result[0] == (datetime.datetime(2024, 1, 1, tzinfo=pytz.timezone('US/Eastern')), datetime.datetime(2024, 1, 2, tzinfo=pytz.timezone('US/Eastern')))
+    assert result[0] == (
+        datetime.datetime(2024, 1, 1, tzinfo=pytz.timezone("US/Eastern")),
+        datetime.datetime(2024, 1, 2, tzinfo=pytz.timezone("US/Eastern")),
+    )
     assert result[-1] == (
-        datetime.datetime(2024, 1, 30, tzinfo=pytz.timezone('US/Eastern')),
-        datetime.datetime(2024, 1, 31, tzinfo=pytz.timezone('US/Eastern')),
+        datetime.datetime(2024, 1, 30, tzinfo=pytz.timezone("US/Eastern")),
+        datetime.datetime(2024, 1, 31, tzinfo=pytz.timezone("US/Eastern")),
     )
     with pytest.raises(ValueError):
         split_dates_by_timeframe(end, start, timeframe)

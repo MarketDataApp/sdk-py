@@ -3,8 +3,8 @@ from dataclasses import dataclass
 from typing import Union
 from unittest.mock import patch
 
-import pytest
 import polars as pl
+import pytest
 import pytz
 
 from marketdata.input_types.base import DateFormat, UserUniversalAPIParams

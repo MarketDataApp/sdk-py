@@ -57,16 +57,16 @@ class PandasOutputHandler(BaseOutputHandler):
                 continue
             try:
                 if format_to_use == DateFormat.TIMESTAMP:
-                    df[col] = pd.to_datetime(df[col], utc=True).dt.tz_convert(default_tz)
-                elif format_to_use == DateFormat.SPREADSHEET:
-                    df[col] = (
-                        pd.to_datetime(df[col], unit="D", origin="1899-12-30", utc=True)
-                        .dt.tz_convert(default_tz)
+                    df[col] = pd.to_datetime(df[col], utc=True).dt.tz_convert(
+                        default_tz
                     )
+                elif format_to_use == DateFormat.SPREADSHEET:
+                    df[col] = pd.to_datetime(
+                        df[col], unit="D", origin="1899-12-30", utc=True
+                    ).dt.tz_convert(default_tz)
                 else:
-                    df[col] = (
-                        pd.to_datetime(df[col], unit="s", utc=True)
-                        .dt.tz_convert(default_tz)
+                    df[col] = pd.to_datetime(df[col], unit="s", utc=True).dt.tz_convert(
+                        default_tz
                     )
             except (ValueError, TypeError, AttributeError):
                 pass

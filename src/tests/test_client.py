@@ -247,13 +247,23 @@ def test_client_setup_rate_limits(respx_mock):
     assert client.rate_limits.requests_limit == 60
     assert client.rate_limits.requests_remaining == 59
     # API returns UTC, convert to US/Eastern for comparison
-    expected_utc = datetime.datetime(2024, 12, 19, 0, 24, 50, tzinfo=datetime.timezone.utc)
-    expected_eastern = expected_utc.astimezone(pytz.timezone('US/Eastern'))
-    assert client.rate_limits.requests_reset.astimezone(pytz.timezone('US/Eastern')) == expected_eastern
+    expected_utc = datetime.datetime(
+        2024, 12, 19, 0, 24, 50, tzinfo=datetime.timezone.utc
+    )
+    expected_eastern = expected_utc.astimezone(pytz.timezone("US/Eastern"))
+    assert (
+        client.rate_limits.requests_reset.astimezone(pytz.timezone("US/Eastern"))
+        == expected_eastern
+    )
     assert client.rate_limits.requests_consumed == 1
     # fromtimestamp with US/Eastern converts UTC timestamp to US/Eastern local time
-    expected_from_ts = datetime.datetime.fromtimestamp(1734567890, tz=pytz.timezone('US/Eastern'))
-    assert client.rate_limits.requests_reset.astimezone(pytz.timezone('US/Eastern')) == expected_from_ts
+    expected_from_ts = datetime.datetime.fromtimestamp(
+        1734567890, tz=pytz.timezone("US/Eastern")
+    )
+    assert (
+        client.rate_limits.requests_reset.astimezone(pytz.timezone("US/Eastern"))
+        == expected_from_ts
+    )
 
 
 def test_client_extract_rate_limits(respx_mock):
@@ -272,6 +282,11 @@ def test_client_extract_rate_limits(respx_mock):
     assert user_rate_limits.requests_limit == 60
     assert user_rate_limits.requests_remaining == 59
     # API returns UTC, convert to US/Eastern for comparison
-    expected = datetime.datetime.fromtimestamp(1734567890, tz=pytz.timezone('US/Eastern'))
-    assert user_rate_limits.requests_reset.astimezone(pytz.timezone('US/Eastern')) == expected
+    expected = datetime.datetime.fromtimestamp(
+        1734567890, tz=pytz.timezone("US/Eastern")
+    )
+    assert (
+        user_rate_limits.requests_reset.astimezone(pytz.timezone("US/Eastern"))
+        == expected
+    )
     assert user_rate_limits.requests_consumed == 1

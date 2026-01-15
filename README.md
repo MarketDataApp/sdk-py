@@ -1,6 +1,6 @@
 <div align="center">
 
-# Market Data Python SDK v1.0
+# Market Data Python SDK v1.1
 ### Access Financial Data with Ease
 
 > This is the official Python SDK for [Market Data](https://www.marketdata.app/). It provides developers with a powerful, easy-to-use interface to obtain real-time and historical financial data. Ideal for building financial applications, trading bots, and investment strategies.

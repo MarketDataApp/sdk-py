@@ -30,7 +30,11 @@ class BaseOutputHandler(ABC):
         if origin in (list, list, Iterable):
             return any(self._type_includes(arg, target) for arg in args)
         if origin is Union:
-            return any(self._type_includes(arg, target) for arg in args if arg is not type(None))
+            return any(
+                self._type_includes(arg, target)
+                for arg in args
+                if arg is not type(None)
+            )
         return False
 
     def _get_date_columns(self) -> list[str]:
@@ -43,7 +47,9 @@ class BaseOutputHandler(ABC):
         if not is_dataclass(self.output_schema):
             return []
         fields = self.output_schema.__dataclass_fields__.values()
-        return [field.name for field in fields if self._type_includes(field.type, datetime)]
+        return [
+            field.name for field in fields if self._type_includes(field.type, datetime)
+        ]
 
     def _validate_result(self, result, **kwargs) -> Any:
         return result

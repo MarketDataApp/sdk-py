@@ -14,7 +14,9 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_options_chain_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
 
     instance = OptionsChain(
@@ -51,7 +53,9 @@ def test_options_chain_str():
 
 def test_options_chain_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
     instance = OptionsChainHumanReadable(
         Symbol=["AAPL"],
@@ -131,12 +135,18 @@ def test_get_options_chain_response_200_internal(load_json, respx_mock, client):
     assert len(chain.optionSymbol) == 75
     assert chain.optionSymbol[0] == "AAPL251205C00110000"
     assert chain.underlying[0] == "AAPL"
-    assert chain.expiration[0] == datetime.datetime.fromtimestamp(1764968400, tz=pytz.timezone('US/Eastern'))
+    assert chain.expiration[0] == datetime.datetime.fromtimestamp(
+        1764968400, tz=pytz.timezone("US/Eastern")
+    )
     assert chain.side[0] == "call"
     assert chain.strike[0] == 110
-    assert chain.firstTraded[0] == datetime.datetime.fromtimestamp(1761312600, tz=pytz.timezone('US/Eastern'))
+    assert chain.firstTraded[0] == datetime.datetime.fromtimestamp(
+        1761312600, tz=pytz.timezone("US/Eastern")
+    )
     assert chain.dte[0] == 0
-    assert chain.updated[0] == datetime.datetime.fromtimestamp(1764957099, tz=pytz.timezone('US/Eastern'))
+    assert chain.updated[0] == datetime.datetime.fromtimestamp(
+        1764957099, tz=pytz.timezone("US/Eastern")
+    )
     assert chain.bid[0] == 167.8
     assert chain.bidSize[0] == 164
     assert chain.mid[0] == 168.62
@@ -202,12 +212,18 @@ def test_get_options_chain_human_response_200(load_json, respx_mock, client):
     assert len(chain.Symbol) == 200
     assert chain.Symbol[0] == "AAPL251219C00005000"
     assert chain.Underlying[0] == "AAPL"
-    assert chain.Expiration_Date[0] == datetime.datetime.fromtimestamp(1766178000, tz=pytz.timezone('US/Eastern'))
+    assert chain.Expiration_Date[0] == datetime.datetime.fromtimestamp(
+        1766178000, tz=pytz.timezone("US/Eastern")
+    )
     assert chain.Option_Side[0] == "call"
     assert chain.Strike[0] == 5
-    assert chain.First_Traded[0] == datetime.datetime.fromtimestamp(1721136600, tz=pytz.timezone('US/Eastern'))
+    assert chain.First_Traded[0] == datetime.datetime.fromtimestamp(
+        1721136600, tz=pytz.timezone("US/Eastern")
+    )
     assert chain.Days_To_Expiration[0] == 7
-    assert chain.Date[0] == datetime.datetime.fromtimestamp(1765556009, tz=pytz.timezone('US/Eastern'))
+    assert chain.Date[0] == datetime.datetime.fromtimestamp(
+        1765556009, tz=pytz.timezone("US/Eastern")
+    )
     assert chain.Bid[0] == 272.3
     assert chain.Bid_Size[0] == 299
     assert chain.Mid[0] == 273.02

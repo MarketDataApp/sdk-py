@@ -12,7 +12,9 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_stock_quote_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
 
     instance = StockQuote(
@@ -34,7 +36,9 @@ def test_stock_quote_str():
 
 def test_stock_quotes_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
     instance = StockQuotesHumanReadable(
         Symbol="AAPL",
@@ -69,7 +73,9 @@ def test_stock_quote_post_init():
     instance = StockQuote(**data)
     instance.updated = 1765478200
     instance.__post_init__()
-    assert instance.updated == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
+    assert instance.updated == datetime.datetime.fromtimestamp(
+        1765478200, tz=pytz.timezone("US/Eastern")
+    )
 
 
 def test_stock_quote_from_dict():
@@ -97,7 +103,9 @@ def test_stock_quote_from_dict():
     assert instance.change == -0.0112
     assert instance.changepct == 0.0
     assert instance.volume == 4964676
-    assert instance.updated == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
+    assert instance.updated == datetime.datetime.fromtimestamp(
+        1765478200, tz=pytz.timezone("US/Eastern")
+    )
 
 
 def test_stock_quotes_human_readable_str():
@@ -135,7 +143,9 @@ def test_stock_quotes_human_readable_post_init():
     instance = StockQuotesHumanReadable(**data)
     instance.Date = 1765478200
     instance.__post_init__()
-    assert instance.Date == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
+    assert instance.Date == datetime.datetime.fromtimestamp(
+        1765478200, tz=pytz.timezone("US/Eastern")
+    )
 
 
 def test_stock_quotes_human_readable_from_dict():
@@ -163,12 +173,16 @@ def test_stock_quotes_human_readable_from_dict():
     assert instance.Change_Price == 0.51
     assert instance.Change_Percent == 0.0018
     assert instance.Volume == 4964676
-    assert instance.Date == datetime.datetime.fromtimestamp(1765478200, tz=pytz.timezone('US/Eastern'))
+    assert instance.Date == datetime.datetime.fromtimestamp(
+        1765478200, tz=pytz.timezone("US/Eastern")
+    )
 
 
 def test_get_stocks_quotes_response_200_internal(load_json, respx_mock, client):
     mock_data = load_json("stocks_quotes_response_200")
-    updated = datetime.datetime.fromtimestamp(1765552906, tz=pytz.timezone('US/Eastern'))
+    updated = datetime.datetime.fromtimestamp(
+        1765552906, tz=pytz.timezone("US/Eastern")
+    )
 
     respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
         json=mock_data,
@@ -238,7 +252,9 @@ def test_get_stocks_quotes_human_response_200(load_json, respx_mock, client):
     assert quotes[0].Change_Price == 0.51
     assert quotes[0].Change_Percent == 0.0018
     assert quotes[0].Volume == 17525589
-    assert quotes[0].Date == datetime.datetime.fromtimestamp(1765565453, tz=pytz.timezone('US/Eastern'))
+    assert quotes[0].Date == datetime.datetime.fromtimestamp(
+        1765565453, tz=pytz.timezone("US/Eastern")
+    )
 
 
 def test_get_stocks_quotes_response_200_dataframe_pandas(load_json, respx_mock, client):
@@ -268,8 +284,8 @@ def test_get_stocks_quotes_response_200_dataframe_pandas(load_json, respx_mock, 
         assert quotes.changepct.tolist() == [0.0, -0.0084]
         assert quotes.volume.tolist() == [4964676, 3581398]
         expected_updated = [
-            datetime.datetime.fromtimestamp(1765552906, tz=pytz.timezone('US/Eastern')),
-            datetime.datetime.fromtimestamp(1765552906, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(1765552906, tz=pytz.timezone("US/Eastern")),
+            datetime.datetime.fromtimestamp(1765552906, tz=pytz.timezone("US/Eastern")),
         ]
         assert quotes.updated.tolist() == expected_updated
 
@@ -301,8 +317,8 @@ def test_get_stocks_quotes_response_200_dataframe_polars(load_json, respx_mock, 
         assert quotes["changepct"].to_list() == [0.0, -0.0084]
         assert quotes["volume"].to_list() == [4964676, 3581398]
         expected_updated = [
-            datetime.datetime.fromtimestamp(1765552906, tz=pytz.timezone('US/Eastern')),
-            datetime.datetime.fromtimestamp(1765552906, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(1765552906, tz=pytz.timezone("US/Eastern")),
+            datetime.datetime.fromtimestamp(1765552906, tz=pytz.timezone("US/Eastern")),
         ]
         assert quotes["updated"].to_list() == expected_updated
 
@@ -331,8 +347,8 @@ def test_get_stocks_quotes_response_200_dataframe_pandas_timestamp_dateformat(
             date_format=DateFormat.TIMESTAMP,
         )
         expected_updated = [
-            datetime.datetime.fromtimestamp(updated_ts, tz=pytz.timezone('US/Eastern')),
-            datetime.datetime.fromtimestamp(updated_ts, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(updated_ts, tz=pytz.timezone("US/Eastern")),
+            datetime.datetime.fromtimestamp(updated_ts, tz=pytz.timezone("US/Eastern")),
         ]
         assert quotes.updated.tolist() == expected_updated
 
@@ -361,8 +377,8 @@ def test_get_stocks_quotes_response_200_dataframe_polars_timestamp_dateformat(
             date_format=DateFormat.TIMESTAMP,
         )
         expected_updated = [
-            datetime.datetime.fromtimestamp(updated_ts, tz=pytz.timezone('US/Eastern')),
-            datetime.datetime.fromtimestamp(updated_ts, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(updated_ts, tz=pytz.timezone("US/Eastern")),
+            datetime.datetime.fromtimestamp(updated_ts, tz=pytz.timezone("US/Eastern")),
         ]
         assert quotes["updated"].to_list() == expected_updated
 

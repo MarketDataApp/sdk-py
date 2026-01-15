@@ -15,9 +15,9 @@ Note: rich and pandas are not dependencies of this SDK and must be installed sep
 
 import threading
 import time
+import traceback
 from datetime import datetime
 from typing import List, Optional
-import traceback
 
 import pandas as pd
 from rich.console import Console
@@ -25,8 +25,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from marketdata.client import MarketDataClient
-from marketdata.sdk_error import MarketDataClientErrorResult
 from marketdata.input_types.base import OutputFormat
+from marketdata.sdk_error import MarketDataClientErrorResult
 
 
 class StockPriceTracker:
@@ -35,20 +35,19 @@ class StockPriceTracker:
     def __init__(self):
         self.console = Console()
 
-    def fetch_prices(self, client: MarketDataClient, symbols: List[str]) -> Optional[pd.DataFrame]:
+    def fetch_prices(
+        self, client: MarketDataClient, symbols: List[str]
+    ) -> Optional[pd.DataFrame]:
         """Fetch stock prices for given symbols."""
         try:
-            result = client.stocks.prices(
-                symbols, output_format=OutputFormat.DATAFRAME)
+            result = client.stocks.prices(symbols, output_format=OutputFormat.DATAFRAME)
 
             if isinstance(result, MarketDataClientErrorResult):
-                self.console.print(
-                    f"[red]Error fetching prices: {result.error}[/red]")
+                self.console.print(f"[red]Error fetching prices: {result.error}[/red]")
                 return None
 
             if result is None or result.empty:
-                self.console.print(
-                    "[yellow]No data returned from API[/yellow]")
+                self.console.print("[yellow]No data returned from API[/yellow]")
                 return None
 
             return result
@@ -59,11 +58,14 @@ class StockPriceTracker:
     def create_table(self, df: pd.DataFrame):
         """Create a rich table with highlighted changes."""
 
-        df = df.sort_values(by='changepct', ascending=False)
+        df = df.sort_values(by="changepct", ascending=False)
 
         # Create table
-        table = Table(title="📈 Stock Prices Monitor",
-                      show_header=True, header_style="bold magenta")
+        table = Table(
+            title="📈 Stock Prices Monitor",
+            show_header=True,
+            header_style="bold magenta",
+        )
         table.add_column("Symbol", style="cyan", no_wrap=True)
         table.add_column("Price", justify="right", style="yellow")
         table.add_column("Change ($)", justify="right")
@@ -74,9 +76,9 @@ class StockPriceTracker:
             symbol = idx
 
             # Get price values
-            price = float(row.get('mid', 0))
-            change = float(row.get('change', 0))
-            change_pct = float(row.get('changepct', 0))
+            price = float(row.get("mid", 0))
+            change = float(row.get("change", 0))
+            change_pct = float(row.get("changepct", 0))
 
             # Format price (no color, just the value)
             price_str = f"${price:.2f}"
@@ -101,7 +103,13 @@ class StockPriceTracker:
 
         return table
 
-    def display(self, df: pd.DataFrame, symbols: List[str], refresh_interval: int, clear_screen: bool = True):
+    def display(
+        self,
+        df: pd.DataFrame,
+        symbols: List[str],
+        refresh_interval: int,
+        clear_screen: bool = True,
+    ):
         """Display the table."""
         table = self.create_table(df)
         if clear_screen:
@@ -114,18 +122,18 @@ class StockPriceTracker:
             f"[dim]Monitoring: {', '.join(symbols)}[/dim]\n"
             f"[dim]Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}[/dim]",
             title="Controls",
-            border_style="dim"
+            border_style="dim",
         )
         self.console.print(controls)
         self.console.print("\n[dim]Command:[/dim]", end=" ")
+
 
 # Shared state between threads
 
 
 class MonitorState:
     def __init__(self):
-        self.symbols = ["AAPL", "GOOGL", "MSFT",
-                        "AMZN", "TSLA", "NVDA", "META", "NFLX"]
+        self.symbols = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "NVDA", "META", "NFLX"]
         self.running = True
         self.lock = threading.Lock()
         self.refresh_interval = 10
@@ -147,7 +155,9 @@ def main():
         client.default_params.output_format = OutputFormat.DATAFRAME
     except ValueError as e:
         console.print(f"[red]Client initialization error: {str(e)}[/red]")
-        console.print("[yellow]Please set your MarketData token in environment variables or pass it to MarketDataClient()[/yellow]")
+        console.print(
+            "[yellow]Please set your MarketData token in environment variables or pass it to MarketDataClient()[/yellow]"
+        )
         return
 
     def display_loop():
@@ -155,10 +165,10 @@ def main():
         console.print("[green]Starting stock prices monitor...[/green]")
         with state.lock:
             console.print(f"[dim]Monitoring: {', '.join(state.symbols)}[/dim]")
+        console.print(f"[dim]Refresh interval: {state.refresh_interval} seconds[/dim]")
         console.print(
-            f"[dim]Refresh interval: {state.refresh_interval} seconds[/dim]")
-        console.print(
-            "[dim]Type commands: -a SYMBOL (add), -r SYMBOL (remove), -l (list), q (quit)[/dim]\n")
+            "[dim]Type commands: -a SYMBOL (add), -r SYMBOL (remove), -l (list), q (quit)[/dim]\n"
+        )
 
         # Do first update immediately
         first_update = True
@@ -175,15 +185,15 @@ def main():
                 if df is not None and not df.empty:
                     # Always display table with live updates
                     # Only clear screen on first update or if not first update
-                    tracker.display(df, current_symbols,
-                                    state.refresh_interval, clear_screen=True)
+                    tracker.display(
+                        df, current_symbols, state.refresh_interval, clear_screen=True
+                    )
                     first_update = False
                 else:
                     # Show error state
                     if not first_update:
                         console.clear()
-                    console.print(
-                        "[red]Error fetching data. Retrying...[/red]")
+                    console.print("[red]Error fetching data. Retrying...[/red]")
                     first_update = False
 
                 # Wait for next refresh (check more frequently)
@@ -208,23 +218,28 @@ def main():
                 if not user_input:
                     continue
 
-                if user_input.lower() == 'q':
+                if user_input.lower() == "q":
                     with state.lock:
                         state.running = False
                     break
-                elif user_input.lower() == '-l' or user_input.lower() == 'l':
+                elif user_input.lower() == "-l" or user_input.lower() == "l":
                     # List current symbols
                     with state.lock:
                         current = state.symbols.copy()
-                    console.print(
-                        f"[cyan]Current symbols: {', '.join(current)}[/cyan]")
-                elif user_input.startswith('-a ') or user_input.startswith('a '):
+                    console.print(f"[cyan]Current symbols: {', '.join(current)}[/cyan]")
+                elif user_input.startswith("-a ") or user_input.startswith("a "):
                     # Add symbols: -a AAPL or -a AAPL,GOOGL
-                    symbols_to_add = user_input[3:].strip() if user_input.startswith(
-                        '-a ') else user_input[2:].strip()
+                    symbols_to_add = (
+                        user_input[3:].strip()
+                        if user_input.startswith("-a ")
+                        else user_input[2:].strip()
+                    )
                     if symbols_to_add:
-                        new_symbols = [s.strip().upper()
-                                       for s in symbols_to_add.split(",") if s.strip()]
+                        new_symbols = [
+                            s.strip().upper()
+                            for s in symbols_to_add.split(",")
+                            if s.strip()
+                        ]
                         if new_symbols:
                             with state.lock:
                                 added = []
@@ -233,22 +248,35 @@ def main():
                                         state.symbols.append(sym)
                                         added.append(sym)
                                 if added:
-                                    console.print(f"[green]Added: {', '.join(added)}[/green]")
-                                    console.print(f"[dim]Current symbols: {', '.join(state.symbols)}[/dim]")
+                                    console.print(
+                                        f"[green]Added: {', '.join(added)}[/green]"
+                                    )
+                                    console.print(
+                                        f"[dim]Current symbols: {', '.join(state.symbols)}[/dim]"
+                                    )
                                 else:
-                                    console.print(f"[yellow]Symbols already in list: {', '.join(new_symbols)}[/yellow]")
+                                    console.print(
+                                        f"[yellow]Symbols already in list: {', '.join(new_symbols)}[/yellow]"
+                                    )
                         else:
                             console.print("[yellow]No valid symbols to add[/yellow]")
                     else:
                         console.print(
-                            "[yellow]Usage: -a SYMBOL or -a SYMBOL1,SYMBOL2[/yellow]")
-                elif user_input.startswith('-r ') or user_input.startswith('r '):
+                            "[yellow]Usage: -a SYMBOL or -a SYMBOL1,SYMBOL2[/yellow]"
+                        )
+                elif user_input.startswith("-r ") or user_input.startswith("r "):
                     # Remove symbols: -r TSLA or -r TSLA,MSFT
-                    symbols_to_remove = user_input[3:].strip() if user_input.startswith(
-                        '-r ') else user_input[2:].strip()
+                    symbols_to_remove = (
+                        user_input[3:].strip()
+                        if user_input.startswith("-r ")
+                        else user_input[2:].strip()
+                    )
                     if symbols_to_remove:
                         symbols_to_remove_list = [
-                            s.strip().upper() for s in symbols_to_remove.split(",") if s.strip()]
+                            s.strip().upper()
+                            for s in symbols_to_remove.split(",")
+                            if s.strip()
+                        ]
                         if symbols_to_remove_list:
                             with state.lock:
                                 removed = []
@@ -257,20 +285,32 @@ def main():
                                         state.symbols.remove(sym)
                                         removed.append(sym)
                             if removed:
-                                console.print(f"[green]Removed: {', '.join(removed)}[/green]")
+                                console.print(
+                                    f"[green]Removed: {', '.join(removed)}[/green]"
+                                )
                                 if state.symbols:
-                                    console.print(f"[dim]Current symbols: {', '.join(state.symbols)}[/dim]")
+                                    console.print(
+                                        f"[dim]Current symbols: {', '.join(state.symbols)}[/dim]"
+                                    )
                                 else:
-                                    console.print("[yellow]No symbols remaining. Add some with -a SYMBOL[/yellow]")
+                                    console.print(
+                                        "[yellow]No symbols remaining. Add some with -a SYMBOL[/yellow]"
+                                    )
                             else:
-                                console.print(f"[yellow]Symbols not in list: {', '.join(symbols_to_remove_list)}[/yellow]")
+                                console.print(
+                                    f"[yellow]Symbols not in list: {', '.join(symbols_to_remove_list)}[/yellow]"
+                                )
                         else:
                             console.print("[yellow]No valid symbols to remove[/yellow]")
                     else:
-                        console.print("[yellow]Usage: -r SYMBOL or -r SYMBOL1,SYMBOL2[/yellow]")
+                        console.print(
+                            "[yellow]Usage: -r SYMBOL or -r SYMBOL1,SYMBOL2[/yellow]"
+                        )
                 else:
                     console.print(f"[yellow]Unknown command: {user_input}[/yellow]")
-                    console.print("[dim]Use -a SYMBOL to add, -r SYMBOL to remove, -l to list, q to quit[/dim]")
+                    console.print(
+                        "[dim]Use -a SYMBOL to add, -r SYMBOL to remove, -l to list, q to quit[/dim]"
+                    )
 
             except (EOFError, KeyboardInterrupt):
                 with state.lock:

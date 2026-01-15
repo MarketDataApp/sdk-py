@@ -11,7 +11,9 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_stock_news_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
     instance = StockNews(
         symbol="AAPL",
@@ -26,7 +28,9 @@ def test_stock_news_str():
 
 def test_stock_news_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
     instance = StockNewsHumanReadable(
         Symbol="AAPL",
@@ -55,8 +59,12 @@ def test_get_stocks_news_response_200_internal(load_json, respx_mock, client):
         news[0].source
         == "https://finance.yahoo.com/video/top-10-trending-tickers-2025-110024376.html"
     )
-    assert news[0].publicationDate == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
-    assert news[0].updated == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
+    assert news[0].publicationDate == datetime.datetime.fromtimestamp(
+        1766120400, tz=pytz.timezone("US/Eastern")
+    )
+    assert news[0].updated == datetime.datetime.fromtimestamp(
+        1766120400, tz=pytz.timezone("US/Eastern")
+    )
 
 
 def test_get_stocks_news_response_200_json(load_json, respx_mock, client):
@@ -87,8 +95,12 @@ def test_get_stocks_news_human_response_200(load_json, respx_mock, client):
         news[0].source
         == "https://finance.yahoo.com/video/top-10-trending-tickers-2025-110024376.html"
     )
-    assert news[0].publicationDate == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
-    assert news[0].Date == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
+    assert news[0].publicationDate == datetime.datetime.fromtimestamp(
+        1766120400, tz=pytz.timezone("US/Eastern")
+    )
+    assert news[0].Date == datetime.datetime.fromtimestamp(
+        1766120400, tz=pytz.timezone("US/Eastern")
+    )
 
 
 def test_get_stocks_news_response_200_dataframe_pandas(load_json, respx_mock, client):
@@ -112,8 +124,12 @@ def test_get_stocks_news_response_200_dataframe_pandas(load_json, respx_mock, cl
             news.source.tolist()[0]
             == "https://finance.yahoo.com/video/top-10-trending-tickers-2025-110024376.html"
         )
-        assert news.publicationDate.tolist()[0] == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
-        assert news.updated.tolist()[0] == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
+        assert news.publicationDate.tolist()[0] == datetime.datetime.fromtimestamp(
+            1766120400, tz=pytz.timezone("US/Eastern")
+        )
+        assert news.updated.tolist()[0] == datetime.datetime.fromtimestamp(
+            1766120400, tz=pytz.timezone("US/Eastern")
+        )
 
 
 def test_get_stocks_news_response_200_dataframe_polars(load_json, respx_mock, client):
@@ -139,8 +155,12 @@ def test_get_stocks_news_response_200_dataframe_polars(load_json, respx_mock, cl
             news["source"].to_list()[0]
             == "https://finance.yahoo.com/video/top-10-trending-tickers-2025-110024376.html"
         )
-        assert news["publicationDate"].to_list()[0] == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
-        assert news["updated"].to_list()[0] == datetime.datetime.fromtimestamp(1766120400, tz=pytz.timezone('US/Eastern'))
+        assert news["publicationDate"].to_list()[0] == datetime.datetime.fromtimestamp(
+            1766120400, tz=pytz.timezone("US/Eastern")
+        )
+        assert news["updated"].to_list()[0] == datetime.datetime.fromtimestamp(
+            1766120400, tz=pytz.timezone("US/Eastern")
+        )
 
 
 def test_get_stocks_news_response_bad_status_code(respx_mock, client):

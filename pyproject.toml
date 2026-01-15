@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "marketdata-sdk-py"
-version = "1.0.0"
+version = "1.1.0"
 description = "Official Python SDK for the Market Data API - Real-time stock prices, options data, market status, and more"
 readme = "README.md"
 requires-python = ">=3.10"

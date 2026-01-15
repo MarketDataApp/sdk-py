@@ -337,13 +337,14 @@ wheels = [
 ]
 
 [[package]]
-name = "marketdata-python-sdk"
-version = "0.0.1"
-source = { virtual = "." }
+name = "marketdata-sdk-py"
+version = "1.1.0"
+source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "pytz" },
     { name = "tenacity" },
 ]
 
@@ -376,6 +377,7 @@ requires-dist = [
     { name = "polars-lts-cpu", marker = "extra == 'polars'", specifier = ">=1.33.1" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },
+    { name = "pytz", specifier = ">=2024.1" },
     { name = "tenacity", specifier = ">=9.1.2" },
 ]
 provides-extras = ["pandas", "polars"]

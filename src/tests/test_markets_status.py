@@ -15,7 +15,9 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_markets_status_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
 
     instance = MarketStatus(
@@ -28,7 +30,9 @@ def test_markets_status_str():
 
 def test_markets_status_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
     instance = MarketStatusHumanReadable(
         Date=timestamp,
@@ -60,9 +64,13 @@ def test_get_markets_status_response_200_internal(load_json, respx_mock, client)
 
     assert status_list[0].status == "closed"
     # format_timestamp now returns US/Eastern, so compare directly
-    expected = datetime.datetime.fromtimestamp(1735707600, tz=pytz.timezone('US/Eastern'))
+    expected = datetime.datetime.fromtimestamp(
+        1735707600, tz=pytz.timezone("US/Eastern")
+    )
     assert status_list[0].date == expected
-    assert str(status_list[0]) == "Market Status: closed, Date: 2025-01-01 00:00:00-05:00"
+    assert (
+        str(status_list[0]) == "Market Status: closed, Date: 2025-01-01 00:00:00-05:00"
+    )
 
 
 def test_get_markets_status_response_200_json(load_json, respx_mock, client):
@@ -91,9 +99,13 @@ def test_get_markets_status_response_200_human_readable(load_json, respx_mock, c
 
     assert status_list[0].Status == "closed"
     # format_timestamp now returns US/Eastern, so compare directly
-    expected = datetime.datetime.fromtimestamp(1735707600, tz=pytz.timezone('US/Eastern'))
+    expected = datetime.datetime.fromtimestamp(
+        1735707600, tz=pytz.timezone("US/Eastern")
+    )
     assert status_list[0].Date == expected
-    assert str(status_list[0]) == "Market Status: closed, Date: 2025-01-01 00:00:00-05:00"
+    assert (
+        str(status_list[0]) == "Market Status: closed, Date: 2025-01-01 00:00:00-05:00"
+    )
 
 
 def test_get_markets_status_response_200_dataframe_pandas(
@@ -114,7 +126,9 @@ def test_get_markets_status_response_200_dataframe_pandas(
             output_format=OutputFormat.DATAFRAME,
         )
 
-        assert status_df.index.tolist()[0] == datetime.datetime.fromtimestamp(1735707600, tz=pytz.timezone('US/Eastern'))
+        assert status_df.index.tolist()[0] == datetime.datetime.fromtimestamp(
+            1735707600, tz=pytz.timezone("US/Eastern")
+        )
         assert status_df.status.tolist()[0] == "closed"
         assert status_df.index.name == "date"
 
@@ -136,7 +150,9 @@ def test_get_markets_status_response_200_dataframe_polars(
             output_format=OutputFormat.DATAFRAME,
         )
 
-        assert status_df["date"][0] == datetime.datetime.fromtimestamp(1735707600, tz=pytz.timezone('US/Eastern'))
+        assert status_df["date"][0] == datetime.datetime.fromtimestamp(
+            1735707600, tz=pytz.timezone("US/Eastern")
+        )
         assert status_df["status"][0] == "closed"
 
 

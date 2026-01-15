@@ -11,7 +11,9 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_stock_price_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
 
     instance = StockPrice(
@@ -28,7 +30,9 @@ def test_stock_price_str():
 
 def test_stock_prices_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
     data = {
         "Symbol": "AAPL",
@@ -69,10 +73,14 @@ def test_get_stocks_prices_response_200_internal(load_json, respx_mock, client):
     updateds = [price.updated for price in prices]
     # API returns UTC, convert to US/Eastern for comparison
     expected = [
-        datetime.datetime(2025, 12, 5, 16, 2, 26, tzinfo=datetime.timezone.utc).astimezone(pytz.timezone('US/Eastern')),
-        datetime.datetime(2025, 12, 5, 16, 2, 20, tzinfo=datetime.timezone.utc).astimezone(pytz.timezone('US/Eastern')),
+        datetime.datetime(
+            2025, 12, 5, 16, 2, 26, tzinfo=datetime.timezone.utc
+        ).astimezone(pytz.timezone("US/Eastern")),
+        datetime.datetime(
+            2025, 12, 5, 16, 2, 20, tzinfo=datetime.timezone.utc
+        ).astimezone(pytz.timezone("US/Eastern")),
     ]
-    assert [dt.astimezone(pytz.timezone('US/Eastern')) for dt in updateds] == expected
+    assert [dt.astimezone(pytz.timezone("US/Eastern")) for dt in updateds] == expected
 
 
 def test_get_stocks_prices_response_200_json(load_json, respx_mock, client):
@@ -105,8 +113,8 @@ def test_get_stocks_prices_human_response_200(load_json, respx_mock, client):
     assert changepcts == [0.0025, 0.0196]
     updateds = [price.Date for price in prices]
     assert updateds == [
-        datetime.datetime.fromtimestamp(1765564415, tz=pytz.timezone('US/Eastern')),
-        datetime.datetime.fromtimestamp(1765564416, tz=pytz.timezone('US/Eastern')),
+        datetime.datetime.fromtimestamp(1765564415, tz=pytz.timezone("US/Eastern")),
+        datetime.datetime.fromtimestamp(1765564416, tz=pytz.timezone("US/Eastern")),
     ]
 
 
@@ -132,8 +140,8 @@ def test_get_stocks_prices_response_200_dataframe_pandas(load_json, respx_mock, 
         assert prices["change"].tolist() == [-0.68, 1.23]
         assert prices["changepct"].tolist() == [-0.0024, 0.0027]
         expected_updated = [
-            datetime.datetime.fromtimestamp(1764950546, tz=pytz.timezone('US/Eastern')),
-            datetime.datetime.fromtimestamp(1764950540, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(1764950546, tz=pytz.timezone("US/Eastern")),
+            datetime.datetime.fromtimestamp(1764950540, tz=pytz.timezone("US/Eastern")),
         ]
         assert prices["updated"].tolist() == expected_updated
 
@@ -158,8 +166,8 @@ def test_get_stocks_prices_response_200_dataframe_polars(load_json, respx_mock, 
         assert prices["change"].to_list() == [-0.68, 1.23]
         assert prices["changepct"].to_list() == [-0.0024, 0.0027]
         expected_updated = [
-            datetime.datetime.fromtimestamp(1764950546, tz=pytz.timezone('US/Eastern')),
-            datetime.datetime.fromtimestamp(1764950540, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(1764950546, tz=pytz.timezone("US/Eastern")),
+            datetime.datetime.fromtimestamp(1764950540, tz=pytz.timezone("US/Eastern")),
         ]
         assert prices["updated"].to_list() == expected_updated
 

@@ -14,7 +14,9 @@ from marketdata.sdk_error import MarketDataClientErrorResult
 
 def test_options_quotes_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
 
     instance = OptionsQuotes(
@@ -50,7 +52,9 @@ def test_options_quotes_str():
 
 def test_options_quotes_human_readable_str():
     timestamp = int(
-        datetime.datetime(2025, 1, 1, 0, 0, 0, 0, pytz.timezone('US/Eastern')).timestamp()
+        datetime.datetime(
+            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
+        ).timestamp()
     )
     instance = OptionsQuotesHumanReadable(
         Symbol=["AAPL271217C00255000"],
@@ -98,8 +102,10 @@ def test_get_options_quotes_response_200_internal(load_json, respx_mock, client)
     assert quotes.s == "ok"
     assert quotes.optionSymbol == ["AAPL271217C00255000"]
     # API returns UTC, convert to US/Eastern for comparison
-    expected = datetime.datetime(2025, 12, 10, 19, 49, 56, tzinfo=datetime.timezone.utc).astimezone(pytz.timezone('US/Eastern'))
-    assert quotes.updated[0].astimezone(pytz.timezone('US/Eastern')) == expected
+    expected = datetime.datetime(
+        2025, 12, 10, 19, 49, 56, tzinfo=datetime.timezone.utc
+    ).astimezone(pytz.timezone("US/Eastern"))
+    assert quotes.updated[0].astimezone(pytz.timezone("US/Eastern")) == expected
     assert quotes.bid[0] == 65.1
     assert quotes.bidSize[0] == 29
     assert quotes.mid[0] == 65.75
@@ -136,12 +142,18 @@ def test_get_options_quotes_human_response_200(load_json, respx_mock, client):
     )
     assert quotes.Symbol[0] == "AAPL271217C00250000"
     assert quotes.Underlying[0] == "AAPL"
-    assert quotes.Expiration_Date[0] == datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone('US/Eastern'))
+    assert quotes.Expiration_Date[0] == datetime.datetime.fromtimestamp(
+        1829077200, tz=pytz.timezone("US/Eastern")
+    )
     assert quotes.Option_Side[0] == "call"
     assert quotes.Strike[0] == 250
-    assert quotes.First_Traded[0] == datetime.datetime.fromtimestamp(1741872600, tz=pytz.timezone('US/Eastern'))
+    assert quotes.First_Traded[0] == datetime.datetime.fromtimestamp(
+        1741872600, tz=pytz.timezone("US/Eastern")
+    )
     assert quotes.Days_To_Expiration[0] == 735
-    assert quotes.Date[0] == datetime.datetime.fromtimestamp(1765562189, tz=pytz.timezone('US/Eastern'))
+    assert quotes.Date[0] == datetime.datetime.fromtimestamp(
+        1765562189, tz=pytz.timezone("US/Eastern")
+    )
     assert quotes.Bid[0] == 67.05
     assert quotes.Bid_Size[0] == 337
     assert quotes.Mid[0] == 68.18
@@ -233,12 +245,18 @@ def test_get_options_quotes_response_200_dataframe_pandas(
         assert quotes.index.name == "optionSymbol"
         assert quotes.index.tolist() == ["AAPL271217C00255000"]
         assert quotes.underlying.iloc[0] == "AAPL"
-        assert quotes.expiration.iloc[0] == datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone('US/Eastern'))
+        assert quotes.expiration.iloc[0] == datetime.datetime.fromtimestamp(
+            1829077200, tz=pytz.timezone("US/Eastern")
+        )
         assert quotes.side.iloc[0] == "call"
         assert quotes.strike.iloc[0] == 255
-        assert quotes.firstTraded.iloc[0] == datetime.datetime.fromtimestamp(1741872600, tz=pytz.timezone('US/Eastern'))
+        assert quotes.firstTraded.iloc[0] == datetime.datetime.fromtimestamp(
+            1741872600, tz=pytz.timezone("US/Eastern")
+        )
         assert quotes.dte.iloc[0] == 737
-        assert quotes.updated.iloc[0] == datetime.datetime.fromtimestamp(1765396196, tz=pytz.timezone('US/Eastern'))
+        assert quotes.updated.iloc[0] == datetime.datetime.fromtimestamp(
+            1765396196, tz=pytz.timezone("US/Eastern")
+        )
         assert quotes.bid.iloc[0] == 65.1
         assert quotes.bidSize.iloc[0] == 29
         assert quotes.mid.iloc[0] == 65.75
@@ -279,12 +297,18 @@ def test_get_options_quotes_response_200_dataframe_polars(
         assert len(quotes) == 1
         assert quotes["optionSymbol"][0] == "AAPL271217C00255000"
         assert quotes["underlying"][0] == "AAPL"
-        assert quotes["expiration"][0] == datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone('US/Eastern'))
+        assert quotes["expiration"][0] == datetime.datetime.fromtimestamp(
+            1829077200, tz=pytz.timezone("US/Eastern")
+        )
         assert quotes["side"][0] == "call"
         assert quotes["strike"][0] == 255
-        assert quotes["firstTraded"][0] == datetime.datetime.fromtimestamp(1741872600, tz=pytz.timezone('US/Eastern'))
+        assert quotes["firstTraded"][0] == datetime.datetime.fromtimestamp(
+            1741872600, tz=pytz.timezone("US/Eastern")
+        )
         assert quotes["dte"][0] == 737
-        assert quotes["updated"][0] == datetime.datetime.fromtimestamp(1765396196, tz=pytz.timezone('US/Eastern'))
+        assert quotes["updated"][0] == datetime.datetime.fromtimestamp(
+            1765396196, tz=pytz.timezone("US/Eastern")
+        )
         assert quotes["bid"][0] == 65.1
         assert quotes["bidSize"][0] == 29
         assert quotes["mid"][0] == 65.75
@@ -379,8 +403,8 @@ def test_options_quotes_join_dicts():
     assert joined["optionSymbol"] == ["AAPL271217C00255000", "AAPL271217C00255000"]
     assert joined["underlying"] == ["AAPL", "AAPL"]
     expected_expiration = [
-        datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone('US/Eastern')),
-        datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone('US/Eastern')),
+        datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone("US/Eastern")),
+        datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone("US/Eastern")),
     ]
     assert joined["expiration"] == [1829077200, 1829077200]
 

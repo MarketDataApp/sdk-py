@@ -50,13 +50,11 @@ class PolarsOutputHandler(BaseOutputHandler):
                 continue
             try:
                 if format_to_use == DateFormat.TIMESTAMP:
-                    cleaned = (
-                        pl.col(col)
-                        .str.replace(r"(Z|[+-]\d{2}:?\d{2})$", "", literal=False)
+                    cleaned = pl.col(col).str.replace(
+                        r"(Z|[+-]\d{2}:?\d{2})$", "", literal=False
                     )
                     df = df.with_columns(
-                        cleaned
-                        .str.strptime(pl.Datetime, strict=False)
+                        cleaned.str.strptime(pl.Datetime, strict=False)
                         .dt.replace_time_zone("UTC")
                         .dt.convert_time_zone(default_tz)
                         .alias(col)
@@ -64,7 +62,9 @@ class PolarsOutputHandler(BaseOutputHandler):
                 elif format_to_use == DateFormat.SPREADSHEET:
                     df = df.with_columns(
                         pl.from_epoch(
-                            ((pl.col(col).cast(pl.Float64) - 25569) * 86400).cast(pl.Int64),
+                            ((pl.col(col).cast(pl.Float64) - 25569) * 86400).cast(
+                                pl.Int64
+                            ),
                             time_unit="s",
                         )
                         .dt.replace_time_zone("UTC")
