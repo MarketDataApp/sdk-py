@@ -1,3 +1,4 @@
+import copy
 import datetime
 import pathlib
 from unittest.mock import patch
@@ -6,7 +7,7 @@ import pytest
 import pytz
 from freezegun import freeze_time
 
-from marketdata.input_types.base import OutputFormat
+from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.input_types.stocks import StocksCandlesInput
 from marketdata.output_types.stocks_candles import (
     StockCandle,
@@ -171,7 +172,7 @@ def test_get_stocks_candles_response_200_dataframe_pandas(
             output_format=OutputFormat.DATAFRAME,
         )
         assert len(candles) == 253
-        assert candles.index[0] == 1577941200
+        assert candles.index[0] == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
         assert candles.o.tolist()[0] == 74.06
         assert candles.h.tolist()[0] == 75.15
         assert candles.l.tolist()[0] == 73.7975
@@ -198,12 +199,71 @@ def test_get_stocks_candles_response_200_dataframe_polars(
             output_format=OutputFormat.DATAFRAME,
         )
         assert len(candles) == 253
-        assert candles["t"][0] == 1577941200
+        assert candles["t"][0] == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
         assert candles["o"][0] == 74.06
         assert candles["h"][0] == 75.15
         assert candles["l"][0] == 73.7975
         assert candles["c"][0] == 75.0875
         assert candles["v"][0] == 135647456
+
+
+def test_get_stocks_candles_response_200_dataframe_pandas_spreadsheet_dateformat(
+    load_json, respx_mock, client
+):
+    with patch(
+        "marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY",
+        ["pandas"],
+    ):
+        mock_data = copy.deepcopy(load_json("stocks_candles_response_200"))
+        epoch = datetime.datetime(1899, 12, 30, tzinfo=datetime.timezone.utc)
+        mock_data["t"] = [
+            (datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc) - epoch).total_seconds()
+            / 86400
+            for ts in mock_data["t"]
+        ]
+
+        respx_mock.get("https://api.marketdata.app/v1/stocks/candles/D/AAPL/").respond(
+            json=mock_data,
+            status_code=200,
+        )
+
+        candles = client.stocks.candles(
+            symbol="AAPL",
+            resolution="D",
+            output_format=OutputFormat.DATAFRAME,
+            date_format=DateFormat.SPREADSHEET,
+        )
+        assert len(candles) == 253
+        assert int(candles.index[0].timestamp()) == 1577941200
+
+
+def test_get_stocks_candles_response_200_dataframe_polars_spreadsheet_dateformat(
+    load_json, respx_mock, client
+):
+    with patch(
+        "marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY",
+        ["polars"],
+    ):
+        mock_data = copy.deepcopy(load_json("stocks_candles_response_200"))
+        epoch = datetime.datetime(1899, 12, 30, tzinfo=datetime.timezone.utc)
+        mock_data["t"] = [
+            (datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc) - epoch).total_seconds()
+            / 86400
+            for ts in mock_data["t"]
+        ]
+
+        respx_mock.get("https://api.marketdata.app/v1/stocks/candles/D/AAPL/").respond(
+            json=mock_data,
+            status_code=200,
+        )
+        candles = client.stocks.candles(
+            symbol="AAPL",
+            resolution="D",
+            output_format=OutputFormat.DATAFRAME,
+            date_format=DateFormat.SPREADSHEET,
+        )
+        assert len(candles) == 253
+        assert int(candles["t"][0].timestamp()) == 1577941200
 
 
 def test_get_stocks_candles_response_bad_status_code(respx_mock, client):
@@ -238,7 +298,7 @@ def test_get_stocks_candles_response_200_dataframe_multiple_years_hourly(
     assert len(candles) == 253 * 3
 
     def _validate_candle(index: int, candle: StockCandle):
-        assert candles.index[index] == 1577941200
+        assert candles.index[index] == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
         assert candles.o.tolist()[index] == 74.06
         assert candles.h.tolist()[index] == 75.15
         assert candles.l.tolist()[index] == 73.7975
@@ -273,7 +333,7 @@ def test_get_stocks_candles_response_200_dataframe_multiple_years_daily(
     )
 
     assert len(candles) == 253
-    assert candles.index[0] == 1577941200
+    assert candles.index[0] == datetime.datetime.fromtimestamp(1577941200, tz=pytz.timezone('US/Eastern'))
     assert candles.o.tolist()[0] == 74.06
     assert candles.h.tolist()[0] == 75.15
     assert candles.l.tolist()[0] == 73.7975

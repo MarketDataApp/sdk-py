@@ -58,17 +58,20 @@ def lookup(
 
     response = self.client._make_request(method="GET", url=url)
 
+    output_model = (
+        OptionsLookupHumanReadable
+        if user_universal_params.use_human_readable
+        else OptionsLookup
+    )
+
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
         data = response.json()
         handler = get_dataframe_output_handler()
-        return handler(data).get_result(index_columns=["optionSymbol", "Symbol"])
+        return handler(data, output_model, user_universal_params).get_result(
+            index_columns=["optionSymbol", "Symbol"]
+        )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        output_model = (
-            OptionsLookupHumanReadable
-            if user_universal_params.use_human_readable
-            else OptionsLookup
-        )
         data = response.json()
         return output_model(**data)
 

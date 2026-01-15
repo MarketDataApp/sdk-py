@@ -48,18 +48,21 @@ def news(
 
     response = self.client._make_request(method="GET", url=url)
 
+    output_model = (
+        StockNewsHumanReadable
+        if user_universal_params.use_human_readable
+        else StockNews
+    )
+
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
         data = response.json()
         handler = get_dataframe_output_handler()
-        return handler(data).get_result(index_columns=["symbol", "Symbol"])
+        return handler(data, output_model, user_universal_params).get_result(
+            index_columns=["symbol", "Symbol"]
+        )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         data = get_data_records(response.json(), exclude_keys=["s"])
-        output_model = (
-            StockNewsHumanReadable
-            if user_universal_params.use_human_readable
-            else StockNews
-        )
         return [output_model(**row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:

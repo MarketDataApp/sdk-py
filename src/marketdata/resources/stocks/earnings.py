@@ -51,17 +51,20 @@ def earnings(
 
     response = self.client._make_request(method="GET", url=url)
 
+    output_model = (
+        StockEarningsHumanReadable
+        if user_universal_params.use_human_readable
+        else StockEarnings
+    )
+
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
         data = response.json()
         handler = get_dataframe_output_handler()
-        return handler(data).get_result(index_columns=["symbol", "Symbol"])
+        return handler(data, output_model, user_universal_params).get_result(
+            index_columns=["symbol", "Symbol"]
+        )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        output_model = (
-            StockEarningsHumanReadable
-            if user_universal_params.use_human_readable
-            else StockEarnings
-        )
         data = response.json()
         return output_model.from_dict(data)
 

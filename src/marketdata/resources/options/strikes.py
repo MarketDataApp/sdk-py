@@ -51,18 +51,19 @@ def strikes(
 
     response = self.client._make_request(method="GET", url=url)
 
+    output_model = (
+        OptionsStrikesHumanReadable
+        if user_universal_params.use_human_readable
+        else OptionsStrikes
+    )
+
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
         data = response.json()
         handler = get_dataframe_output_handler()
-        return handler(data).get_result()
+        return handler(data, output_model, user_universal_params).get_result()
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         data = response.json()
-        output_model = (
-            OptionsStrikesHumanReadable
-            if user_universal_params.use_human_readable
-            else OptionsStrikes
-        )
         return output_model(**data)
 
     elif user_universal_params.output_format == OutputFormat.JSON:

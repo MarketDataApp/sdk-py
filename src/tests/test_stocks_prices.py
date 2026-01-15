@@ -131,7 +131,11 @@ def test_get_stocks_prices_response_200_dataframe_pandas(load_json, respx_mock, 
         assert prices["mid"].tolist() == [280.02, 455.76]
         assert prices["change"].tolist() == [-0.68, 1.23]
         assert prices["changepct"].tolist() == [-0.0024, 0.0027]
-        assert prices["updated"].tolist() == [1764950546, 1764950540]
+        expected_updated = [
+            datetime.datetime.fromtimestamp(1764950546, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(1764950540, tz=pytz.timezone('US/Eastern')),
+        ]
+        assert prices["updated"].tolist() == expected_updated
 
 
 def test_get_stocks_prices_response_200_dataframe_polars(load_json, respx_mock, client):
@@ -153,7 +157,11 @@ def test_get_stocks_prices_response_200_dataframe_polars(load_json, respx_mock, 
         assert prices["mid"].to_list() == [280.02, 455.76]
         assert prices["change"].to_list() == [-0.68, 1.23]
         assert prices["changepct"].to_list() == [-0.0024, 0.0027]
-        assert prices["updated"].to_list() == [1764950546, 1764950540]
+        expected_updated = [
+            datetime.datetime.fromtimestamp(1764950546, tz=pytz.timezone('US/Eastern')),
+            datetime.datetime.fromtimestamp(1764950540, tz=pytz.timezone('US/Eastern')),
+        ]
+        assert prices["updated"].to_list() == expected_updated
 
 
 def test_get_stocks_prices_response_bad_status_code(respx_mock, client):

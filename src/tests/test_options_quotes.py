@@ -233,12 +233,12 @@ def test_get_options_quotes_response_200_dataframe_pandas(
         assert quotes.index.name == "optionSymbol"
         assert quotes.index.tolist() == ["AAPL271217C00255000"]
         assert quotes.underlying.iloc[0] == "AAPL"
-        assert quotes.expiration.iloc[0] == 1829077200
+        assert quotes.expiration.iloc[0] == datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone('US/Eastern'))
         assert quotes.side.iloc[0] == "call"
         assert quotes.strike.iloc[0] == 255
-        assert quotes.firstTraded.iloc[0] == 1741872600
+        assert quotes.firstTraded.iloc[0] == datetime.datetime.fromtimestamp(1741872600, tz=pytz.timezone('US/Eastern'))
         assert quotes.dte.iloc[0] == 737
-        assert quotes.updated.iloc[0] == 1765396196
+        assert quotes.updated.iloc[0] == datetime.datetime.fromtimestamp(1765396196, tz=pytz.timezone('US/Eastern'))
         assert quotes.bid.iloc[0] == 65.1
         assert quotes.bidSize.iloc[0] == 29
         assert quotes.mid.iloc[0] == 65.75
@@ -279,12 +279,12 @@ def test_get_options_quotes_response_200_dataframe_polars(
         assert len(quotes) == 1
         assert quotes["optionSymbol"][0] == "AAPL271217C00255000"
         assert quotes["underlying"][0] == "AAPL"
-        assert quotes["expiration"][0] == 1829077200
+        assert quotes["expiration"][0] == datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone('US/Eastern'))
         assert quotes["side"][0] == "call"
         assert quotes["strike"][0] == 255
-        assert quotes["firstTraded"][0] == 1741872600
+        assert quotes["firstTraded"][0] == datetime.datetime.fromtimestamp(1741872600, tz=pytz.timezone('US/Eastern'))
         assert quotes["dte"][0] == 737
-        assert quotes["updated"][0] == 1765396196
+        assert quotes["updated"][0] == datetime.datetime.fromtimestamp(1765396196, tz=pytz.timezone('US/Eastern'))
         assert quotes["bid"][0] == 65.1
         assert quotes["bidSize"][0] == 29
         assert quotes["mid"][0] == 65.75
@@ -378,6 +378,10 @@ def test_options_quotes_join_dicts():
     assert joined["s"] == "ok"
     assert joined["optionSymbol"] == ["AAPL271217C00255000", "AAPL271217C00255000"]
     assert joined["underlying"] == ["AAPL", "AAPL"]
+    expected_expiration = [
+        datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone('US/Eastern')),
+        datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone('US/Eastern')),
+    ]
     assert joined["expiration"] == [1829077200, 1829077200]
 
 
