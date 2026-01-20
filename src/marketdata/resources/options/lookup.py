@@ -37,7 +37,6 @@ def lookup(
     Fetches options lookup data for a given lookup string.
     The lookup string should contain the underlying symbol, expiration date, strike price, and option side.
     """
-    self.logger.debug(f"Fetching options lookup for lookup: {lookup}")
     user_universal_params = self._validate_user_universal_params(
         self.client.default_params, user_universal_params
     )
@@ -54,7 +53,7 @@ def lookup(
         extra_params=kwargs,
         excluded_params=excluded_params,
     )
-    self.logger.debug(f"Using {lookup} with url: {url}")
+    self.logger.info("Fetching options lookup...")
 
     response = self.client._make_request(method="GET", url=url)
 

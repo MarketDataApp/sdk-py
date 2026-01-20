@@ -56,10 +56,10 @@ def quotes(
             extra_params=kwargs,
             excluded_params=["symbols"],
         )
-        self.logger.debug(f"Using {symbol} with url: {url}")
         response = self.client._make_request(method="GET", url=url)
         return response
 
+    self.logger.info("Fetching options quotes...")
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS) as executor:
         futures = [
             executor.submit(_get_response, symbol) for symbol in input_params.symbols

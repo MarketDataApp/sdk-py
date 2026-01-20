@@ -149,6 +149,15 @@ class MarketDataClient:
             requests_consumed=int(response.headers["x-api-ratelimit-consumed"]),
         )
 
+    def _pre_request_logs(self, method: str, url: str, **kwargs):
+        self.logger.info(f"Making request to URL: {self.base_url}{url}")
+
+    def _post_request_logs(self, response: Response):
+        self.logger.info(f"Request completed with status code: {response.status_code}")
+        cf_ray_header = response.headers.get("cf-ray")
+        if cf_ray_header:
+            self.logger.info(f"CF-Ray: {cf_ray_header}")
+
     def _make_request(
         self,
         method: str,
@@ -169,7 +178,9 @@ class MarketDataClient:
         if include_api_version:
             url = f"{self.api_version}/{url}"
 
+        self._pre_request_logs(method, url, **kwargs)
         response = self.client.request(method, url, **kwargs, timeout=timeout)
+        self._post_request_logs(response)
 
         self._validate_response_status_code(
             response, retry_status_codes, raise_for_status

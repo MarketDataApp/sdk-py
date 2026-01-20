@@ -35,7 +35,6 @@ def strikes(
     """
     Fetches available strikes for a given symbol.
     """
-    self.logger.debug(f"Fetching options strikes for symbol: {symbol}")
     user_universal_params = self._validate_user_universal_params(
         self.client.default_params, user_universal_params
     )
@@ -47,7 +46,7 @@ def strikes(
         extra_params=kwargs,
         excluded_params=["symbol"],
     )
-    self.logger.debug(f"Using {symbol} with url: {url}")
+    self.logger.info("Fetching options strikes...")
 
     response = self.client._make_request(method="GET", url=url)
 

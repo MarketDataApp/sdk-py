@@ -48,8 +48,7 @@ def prices(
         extra_params=kwargs,
     )
 
-    self.logger.debug(f"Fetching stock prices for symbols: {symbols} using url: {url}")
-
+    self.logger.info("Fetching stock prices...")
     response = self.client._make_request(method="GET", url=url)
 
     output_model = (
