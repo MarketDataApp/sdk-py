@@ -134,7 +134,7 @@ class MarketDataClient:
         self.logger.debug("Setting up rate limits")
         self._make_request(
             method="GET",
-            url="/user/",
+            url="user/",
             check_rate_limits=False,
             include_api_version=False,
             populate_rate_limits=True,
@@ -150,7 +150,7 @@ class MarketDataClient:
         )
 
     def _pre_request_logs(self, method: str, url: str, **kwargs):
-        self.logger.info(f"Making request to URL: {self.base_url}{url}")
+        self.logger.info(f"Making request to URL: {self.base_url}/{url}")
 
     def _post_request_logs(self, response: Response):
         self.logger.info(f"Request completed with status code: {response.status_code}")
