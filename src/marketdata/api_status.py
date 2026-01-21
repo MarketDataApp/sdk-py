@@ -1,4 +1,5 @@
 import datetime
+import logging
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -76,6 +77,7 @@ class APIStatusData:
                 check_rate_limits=False,
                 include_api_version=False,
                 populate_rate_limits=False,
+                response_log_level=logging.DEBUG,
             )
             data = response.json()
             self.update(data)

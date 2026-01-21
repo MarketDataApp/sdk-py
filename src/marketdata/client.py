@@ -1,5 +1,5 @@
 from importlib.metadata import version
-from logging import Logger
+from logging import DEBUG, INFO, Logger
 from typing import Callable
 
 from httpx import Client, HTTPStatusError, Response
@@ -139,6 +139,7 @@ class MarketDataClient:
             check_rate_limits=False,
             include_api_version=False,
             populate_rate_limits=True,
+            response_log_level=DEBUG,
         )
 
     def _extract_rate_limits(self, response: Response) -> UserRateLimits:
@@ -153,14 +154,14 @@ class MarketDataClient:
     def _pre_request_logs(self, method: str, url: str, **kwargs):
         self.logger.debug(f"Making request to URL: {self.base_url}/{url}")
 
-    def _post_request_logs(self, response: Response):
+    def _post_request_logs(self, response: Response, response_log_level: int = INFO):
         cf_request_id = response.headers.get("cf-ray")
         duration = format_duration_log(response.elapsed.total_seconds() * 1000)
         method = response.request.method
         status = response.status_code
         url = response.request.url
         message = f"{method} {status} {duration} {cf_request_id} {url}"
-        self.logger.info(message)
+        self.logger.log(response_log_level, message)
 
     def _make_request(
         self,
@@ -172,6 +173,7 @@ class MarketDataClient:
         timeout: int = HTTP_TIMEOUT,
         retry_status_codes: list[int] = RETRY_STATUS_CODES,
         raise_for_status: bool = True,
+        response_log_level: int = INFO,
         **kwargs,
     ) -> Response:
         if self.token is NO_TOKEN_VALUE:
@@ -184,7 +186,7 @@ class MarketDataClient:
 
         self._pre_request_logs(method, url, **kwargs)
         response = self.client.request(method, url, **kwargs, timeout=timeout)
-        self._post_request_logs(response)
+        self._post_request_logs(response, response_log_level)
 
         self._validate_response_status_code(
             response, retry_status_codes, raise_for_status

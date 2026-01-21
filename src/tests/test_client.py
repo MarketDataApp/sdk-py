@@ -306,7 +306,7 @@ def test_client_pre_and_post_request_logs(client, respx_mock):
     )
     client = MarketDataClient(token="test")
 
-    with patch.object(client.logger, "info") as mock_logger_info:
+    with patch.object(client.logger, "log") as mock_logger_info:
         with patch(
             "marketdata.client.format_duration_log", return_variable="000ms"
         ) as mock_format:
