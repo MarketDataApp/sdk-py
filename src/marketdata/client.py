@@ -54,7 +54,7 @@ class MarketDataClient:
             self.client.close()
 
     def _get_user_agent(self) -> str:
-        return f"marketdata-sdk-py-{self.library_version}"
+        return f"marketdata-sdk-py/{self.library_version}"
 
     def _get_headers(self) -> dict[str, str]:
         headers = {
