@@ -45,7 +45,7 @@ def quotes(
         input_params=input_params,
         extra_params=kwargs,
     )
-    self.logger.info("Fetching stock quotes...")
+    self.logger.debug("Fetching stock quotes...")
 
     response = self.client._make_request(method="GET", url=url)
 

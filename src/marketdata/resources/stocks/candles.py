@@ -88,7 +88,7 @@ def candles(
     else:
         year_ranges = [(None, None)]
 
-    self.logger.info("Fetching stock candles...")
+    self.logger.debug("Fetching stock candles...")
     responses = []
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS) as executor:
         futures = [

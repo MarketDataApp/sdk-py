@@ -43,7 +43,7 @@ def chain(
         excluded_params=["symbol"],
     )
 
-    self.logger.info("Fetching options chain...")
+    self.logger.debug("Fetching options chain...")
 
     response = self.client._make_request(method="GET", url=url)
 

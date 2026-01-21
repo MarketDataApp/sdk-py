@@ -128,3 +128,13 @@ def get_data_records(data: dict, exclude_keys: list[str] = None) -> list[dict]:
             values.append([v] * max_len)
 
     return [dict(zip(keys, row)) for row in zip(*values)]
+
+
+def format_duration_log(duration_ms: float) -> str:
+    if duration_ms < 1000:
+        return f"{int(duration_ms):03d}ms"
+    elif duration_ms < 10000:
+        return f"{duration_ms / 1000:.2f}s"
+    elif duration_ms < 100000:
+        return f"{duration_ms / 1000:04.1f}s"
+    return f"{duration_ms / 1000:.0f}s".rjust(5)

@@ -18,6 +18,7 @@ from marketdata.resources.options import OptionsResource
 from marketdata.resources.stocks import StocksResource
 from marketdata.settings import settings
 from marketdata.types import UserRateLimits
+from marketdata.utils import format_duration_log
 
 
 class MarketDataClient:
@@ -150,13 +151,16 @@ class MarketDataClient:
         )
 
     def _pre_request_logs(self, method: str, url: str, **kwargs):
-        self.logger.info(f"Making request to URL: {self.base_url}/{url}")
+        self.logger.debug(f"Making request to URL: {self.base_url}/{url}")
 
     def _post_request_logs(self, response: Response):
-        self.logger.info(f"Request completed with status code: {response.status_code}")
-        cf_ray_header = response.headers.get("cf-ray")
-        if cf_ray_header:
-            self.logger.info(f"CF-Ray: {cf_ray_header}")
+        cf_request_id = response.headers.get("cf-ray")
+        duration = format_duration_log(response.elapsed.total_seconds() * 1000)
+        method = response.request.method
+        status = response.status_code
+        url = response.request.url
+        message = f"{method} {status} {duration} {cf_request_id} {url}"
+        self.logger.info(message)
 
     def _make_request(
         self,

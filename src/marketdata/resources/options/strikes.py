@@ -46,7 +46,7 @@ def strikes(
         extra_params=kwargs,
         excluded_params=["symbol"],
     )
-    self.logger.info("Fetching options strikes...")
+    self.logger.debug("Fetching options strikes...")
 
     response = self.client._make_request(method="GET", url=url)
 

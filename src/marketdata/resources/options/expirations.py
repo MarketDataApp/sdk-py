@@ -46,7 +46,7 @@ def expirations(
         extra_params=kwargs,
         excluded_params=["symbol"],
     )
-    self.logger.info("Fetching options expirations...")
+    self.logger.debug("Fetching options expirations...")
 
     response = self.client._make_request(method="GET", url=url)
 

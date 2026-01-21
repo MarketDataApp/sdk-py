@@ -53,7 +53,7 @@ def lookup(
         extra_params=kwargs,
         excluded_params=excluded_params,
     )
-    self.logger.info("Fetching options lookup...")
+    self.logger.debug("Fetching options lookup...")
 
     response = self.client._make_request(method="GET", url=url)
 

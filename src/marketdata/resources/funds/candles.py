@@ -38,7 +38,7 @@ def candles(
         extra_params=kwargs,
         excluded_params=["symbol", "resolution"],
     )
-    self.logger.info("Fetching funds candles ...")
+    self.logger.debug("Fetching funds candles ...")
 
     response = self.client._make_request(method="GET", url=url)
 

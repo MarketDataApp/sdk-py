@@ -6,6 +6,7 @@ import pytz
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.utils import (
     check_is_date,
+    format_duration_log,
     format_timestamp,
     merge_csv_texts,
     resume_long_text,
@@ -115,3 +116,27 @@ def test_resume_long_text():
     assert resume_long_text(text, 1000) == text[:1000] + "..."
     assert resume_long_text(text, 10000) == text[:10000] + "..."
     assert resume_long_text(text, 100000) == text
+
+
+def test_format_duration_ms():
+    assert format_duration_log(45) == "045ms"
+    assert format_duration_log(999) == "999ms"
+    assert format_duration_log(0) == "000ms"
+
+
+def test_format_duration_single_digit_s():
+    assert format_duration_log(1230) == "1.23s"
+    assert format_duration_log(1000) == "1.00s"
+    assert format_duration_log(9990) == "9.99s"
+
+
+def test_format_duration_double_digit_s():
+    assert format_duration_log(12300) == "12.3s"
+    assert format_duration_log(10000) == "10.0s"
+    assert format_duration_log(99000) == "99.0s"
+    assert format_duration_log(99900) == "99.9s"
+
+
+def test_format_duration_hundred_s():
+    assert format_duration_log(100000) == " 100s"
+    assert format_duration_log(123456) == " 123s"

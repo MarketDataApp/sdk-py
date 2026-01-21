@@ -18,7 +18,9 @@ class BaseResource:
     def __init__(self, client: "MarketDataClient"):
         self.client = client
         self.logger = self.client.logger
-        self.logger.info(f"Initializing {self.__class__.__name__} API handler resource")
+        self.logger.debug(
+            f"Initializing {self.__class__.__name__} API handler resource"
+        )
 
     def _build_url(
         self,

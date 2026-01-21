@@ -47,7 +47,7 @@ def earnings(
         excluded_params=["symbol"],
     )
 
-    self.logger.info("Fetching stock earnings...")
+    self.logger.debug("Fetching stock earnings...")
 
     response = self.client._make_request(method="GET", url=url)
 

@@ -17,6 +17,7 @@ from marketdata.retry import get_retry_adapter
 from marketdata.sdk_error import MarketDataClientErrorResult
 from marketdata.settings import settings
 from marketdata.types import UserRateLimits
+from marketdata.utils import format_duration_log
 
 
 def test_get_retry_adapter(client):
@@ -303,20 +304,15 @@ def test_client_pre_and_post_request_logs(client, respx_mock):
     respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
         json={}, status_code=200, headers=headers
     )
-    response = Response(status_code=200, headers=headers)
     client = MarketDataClient(token="test")
 
     with patch.object(client.logger, "info") as mock_logger_info:
-        client.stocks.prices(symbols="AAPL")
-        mock_logger_info.call_args_list[0].assert_called_with(
-            "Fetching stocks prices ..."
-        )
-        mock_logger_info.call_args_list[1].assert_called_with(
-            f"Making request to URL: {client.client.base_url}/v1/stocks/prices/?format=json&symbols=AAPL"
-        )
-        mock_logger_info.call_args_list[2].assert_called_with(
-            f"Request completed with status code: {response.status_code}"
-        )
-        mock_logger_info.call_args_list[3].assert_called_with(
-            f"CF-Ray: {response.headers['cf-ray']}"
-        )
+        with patch(
+            "marketdata.client.format_duration_log", return_variable="000ms"
+        ) as mock_format:
+            mock_format.return_value = "000ms"
+            client.stocks.prices(symbols="AAPL")
+            last_request = respx_mock.calls.last
+            mock_logger_info.call_args_list[0].assert_called_with(
+                f"GET 200 000ms 1234567890 {last_request.request.url}"
+            )

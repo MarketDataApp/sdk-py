@@ -42,7 +42,7 @@ def status(
         extra_params=kwargs,
         excluded_params=[],
     )
-    self.logger.info("Fetching market status...")
+    self.logger.debug("Fetching market status...")
 
     response = self.client._make_request(method="GET", url=url)
 
