@@ -47,7 +47,7 @@ def test_user_rate_limits_str():
 
 
 def test_client_user_agent(client):
-    assert client._get_user_agent() == f"marketdata-sdk-py-{client.library_version}"
+    assert client._get_user_agent() == f"marketdata-sdk-py/{client.library_version}"
 
 
 def test_client_headers(client):
@@ -157,7 +157,7 @@ def test_validate_user_universal_params__function_json(monkeypatch):
 
 
 def test_client_get_user_agent(client):
-    assert client._get_user_agent() == f"marketdata-sdk-py-{client.library_version}"
+    assert client._get_user_agent() == f"marketdata-sdk-py/{client.library_version}"
 
 
 def test_client_get_headers(client):
