@@ -44,7 +44,7 @@ def news(
         extra_params=kwargs,
         excluded_params=["symbol"],
     )
-    self.logger.debug(f"Fetching stock news for symbol: {symbol} using url: {url}")
+    self.logger.debug("Fetching stock news...")
 
     response = self.client._make_request(method="GET", url=url)
 

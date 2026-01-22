@@ -17,6 +17,7 @@ from marketdata.retry import get_retry_adapter
 from marketdata.sdk_error import MarketDataClientErrorResult
 from marketdata.settings import settings
 from marketdata.types import UserRateLimits
+from marketdata.utils import format_duration_log
 
 
 def test_get_retry_adapter(client):
@@ -290,3 +291,28 @@ def test_client_extract_rate_limits(respx_mock):
         == expected
     )
     assert user_rate_limits.requests_consumed == 1
+
+
+def test_client_pre_and_post_request_logs(client, respx_mock):
+    headers = {
+        "cf-ray": "1234567890",
+        "x-api-ratelimit-limit": "60",
+        "x-api-ratelimit-remaining": "59",
+        "x-api-ratelimit-reset": "1734567890",
+        "x-api-ratelimit-consumed": "1",
+    }
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json={}, status_code=200, headers=headers
+    )
+    client = MarketDataClient(token="test")
+
+    with patch.object(client.logger, "log") as mock_logger_info:
+        with patch(
+            "marketdata.client.format_duration_log", return_variable="000ms"
+        ) as mock_format:
+            mock_format.return_value = "000ms"
+            client.stocks.prices(symbols="AAPL")
+            last_request = respx_mock.calls.last
+            mock_logger_info.call_args_list[0].assert_called_with(
+                f"GET 200 000ms 1234567890 {last_request.request.url}"
+            )

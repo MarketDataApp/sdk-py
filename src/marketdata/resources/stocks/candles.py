@@ -74,9 +74,6 @@ def candles(
             extra_params=kwargs,
             excluded_params=["symbol", "resolution"],
         )
-        self.logger.debug(
-            f"Fetching stock candles for symbol: {symbol} using url: {url}"
-        )
         return self.client._make_request(method="GET", url=url)
 
     if input_params.from_date is not None:
@@ -91,6 +88,7 @@ def candles(
     else:
         year_ranges = [(None, None)]
 
+    self.logger.debug("Fetching stock candles...")
     responses = []
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS) as executor:
         futures = [

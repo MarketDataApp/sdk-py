@@ -31,7 +31,6 @@ def chain(
     """
     Fetches the options chain for a given symbol with extensive filtering options.
     """
-    self.logger.debug(f"Fetching options chain for symbol: {symbol}")
     user_universal_params = self._validate_user_universal_params(
         self.client.default_params, user_universal_params
     )
@@ -44,7 +43,7 @@ def chain(
         excluded_params=["symbol"],
     )
 
-    self.logger.debug(f"Using {symbol} with url: {url}")
+    self.logger.debug("Fetching options chain...")
 
     response = self.client._make_request(method="GET", url=url)
 
