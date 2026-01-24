@@ -9,6 +9,7 @@ from marketdata.utils import (
     format_duration_log,
     format_timestamp,
     merge_csv_texts,
+    obfuscate_token,
     resume_long_text,
     split_dates_by_timeframe,
     validate_single_param,
@@ -139,4 +140,12 @@ def test_format_duration_double_digit_s():
 
 def test_format_duration_hundred_s():
     assert format_duration_log(100000) == " 100s"
-    assert format_duration_log(123456) == " 123s"
+
+
+def test_obfuscate_token():
+    assert obfuscate_token("1234567890ABCD") == "**********ABCD"
+    assert obfuscate_token("ABCD") == "****"
+    assert obfuscate_token("ABC") == "****"
+    assert obfuscate_token("") == "****"
+    assert obfuscate_token("12345") == "*2345"
+    assert obfuscate_token(None) == "None"

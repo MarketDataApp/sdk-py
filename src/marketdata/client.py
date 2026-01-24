@@ -18,7 +18,7 @@ from marketdata.resources.options import OptionsResource
 from marketdata.resources.stocks import StocksResource
 from marketdata.settings import settings
 from marketdata.types import UserRateLimits
-from marketdata.utils import format_duration_log
+from marketdata.utils import format_duration_log, obfuscate_token
 
 
 class MarketDataClient:
@@ -30,7 +30,10 @@ class MarketDataClient:
 
         self.logger = logger or get_logger()
         self.logger.info(f"Initializing MarketDataClient")
-        self.logger.debug(f"Token: {self.token}")
+        logged_token = (
+            self.token if self.token == NO_TOKEN_VALUE else obfuscate_token(self.token)
+        )
+        self.logger.debug(f"Token: {logged_token}")
         self.logger.info(f"Base URL: {settings.marketdata_base_url}")
         self.logger.info(f"API Version: {settings.marketdata_api_version}")
 
