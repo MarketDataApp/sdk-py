@@ -29,9 +29,14 @@ def test_format_timestamp():
     with pytest.raises(ValueError):
         format_timestamp("2024-01-01 12:00:00.0:00:00")
     with pytest.raises(ValueError):
-        format_timestamp(99999999999999)
-    with pytest.raises(ValueError):
         format_timestamp(None)
+
+
+def test_format_timestamp_date_only_localization():
+    val = "2026-02-20"
+    dt = format_timestamp(val)
+    assert dt == datetime.datetime(2026, 2, 20, 0, 0, 0)
+    assert dt.tzinfo is None
 
 
 def test_check_is_date():

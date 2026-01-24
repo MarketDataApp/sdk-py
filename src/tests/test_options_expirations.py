@@ -4,7 +4,13 @@ from unittest.mock import patch
 
 import pytz
 
-from marketdata.input_types.base import OutputFormat
+from marketdata.input_types.base import (
+    DateFormat,
+    OutputFormat,
+    UserUniversalAPIParams,
+)
+from marketdata.output_handlers.pandas import PandasOutputHandler
+from marketdata.output_handlers.polars import PolarsOutputHandler
 from marketdata.output_types.options_expirations import (
     OptionsExpirations,
     OptionsExpirationsHumanReadable,
@@ -194,3 +200,32 @@ def test_get_options_expirations_response_200_csv(respx_mock, client):
         symbol="AAPL", output_format=OutputFormat.CSV, filename="test.csv"
     )
     assert pathlib.Path(output).read_text() == "AS RECEIVED FROM API"
+
+
+def test_pandas_handler_date_only_localization():
+    data = {"expirations": ["2026-02-20"]}
+    params = UserUniversalAPIParams(date_format=DateFormat.TIMESTAMP)
+    handler = PandasOutputHandler(data, OptionsExpirations, params)
+
+    df = handler.get_result()
+    result_dt = df["expirations"].iloc[0]
+
+    assert result_dt.year == 2026
+    assert result_dt.month == 2
+    assert result_dt.day == 20
+    assert result_dt.hour == 0
+    assert str(result_dt.tzinfo) in ["US/Eastern", "EDT", "EST"]
+
+
+def test_polars_handler_date_only_localization():
+    data = {"expirations": ["2026-02-20"]}
+    params = UserUniversalAPIParams(date_format=DateFormat.TIMESTAMP)
+    handler = PolarsOutputHandler(data, OptionsExpirations, params)
+
+    df = handler.get_result()
+    result_dt = df["expirations"][0]
+
+    assert result_dt.year == 2026
+    assert result_dt.month == 2
+    assert result_dt.day == 20
+    assert result_dt.hour == 0

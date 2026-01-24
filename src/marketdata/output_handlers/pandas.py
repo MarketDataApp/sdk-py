@@ -57,8 +57,11 @@ class PandasOutputHandler(BaseOutputHandler):
                 continue
             try:
                 if format_to_use == DateFormat.TIMESTAMP:
-                    df[col] = pd.to_datetime(df[col], utc=True).dt.tz_convert(
-                        default_tz
+                    s = pd.to_datetime(df[col])
+                    df[col] = (
+                        s.dt.tz_localize(default_tz)
+                        if s.dt.tz is None
+                        else s.dt.tz_convert(default_tz)
                     )
                 elif format_to_use == DateFormat.SPREADSHEET:
                     df[col] = pd.to_datetime(

@@ -45,18 +45,24 @@ class PolarsOutputHandler(BaseOutputHandler):
         format_to_use = date_format or DateFormat.UNIX
         default_tz = pytz.timezone("US/Eastern").zone
 
+        TZ_AWARE_REGEX = r"(Z|[+-]\d{2}:?\d{2})$"
         for col in df.columns:
             if col not in date_columns:
                 continue
             try:
                 if format_to_use == DateFormat.TIMESTAMP:
-                    cleaned = pl.col(col).str.replace(
-                        r"(Z|[+-]\d{2}:?\d{2})$", "", literal=False
-                    )
+                    is_aware = pl.col(col).str.contains(TZ_AWARE_REGEX, literal=False)
+                    cleaned = pl.col(col).str.replace(TZ_AWARE_REGEX, "", literal=False)
+                    dt_expr = cleaned.str.strptime(pl.Datetime, strict=False)
+
                     df = df.with_columns(
-                        cleaned.str.strptime(pl.Datetime, strict=False)
-                        .dt.replace_time_zone("UTC")
-                        .dt.convert_time_zone(default_tz)
+                        pl.when(is_aware)
+                        .then(
+                            dt_expr.dt.replace_time_zone("UTC").dt.convert_time_zone(
+                                default_tz
+                            )
+                        )
+                        .otherwise(dt_expr.dt.replace_time_zone(default_tz))
                         .alias(col)
                     )
                 elif format_to_use == DateFormat.SPREADSHEET:

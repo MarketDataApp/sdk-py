@@ -8,25 +8,27 @@ import pytz
 
 
 def format_timestamp(value: str | int | float | None) -> datetime.datetime:
+    default_tz = pytz.timezone("US/Eastern")
+
     if isinstance(value, str):
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
         try:
-            return datetime.datetime.fromisoformat(value)
-        except:
-            pass
-        try:
-            value = float(value)
-        except:
-            raise ValueError("Unrecognized date format")
+            dt = datetime.datetime.fromisoformat(value)
+            return dt.astimezone(default_tz) if dt.tzinfo else dt
+        except ValueError:
+            try:
+                value = float(value)
+            except ValueError:
+                raise ValueError("Unrecognized date format")
 
     if isinstance(value, (int, float)):
         if 0 < value < 60000:
             return datetime.datetime(1899, 12, 30) + datetime.timedelta(days=value)
         try:
-            return datetime.datetime.fromtimestamp(
-                value, tz=pytz.timezone("US/Eastern")
-            )
-        except:
-            raise ValueError("Unrecognized date format")
+            return datetime.datetime.fromtimestamp(value, tz=default_tz)
+        except (ValueError, OSError, OverflowError):
+            pass
 
     raise ValueError("Unrecognized date format")
 
