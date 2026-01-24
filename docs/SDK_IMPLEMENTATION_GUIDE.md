@@ -52,7 +52,8 @@ SDK
 │   ├── Stocks
 │   ├── Options
 │   ├── Markets
-│   └── Funds
+│   ├── Funds
+│   └── Utilities
 │
 ├── Input Types (Request parameter schemas)
 │   ├── Universal Parameters
@@ -89,6 +90,7 @@ MarketDataClient
     .stocks
         .quotes()
         .candles()
+        .bulkcandles()
         .earnings()
         .news()
         .prices()
@@ -102,6 +104,9 @@ MarketDataClient
         .status()
     .funds
         .candles()
+    .utilities
+        .status()
+        .headers()
 ```
 
 ---
@@ -175,7 +180,7 @@ URLs should be constructed as:
 
 Example:
 ```
-https://api.marketdata.app/v1/stocks/candles/?symbol=AAPL&resolution=D&from=2024-01-01
+https://api.marketdata.app/v1/stocks/candles/D/AAPL/?from=2024-01-01
 ```
 
 ### Query Parameter Encoding
@@ -193,169 +198,232 @@ https://api.marketdata.app/v1/stocks/candles/?symbol=AAPL&resolution=D&from=2024
 
 #### Quotes
 
-Retrieves real-time quotes for one or more stock symbols.
+Retrieves delayed stock quotes for one or more symbols.
 
 ```
-GET /v1/stocks/bulkquotes/
+GET /v1/stocks/quotes/{symbol}/
+GET /v1/stocks/quotes/?symbols={symbol1},{symbol2},...
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| symbols | string | Yes | Comma-separated stock symbols |
-| 52week | boolean | No | Include 52-week high/low |
-| extended | boolean | No | Include extended hours data |
+| symbol | string | Yes* | Stock symbol (URL path for single) |
+| symbols | string | Yes* | Comma-separated symbols (query param for multiple) |
+| 52week | boolean | No | Include 52-week high/low data |
+| extended | boolean | No | Include extended hours data (default: true) |
+
+*Use either `symbol` in path OR `symbols` as query parameter.
 
 #### Candles
 
 Retrieves OHLCV (Open, High, Low, Close, Volume) candlestick data.
 
 ```
-GET /v1/stocks/candles/
+GET /v1/stocks/candles/{resolution}/{symbol}/
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| symbol | string | Yes | Stock symbol |
-| resolution | string | Yes | Time resolution (see below) |
-| from | date | No | Start date |
+| resolution | string | Yes | Time resolution (URL path) |
+| symbol | string | Yes | Stock symbol (URL path) |
+| from | date | No | Start date (mutually exclusive with countback) |
 | to | date | No | End date |
-| countback | integer | No | Number of bars to return |
-| adjustsplits | boolean | No | Adjust for splits |
-| adjustdividends | boolean | No | Adjust for dividends |
-| extended | boolean | No | Include extended hours |
+| countback | integer | No | Number of bars before `to` date |
+| adjustsplits | boolean | No | Adjust for splits (default: true for daily) |
+| extended | boolean | No | Include extended hours (default: false) |
 
 **Resolutions:**
-- Minute: `1`, `5`, `15`, `30`, `45`
-- Hourly: `H` (1 hour), `2H`, `4H`
-- Daily: `D`
+- Minute: `1`, `3`, `5`, `15`, `30`, `45`
+- Hourly: `H`, `1H`, `2H`, `4H`
+- Daily: `D`, `1D`
 - Weekly: `W`
 - Monthly: `M`
 - Yearly: `Y`
+
+**Note:** Intraday requests are limited to 1 year maximum date range.
+
+#### Bulk Candles
+
+Retrieves daily candles for multiple symbols at once.
+
+```
+GET /v1/stocks/bulkcandles/{resolution}/
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| resolution | string | Yes | Currently supports daily only: `D`, `1D`, `daily` |
+| symbols | string | No* | Comma-separated symbols |
+| snapshot | boolean | No* | Return candles for all available symbols |
+| date | date | No | Candle date (default: current/most recent session) |
+| adjustsplits | boolean | No | Adjust for splits (default: true) |
+
+*Either `symbols` or `snapshot=true` is required.
 
 #### Earnings
 
 Retrieves earnings data for a stock.
 
 ```
-GET /v1/stocks/earnings/
+GET /v1/stocks/earnings/{symbol}/
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| symbol | string | Yes | Stock symbol |
-| from | date | No | Start date |
-| to | date | No | End date |
-| countback | integer | No | Number of records |
-| report | string | No | Report type (annual, quarterly, ttm) |
+| symbol | string | Yes | Stock symbol (URL path) |
+| from | date | No | Earliest earnings report date |
+| to | date | No | Latest earnings report date |
+| countback | integer | No | Number of reports before `to` date |
+| date | date | No | Specific earnings date |
+| report | string | No | Report key format (e.g., `2023-Q4`) |
 
 #### News
 
 Retrieves financial news for a stock.
 
 ```
-GET /v1/stocks/news/
+GET /v1/stocks/news/{symbol}/
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| symbol | string | Yes | Stock symbol |
-| from | date | No | Start date |
-| to | date | No | End date |
-| countback | integer | No | Number of articles |
+| symbol | string | Yes | Stock symbol (URL path) |
+| from | date | No | Earliest news date |
+| to | date | No | Latest news date |
+| countback | integer | No | Number of articles before `to` date |
+| date | date | No | News for specific day |
 
 #### Prices
 
-Retrieves real-time prices for multiple stocks.
+Retrieves real-time stock prices.
 
 ```
-GET /v1/stocks/prices/
+GET /v1/stocks/prices/{symbol}/
+GET /v1/stocks/prices/?symbols={symbol1},{symbol2},...
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| symbols | string | Yes | Comma-separated symbols |
+| symbol | string | Yes* | Stock symbol (URL path for single) |
+| symbols | string | Yes* | Comma-separated symbols (query param for multiple) |
+| extended | boolean | No | Include extended hours prices (default: true) |
+
+*Use either `symbol` in path OR `symbols` as query parameter.
 
 ### Options Resource
 
 #### Chain
 
-Retrieves the full options chain for a symbol.
+Retrieves the full options chain for an underlying symbol.
 
 ```
-GET /v1/options/chain/{symbol}/
+GET /v1/options/chain/{underlyingSymbol}/
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| symbol | string | Yes | Underlying symbol (URL path) |
-| expiration | date | No | Filter by expiration date |
-| from | date | No | Expiration range start |
-| to | date | No | Expiration range end |
-| month | integer | No | Expiration month (1-12) |
-| year | integer | No | Expiration year |
-| weekly | boolean | No | Include weekly options |
-| monthly | boolean | No | Include monthly options |
-| quarterly | boolean | No | Include quarterly options |
-| nonstandard | boolean | No | Include non-standard options |
-| dte | integer | No | Days to expiration |
-| delta | float | No | Filter by delta value |
-| side | string | No | Option side (call, put) |
-| strike | float | No | Filter by strike price |
-| strikeLimit | integer | No | Number of strikes around ATM |
-| minOpenInterest | integer | No | Minimum open interest |
-| minVolume | integer | No | Minimum volume |
-| maxBidAskSpread | float | No | Maximum bid-ask spread |
-| maxBidAskSpreadPct | float | No | Maximum spread as percentage |
+| underlyingSymbol | string | Yes | Underlying ticker symbol (URL path) |
+
+**Date & Expiration Filters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| date | date | Historical end-of-day chain from specific trading day |
+| expiration | date | Limit to specific expiration (use `all` for complete chain) |
+| dte | integer | Filter by days-to-expiry closest to value |
+| from | date | Expiration date range start (inclusive) |
+| to | date | Expiration date range end (inclusive) |
+| month | integer | Filter by expiration month (1-12) |
+| year | integer | Filter by expiration year |
+| weekly | boolean | Include/exclude weekly expirations |
+| monthly | boolean | Include/exclude standard monthly expirations |
+| quarterly | boolean | Include/exclude quarterly expirations |
+
+**Strike Filters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| strike | string | Specific strike(s) or range (e.g., `400`, `400-410`, `>400`) |
+| delta | float | Strike(s) matching specific delta value(s) or range |
+| strikeLimit | integer | Maximum number of strikes to return |
+| range | string | Filter by moneyness: `itm`, `otm`, or `all` |
+
+**Price/Liquidity Filters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| minBid | float | Minimum bid price |
+| maxBid | float | Maximum bid price |
+| minAsk | float | Minimum ask price |
+| maxAsk | float | Maximum ask price |
+| maxBidAskSpread | float | Maximum spread in dollars |
+| maxBidAskSpreadPct | float | Maximum spread as percentage |
+| minOpenInterest | integer | Minimum open interest |
+| minVolume | integer | Minimum trading volume |
+
+**Other Filters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| nonstandard | boolean | Include non-standard contracts |
+| side | string | Limit to `call` or `put` |
 
 #### Quotes
 
-Retrieves quotes for specific option contracts.
+Retrieves quotes for a specific option contract.
 
 ```
-GET /v1/options/quotes/
+GET /v1/options/quotes/{optionSymbol}/
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| symbols | string | Yes | Option symbol(s) |
+| optionSymbol | string | Yes | OCC-formatted option symbol (URL path) |
+| date | date | No | Historical end-of-day quote from specific trading day |
+| from | date | No | Start date for series of end-of-day quotes |
+| to | date | No | End date for series of end-of-day quotes |
 
 #### Expirations
 
 Retrieves available expiration dates for an underlying.
 
 ```
-GET /v1/options/expirations/{symbol}/
+GET /v1/options/expirations/{underlyingSymbol}/
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| symbol | string | Yes | Underlying symbol (URL path) |
-| strike | float | No | Filter by strike |
+| underlyingSymbol | string | Yes | Underlying ticker symbol (URL path) |
+| strike | float | No | Filter to expirations containing specific strike |
+| date | date | No | Historical expirations from prior trading day |
 
 #### Strikes
 
 Retrieves available strike prices for an underlying.
 
 ```
-GET /v1/options/strikes/{symbol}/
+GET /v1/options/strikes/{underlyingSymbol}/
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| symbol | string | Yes | Underlying symbol (URL path) |
-| expiration | date | No | Filter by expiration |
+| underlyingSymbol | string | Yes | Underlying ticker symbol (URL path) |
+| expiration | date | No | Filter to strikes for specific expiration |
+| date | date | No | Historical strikes from prior trading day |
 
 #### Lookup
 
-Looks up an option contract by its components.
+Converts human-readable option description to OCC symbol format.
 
 ```
-GET /v1/options/lookup/
+GET /v1/options/lookup/{userInput}
 ```
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| userInput | string | Yes | Option lookup string |
+| userInput | string | Yes | Human-readable option description (URL path, URL-encoded) |
+
+**Example:** `AAPL 7/28/2023 200 Call` → `AAPL230728C00200000`
 
 ### Markets Resource
 
@@ -369,10 +437,15 @@ GET /v1/markets/status/
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| country | string | No | Country code (default: US) |
-| date | date | No | Date to check |
-| from | date | No | Date range start |
-| to | date | No | Date range end |
+| country | string | No | Two-digit ISO 3166 country code (default: US) |
+| date | date | No | Specific date to check status |
+| from | date | No | Date range start (inclusive) |
+| to | date | No | Date range end (inclusive) |
+| countback | integer | No | Number of dates before `to` date |
+
+**Response Values:**
+- `status`: Returns `open`, `closed`, or `null` (for dates beyond available data)
+- Half-days are reported as `open`
 
 ### Funds Resource
 
@@ -386,11 +459,53 @@ GET /v1/funds/candles/{resolution}/{symbol}/
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| symbol | string | Yes | Fund symbol (URL path) |
-| resolution | string | Yes | Time resolution (URL path) |
-| from | date | No | Start date |
-| to | date | No | End date |
-| countback | integer | No | Number of bars |
+| resolution | string | Yes | Time resolution (URL path): `D`, `W`, `M`, `Y` |
+| symbol | string | Yes | Fund ticker symbol (URL path) |
+| from | date | Yes* | Start date (inclusive) |
+| to | date | No | End date (inclusive) |
+| countback | integer | Yes* | Number of candles before `to` date |
+
+*Either `from` or `countback` is required.
+
+**Note:** Intraday resolutions are not available for funds. Only daily and longer resolutions are supported.
+
+### Utilities Resource
+
+Utility endpoints for debugging and monitoring. These endpoints do **not** require authentication and do **not** use the `/v1/` API version prefix.
+
+#### Status
+
+Retrieves the operational status of all Market Data services.
+
+```
+GET /status/
+```
+
+No parameters required. This endpoint is public and accessible even when the API is offline.
+
+**Response Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| s | string | Status indicator (`ok` or `error`) |
+| service | array[string] | List of monitored services |
+| status | array[string] | Current state per service (`online` or `offline`) |
+| online | array[boolean] | Boolean availability flags |
+| uptimePct30d | array[float] | 30-day uptime percentage per service |
+| uptimePct90d | array[float] | 90-day uptime percentage per service |
+| updated | array[date] | Last status update timestamp per service |
+
+**Note:** Status updates every 5 minutes.
+
+#### Headers
+
+Echoes back the request headers received by the API. Useful for debugging authentication and header issues.
+
+```
+GET /headers/
+```
+
+No parameters required. Returns a JSON object containing all headers from the client's request. The `Authorization` header value is partially masked for security.
 
 ---
 
@@ -1062,10 +1177,11 @@ Use this checklist when implementing an SDK:
 
 ### Resources
 
-- [ ] Stocks: quotes, candles, earnings, news, prices
+- [ ] Stocks: quotes, candles, bulkcandles, earnings, news, prices
 - [ ] Options: chain, quotes, expirations, strikes, lookup
 - [ ] Markets: status
 - [ ] Funds: candles
+- [ ] Utilities: status, headers
 
 ### Features
 
@@ -1133,3 +1249,4 @@ The `lookup` endpoint can translate human-friendly formats to OCC format.
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2024-01-15 | Initial specification |
+| 1.1 | 2024-01-24 | Corrected endpoint URLs, added bulkcandles and utilities resources |
