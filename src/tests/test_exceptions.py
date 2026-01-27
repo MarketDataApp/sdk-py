@@ -7,6 +7,7 @@ from marketdata.exceptions import (
     BadStatusCodeError,
     InvalidStatusDataError,
     KeywordOnlyArgumentError,
+    MarketdataHttpError,
     MinMaxDateValidationError,
     RateLimitError,
     RequestError,
@@ -109,3 +110,43 @@ def test_handle_exceptions_min_max_validation_error(client):
     )
     assert isinstance(result, MarketDataClientErrorResult)
     assert result.error.args[0] == "test exception"
+
+
+def test_support_info_base_exception(client):
+    resource = DummyResource(client=client)
+    result = resource.sample_function(
+        exception_to_raise=BaseMarketdataException(
+            message="test exception", timestamp="2022-01-01 00:00:00"
+        )
+    )
+    assert isinstance(result, MarketDataClientErrorResult)
+    assert result.error.args[0] == "test exception"
+    assert result.support_info
+
+
+def test_support_info_http_base_exception(client):
+    resource = DummyResource(client=client)
+    result = resource.sample_function(
+        exception_to_raise=MarketdataHttpError(
+            message="test exception",
+            request=Request(method="GET", url="https://example.com"),
+            response=Response(status_code=501),
+        )
+    )
+    assert isinstance(result, MarketDataClientErrorResult)
+    assert result.error.message == "test exception"
+    assert result.support_info
+
+
+def test_support_info_http_base_exception_no_response(client):
+    resource = DummyResource(client=client)
+    result = resource.sample_function(
+        exception_to_raise=MarketdataHttpError(
+            message="test exception",
+            request=Request(method="GET", url="https://example.com"),
+            response=None,
+        )
+    )
+    assert isinstance(result, MarketDataClientErrorResult)
+    assert result.error.message == "test exception"
+    assert result.support_info
