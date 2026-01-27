@@ -218,7 +218,7 @@ def test_options_quotes_no_one_good_status_code(respx_mock, client):
         symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
     )
     assert isinstance(result, MarketDataClientErrorResult)
-    assert result.error.args[0] == "No responses from API"
+    assert result.error.message == "No responses from API"
 
 
 def test_get_options_quotes_response_200_dataframe_pandas(

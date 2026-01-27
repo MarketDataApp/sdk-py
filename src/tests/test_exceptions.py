@@ -1,3 +1,8 @@
+from datetime import datetime
+
+from httpx import Request, Response
+from pytz import timezone
+
 from marketdata.exceptions import (
     BadStatusCodeError,
     InvalidStatusDataError,
@@ -7,7 +12,11 @@ from marketdata.exceptions import (
     RequestError,
 )
 from marketdata.resources.base import BaseResource
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
+from marketdata.sdk_error import (
+    BaseMarketdataException,
+    MarketDataClientErrorResult,
+    handle_exceptions,
+)
 
 
 class DummyResource(BaseResource):
@@ -19,13 +28,12 @@ class DummyResource(BaseResource):
 
 
 def test_client_error_result_str():
-    error = Exception("test exception")
+    timestamp = datetime.now(timezone("US/Eastern")).strftime("%Y-%m-%d %H:%M:%S")
+    error = BaseMarketdataException("test exception", timestamp=timestamp)
     result = MarketDataClientErrorResult(error=error)
     assert isinstance(result, MarketDataClientErrorResult)
-    assert (
-        str(result)
-        == "MarketDataClientErrorResult(error=Exception, message=test exception)"
-    )
+    expected_msg = f"MarketDataClientErrorResult(\n\ttimestamp={timestamp}\n\tmessage=test exception\n\texception_type=BaseMarketdataException\n)"
+    assert str(result) == expected_msg
 
 
 def test_handle_exceptions(client):
@@ -52,7 +60,13 @@ def test_handle_exceptions_rate_limit_error(client):
 
 def test_handle_exceptions_request_error(client):
     resource = DummyResource(client=client)
-    result = resource.sample_function(exception_to_raise=RequestError("test exception"))
+    result = resource.sample_function(
+        exception_to_raise=RequestError(
+            "test exception",
+            request=Request(method="GET", url="https://example.com"),
+            response=Response(status_code=429),
+        )
+    )
     assert isinstance(result, MarketDataClientErrorResult)
     assert result.error.args[0] == "test exception"
 
@@ -60,10 +74,14 @@ def test_handle_exceptions_request_error(client):
 def test_handle_exceptions_bad_status_code_error(client):
     resource = DummyResource(client=client)
     result = resource.sample_function(
-        exception_to_raise=BadStatusCodeError("test exception")
+        exception_to_raise=BadStatusCodeError(
+            "test exception",
+            request=Request(method="GET", url="https://example.com"),
+            response=Response(status_code=501),
+        )
     )
     assert isinstance(result, MarketDataClientErrorResult)
-    assert result.error.args[0] == "test exception"
+    assert result.error.message == "test exception"
 
 
 def test_handle_exceptions_invalid_status_data_error(client):
@@ -72,7 +90,7 @@ def test_handle_exceptions_invalid_status_data_error(client):
         exception_to_raise=InvalidStatusDataError("test exception")
     )
     assert isinstance(result, MarketDataClientErrorResult)
-    assert result.error.args[0] == "test exception"
+    assert result.error.message == "test exception"
 
 
 def test_handle_exceptions_keyword_only_argument_error(client):

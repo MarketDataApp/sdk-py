@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+from httpx import Request, Response
 
 from marketdata.api_error import api_error_handler
 from marketdata.exceptions import RequestError
@@ -11,7 +12,9 @@ from src.marketdata.api_status import APIStatusResult
 class DummyResource(BaseResource):
     @api_error_handler
     def test_function_fails(self):
-        raise RequestError("test exception")
+        request = Request(method="GET", url="https://example.com")
+        response = Response(status_code=500)
+        raise RequestError("test exception", request=request, response=response)
 
 
 @patch(

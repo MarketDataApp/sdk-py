@@ -1,7 +1,11 @@
 from functools import wraps
 from typing import Callable
 
-from marketdata.exceptions import MinMaxDateValidationError, RateLimitError
+from marketdata.exceptions import (
+    BaseMarketdataException,
+    MinMaxDateValidationError,
+    RateLimitError,
+)
 from marketdata.resources.base import BaseResource
 
 
@@ -10,15 +14,25 @@ class MarketDataClientErrorResult:
 
     error: Exception
 
-    def __init__(self, error: Exception):
+    def __init__(self, error: BaseMarketdataException):
         self.error = error
 
+    @property
+    def support_context(self) -> dict:
+        return self.error.support_context
+
+    @property
+    def support_info(self) -> str:
+        lines = ["--- MARKET DATA SUPPORT INFO ---"]
+        for field, value in self.support_context.items():
+            lines.append(f"{field}:\t\t{value}")
+        lines.append("--------------------------------")
+        return "\n".join(lines)
+
     def __repr__(self) -> str:
-        error_name = self.error.__class__.__name__
-        error_message = str(self.error)
-        return (
-            f"MarketDataClientErrorResult(error={error_name}, message={error_message})"
-        )
+        data = self.support_context
+        data_str = "\n".join([f"\t{k}={v}" for k, v in data.items()])
+        return f"MarketDataClientErrorResult(\n{data_str}\n)"
 
     def __str__(self) -> str:
         return self.__repr__()

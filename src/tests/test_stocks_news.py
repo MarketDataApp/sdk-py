@@ -170,7 +170,7 @@ def test_get_stocks_news_response_bad_status_code(respx_mock, client):
     )
     news = client.stocks.news(symbol="AAPL", output_format=OutputFormat.INTERNAL)
     assert isinstance(news, MarketDataClientErrorResult)
-    assert news.error.args[0] == "Request failed with: Test error message"
+    assert news.error.message == "Request failed with: Test error message"
 
 
 def test_get_stocks_news_status_offline(respx_mock, client):
