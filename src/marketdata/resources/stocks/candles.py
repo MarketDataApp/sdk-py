@@ -80,7 +80,7 @@ def candles(
         if input_params.is_intraday:
             year_ranges = split_dates_by_timeframe(
                 input_params.from_date,
-                input_params.to_date or datetime.date.today(),
+                input_params.to_date or datetime.datetime.now(),
                 datetime.timedelta(days=365),
             )
         else:

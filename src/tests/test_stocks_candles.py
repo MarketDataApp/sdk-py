@@ -444,3 +444,21 @@ def test_get_stocks_candles_response_200_csv(respx_mock, client):
         filename="test.csv",
     )
     assert pathlib.Path(output).read_text() is not ""
+
+
+def test_stocks_candles_intraday_string_dates(load_json, respx_mock, client):
+    mock_data = load_json("stocks_candles_response_200")
+
+    respx_mock.get("https://api.marketdata.app/v1/stocks/candles/4H/AAPL/").respond(
+        json=mock_data,
+        status_code=200,
+    )
+
+    candles = client.stocks.candles(
+        symbol="AAPL",
+        resolution="4H",
+        from_date="2023-01-01",
+        to_date="2023-01-05",
+        output_format=OutputFormat.INTERNAL,
+    )
+    assert len(candles) == 253
