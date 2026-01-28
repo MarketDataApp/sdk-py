@@ -217,9 +217,67 @@ def test_pandas_handler_date_only_localization():
     assert str(result_dt.tzinfo) in ["US/Eastern", "EDT", "EST"]
 
 
+def test_pandas_handler_date_only_with_default_format():
+    data = {"expirations": ["2026-02-20"]}
+    params = UserUniversalAPIParams()
+    handler = PandasOutputHandler(data, OptionsExpirations, params)
+
+    df = handler.get_result()
+    result_dt = df["expirations"].iloc[0]
+
+    assert result_dt.year == 2026
+    assert result_dt.month == 2
+    assert result_dt.day == 20
+    assert result_dt.hour == 0
+    assert str(result_dt.tzinfo) in ["US/Eastern", "EDT", "EST"]
+
+
+def test_pandas_handler_date_only_with_unix_format():
+    data = {"expirations": ["2026-02-20"]}
+    params = UserUniversalAPIParams(date_format=DateFormat.UNIX)
+    handler = PandasOutputHandler(data, OptionsExpirations, params)
+
+    df = handler.get_result()
+    result_dt = df["expirations"].iloc[0]
+
+    assert result_dt.year == 2026
+    assert result_dt.month == 2
+    assert result_dt.day == 20
+    assert result_dt.hour == 0
+    assert str(result_dt.tzinfo) in ["US/Eastern", "EDT", "EST"]
+
+
 def test_polars_handler_date_only_localization():
     data = {"expirations": ["2026-02-20"]}
     params = UserUniversalAPIParams(date_format=DateFormat.TIMESTAMP)
+    handler = PolarsOutputHandler(data, OptionsExpirations, params)
+
+    df = handler.get_result()
+    result_dt = df["expirations"][0]
+
+    assert result_dt.year == 2026
+    assert result_dt.month == 2
+    assert result_dt.day == 20
+    assert result_dt.hour == 0
+
+
+def test_polars_handler_date_only_with_default_format():
+    data = {"expirations": ["2026-02-20"]}
+    params = UserUniversalAPIParams()
+    handler = PolarsOutputHandler(data, OptionsExpirations, params)
+
+    df = handler.get_result()
+    result_dt = df["expirations"][0]
+
+    assert result_dt.year == 2026
+    assert result_dt.month == 2
+    assert result_dt.day == 20
+    assert result_dt.hour == 0
+
+
+def test_polars_handler_date_only_with_unix_format():
+    data = {"expirations": ["2026-02-20"]}
+    params = UserUniversalAPIParams(date_format=DateFormat.UNIX)
     handler = PolarsOutputHandler(data, OptionsExpirations, params)
 
     df = handler.get_result()

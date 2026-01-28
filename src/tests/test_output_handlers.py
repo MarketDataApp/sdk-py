@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Union
 from unittest.mock import patch
 
+import pandas as pd
 import polars as pl
 import pytest
 import pytz
@@ -362,6 +363,132 @@ def test_pandas_output_handler_multiple_timestamp_columns():
         assert hasattr(df[col].dtype, "tz") or "datetime" in str(df[col].dtype)
 
 
+def test_pandas_output_handler_timestamp_date_only_and_parsed():
+    """Test date-only parsing with mixed valid/invalid timestamps."""
+    handler = PandasOutputHandler(
+        data={
+            "updated": [
+                "2026-02-20",
+                "2026-02-21T12:30:00",
+                "invalid",
+            ],
+        },
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(date_format=DateFormat.TIMESTAMP),
+    )
+    df = handler.get_result()
+    assert df is not None
+    assert df["updated"].iloc[0].hour == 0
+    assert df["updated"].iloc[1].tz is not None
+    assert df["updated"].iloc[2] == "invalid"
+
+
+def test_pandas_output_handler_timestamp_partial_parse_without_date_only():
+    """Test partial timestamp conversion without date-only values."""
+    handler = PandasOutputHandler(
+        data={
+            "updated": [
+                "2026-02-21T12:30:00",
+                "invalid",
+            ],
+        },
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(date_format=DateFormat.TIMESTAMP),
+    )
+    df = handler.get_result()
+    assert df is not None
+    assert df["updated"].iloc[0].tz is not None
+    assert df["updated"].iloc[1] == "invalid"
+
+
+def test_pandas_output_handler_spreadsheet_date_only_and_numeric():
+    """Test spreadsheet conversion with date-only and numeric values."""
+    handler = PandasOutputHandler(
+        data={
+            "updated": [
+                "2026-02-20",
+                45000,
+            ],
+        },
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(date_format=DateFormat.SPREADSHEET),
+    )
+    df = handler.get_result()
+    assert df is not None
+    assert df["updated"].iloc[0].hour == 0
+    assert df["updated"].iloc[1].tz is not None
+
+
+def test_pandas_output_handler_spreadsheet_partial_numeric_no_date_only():
+    """Test spreadsheet conversion with invalid non-date values."""
+    handler = PandasOutputHandler(
+        data={
+            "updated": [
+                45000,
+                "invalid",
+            ],
+        },
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(date_format=DateFormat.SPREADSHEET),
+    )
+    df = handler.get_result()
+    assert df is not None
+    assert df["updated"].iloc[0].tz is not None
+    assert df["updated"].iloc[1] == "invalid"
+
+
+def test_pandas_output_handler_unix_date_only_and_numeric():
+    """Test unix conversion with date-only and numeric values."""
+    handler = PandasOutputHandler(
+        data={
+            "updated": [
+                "2026-02-20",
+                1765552906,
+            ],
+        },
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(),
+    )
+    df = handler.get_result()
+    assert df is not None
+    assert df["updated"].iloc[0].hour == 0
+    assert df["updated"].iloc[1].tz is not None
+
+
+def test_pandas_output_handler_unix_partial_numeric_no_date_only():
+    """Test unix conversion with invalid non-date values."""
+    handler = PandasOutputHandler(
+        data={
+            "updated": [
+                1765552906,
+                "invalid",
+            ],
+        },
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(),
+    )
+    df = handler.get_result()
+    assert df is not None
+    assert df["updated"].iloc[0].tz is not None
+    assert df["updated"].iloc[1] == "invalid"
+
+
+def test_pandas_output_handler_timestamp_conversion_exception(monkeypatch):
+    """Test that exceptions during conversion are handled gracefully."""
+    def _raise(*args, **kwargs):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(pd.Series, "astype", _raise)
+    handler = PandasOutputHandler(
+        data={"updated": [1765552906]},
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(),
+    )
+    df = handler.get_result()
+    assert df is not None
+    assert df["updated"].iloc[0] == 1765552906
+
+
 def test_polars_output_handler_convert_timestamp_by_name():
     """Test that timestamp columns are converted by column name."""
 
@@ -473,6 +600,22 @@ def test_polars_output_handler_timestamp_conversion_failure():
     assert "updated" in df.columns
     # Price should still be numeric
     assert df["price"].dtype in [pl.Float64, pl.Float32]
+
+
+def test_polars_output_handler_timestamp_conversion_exception(monkeypatch):
+    """Test that exceptions during conversion are handled gracefully."""
+    def _raise(*args, **kwargs):
+        raise pl.exceptions.PolarsError("boom")
+
+    monkeypatch.setattr(pl.DataFrame, "with_columns", _raise)
+    handler = PolarsOutputHandler(
+        data={"updated": [1765552906]},
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(),
+    )
+    df = handler.get_result()
+    assert df is not None
+    assert df["updated"][0] == 1765552906
 
 
 def test_pandas_output_handler_normalized_dataframe_fallback():

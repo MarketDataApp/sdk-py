@@ -46,31 +46,108 @@ class PandasOutputHandler(BaseOutputHandler):
         date_format: DateFormat | None,
     ) -> pd.DataFrame:
         """Convert date/time columns to timezone-aware datetime objects."""
-        if date_format == DateFormat.UNIX:
-            return df
-
+        convert_numeric = date_format != DateFormat.UNIX
         format_to_use = date_format or DateFormat.UNIX
         default_tz = pytz.timezone("US/Eastern")
+        date_only_regex = r"^\d{4}-\d{2}-\d{2}$"
 
         for col in df.columns:
             if col not in date_columns:
                 continue
             try:
+                series = df[col]
+                date_only_mask = series.astype("string").str.match(
+                    date_only_regex, na=False
+                )
+                updated_series = None
+                if date_only_mask.any():
+                    date_only = pd.to_datetime(
+                        series[date_only_mask], format="%Y-%m-%d", errors="coerce"
+                    )
+                    date_only = date_only.dt.tz_localize(default_tz)
+                    updated_series = series.astype("object")
+                    updated_series.loc[date_only_mask] = date_only
+
                 if format_to_use == DateFormat.TIMESTAMP:
-                    s = pd.to_datetime(df[col])
-                    df[col] = (
-                        s.dt.tz_localize(default_tz)
-                        if s.dt.tz is None
-                        else s.dt.tz_convert(default_tz)
+                    remaining = (
+                        series[~date_only_mask] if date_only_mask.any() else series
                     )
+                    parsed = pd.to_datetime(remaining, errors="coerce")
+                    if parsed.dt.tz is None:
+                        parsed = parsed.dt.tz_localize(default_tz)
+                    else:
+                        parsed = parsed.dt.tz_convert(default_tz)
+                    parsed_mask = parsed.notna()
+                    if parsed_mask.any():
+                        if date_only_mask.any():
+                            updated_series.loc[remaining.index[parsed_mask]] = parsed[
+                                parsed_mask
+                            ]
+                        elif parsed_mask.all():
+                            df[col] = parsed
+                        else:
+                            updated_series = series.astype("object")
+                            updated_series.loc[remaining.index[parsed_mask]] = parsed[
+                                parsed_mask
+                            ]
                 elif format_to_use == DateFormat.SPREADSHEET:
-                    df[col] = pd.to_datetime(
-                        df[col], unit="D", origin="1899-12-30", utc=True
-                    ).dt.tz_convert(default_tz)
+                    if convert_numeric:
+                        remaining = (
+                            series[~date_only_mask] if date_only_mask.any() else series
+                        )
+                        numeric = pd.to_numeric(remaining, errors="coerce")
+                        numeric_mask = numeric.notna()
+                        if numeric_mask.any():
+                            converted = pd.to_datetime(
+                                numeric[numeric_mask],
+                                unit="D",
+                                origin="1899-12-30",
+                                utc=True,
+                            ).dt.tz_convert(default_tz)
+                            if date_only_mask.any():
+                                updated_series.loc[remaining.index[numeric_mask]] = (
+                                    converted
+                                )
+                            elif numeric_mask.all():
+                                full_converted = pd.to_datetime(
+                                    numeric,
+                                    unit="D",
+                                    origin="1899-12-30",
+                                    utc=True,
+                                ).dt.tz_convert(default_tz)
+                                df[col] = full_converted
+                            else:
+                                updated_series = series.astype("object")
+                                updated_series.loc[remaining.index[numeric_mask]] = (
+                                    converted
+                                )
                 else:
-                    df[col] = pd.to_datetime(df[col], unit="s", utc=True).dt.tz_convert(
-                        default_tz
-                    )
+                    if convert_numeric:
+                        remaining = (
+                            series[~date_only_mask] if date_only_mask.any() else series
+                        )
+                        numeric = pd.to_numeric(remaining, errors="coerce")
+                        numeric_mask = numeric.notna()
+                        if numeric_mask.any():
+                            converted = pd.to_datetime(
+                                numeric[numeric_mask], unit="s", utc=True
+                            ).dt.tz_convert(default_tz)
+                            if date_only_mask.any():
+                                updated_series.loc[remaining.index[numeric_mask]] = (
+                                    converted
+                                )
+                            elif numeric_mask.all():
+                                full_converted = pd.to_datetime(
+                                    numeric, unit="s", utc=True
+                                ).dt.tz_convert(default_tz)
+                                df[col] = full_converted
+                            else:
+                                updated_series = series.astype("object")
+                                updated_series.loc[remaining.index[numeric_mask]] = (
+                                    converted
+                                )
+                if updated_series is not None:
+                    df[col] = updated_series
             except (ValueError, TypeError, AttributeError):
                 pass
 

@@ -39,24 +39,28 @@ class PolarsOutputHandler(BaseOutputHandler):
         date_format: DateFormat | None,
     ) -> pl.DataFrame:
         """Convert date/time columns to timezone-aware datetime objects."""
-        if date_format == DateFormat.UNIX:
-            return df
-
+        convert_numeric = date_format != DateFormat.UNIX
         format_to_use = date_format or DateFormat.UNIX
         default_tz = pytz.timezone("US/Eastern").zone
 
+        DATE_ONLY_REGEX = r"^\d{4}-\d{2}-\d{2}$"
         TZ_AWARE_REGEX = r"(Z|[+-]\d{2}:?\d{2})$"
         for col in df.columns:
             if col not in date_columns:
                 continue
             try:
+                col_dtype = df.schema.get(col)
                 if format_to_use == DateFormat.TIMESTAMP:
-                    is_aware = pl.col(col).str.contains(TZ_AWARE_REGEX, literal=False)
-                    cleaned = pl.col(col).str.replace(TZ_AWARE_REGEX, "", literal=False)
+                    as_text = pl.col(col).cast(pl.Utf8, strict=False)
+                    is_date_only = as_text.str.contains(DATE_ONLY_REGEX, literal=False)
+                    is_aware = as_text.str.contains(TZ_AWARE_REGEX, literal=False)
+                    cleaned = as_text.str.replace(TZ_AWARE_REGEX, "", literal=False)
                     dt_expr = cleaned.str.strptime(pl.Datetime, strict=False)
 
                     df = df.with_columns(
-                        pl.when(is_aware)
+                        pl.when(is_date_only)
+                        .then(dt_expr.dt.replace_time_zone(default_tz))
+                        .when(is_aware)
                         .then(
                             dt_expr.dt.replace_time_zone("UTC").dt.convert_time_zone(
                                 default_tz
@@ -66,23 +70,47 @@ class PolarsOutputHandler(BaseOutputHandler):
                         .alias(col)
                     )
                 elif format_to_use == DateFormat.SPREADSHEET:
-                    df = df.with_columns(
-                        pl.from_epoch(
-                            ((pl.col(col).cast(pl.Float64) - 25569) * 86400).cast(
-                                pl.Int64
-                            ),
-                            time_unit="s",
+                    as_text = pl.col(col).cast(pl.Utf8, strict=False)
+                    is_date_only = as_text.str.contains(DATE_ONLY_REGEX, literal=False)
+                    date_only_expr = as_text.str.strptime(
+                        pl.Datetime, format="%Y-%m-%d", strict=False
+                    ).dt.replace_time_zone(default_tz)
+                    numeric = pl.col(col).cast(pl.Float64, strict=False)
+                    parsed = pl.when(is_date_only).then(date_only_expr)
+                    if convert_numeric:
+                        parsed = parsed.when(numeric.is_not_null()).then(
+                            pl.from_epoch(
+                                ((numeric - 25569) * 86400).cast(pl.Int64),
+                                time_unit="s",
+                            )
+                            .dt.replace_time_zone("UTC")
+                            .dt.convert_time_zone(default_tz)
                         )
-                        .dt.replace_time_zone("UTC")
-                        .dt.convert_time_zone(default_tz)
-                        .alias(col)
+                    df = df.with_columns(
+                        parsed.otherwise(
+                            pl.lit(None, dtype=pl.Datetime("us", default_tz))
+                        ).alias(col)
                     )
                 else:
+                    if not convert_numeric and col_dtype != pl.Utf8:
+                        continue
+                    as_text = pl.col(col).cast(pl.Utf8, strict=False)
+                    is_date_only = as_text.str.contains(DATE_ONLY_REGEX, literal=False)
+                    date_only_expr = as_text.str.strptime(
+                        pl.Datetime, format="%Y-%m-%d", strict=False
+                    ).dt.replace_time_zone(default_tz)
+                    numeric = pl.col(col).cast(pl.Float64, strict=False)
+                    parsed = pl.when(is_date_only).then(date_only_expr)
+                    if convert_numeric:
+                        parsed = parsed.when(numeric.is_not_null()).then(
+                            pl.from_epoch(numeric, time_unit="s")
+                            .dt.replace_time_zone("UTC")
+                            .dt.convert_time_zone(default_tz)
+                        )
                     df = df.with_columns(
-                        pl.from_epoch(pl.col(col), time_unit="s")
-                        .dt.replace_time_zone("UTC")
-                        .dt.convert_time_zone(default_tz)
-                        .alias(col)
+                        parsed.otherwise(
+                            pl.lit(None, dtype=pl.Datetime("us", default_tz))
+                        ).alias(col)
                     )
             except (ValueError, TypeError, AttributeError, pl.exceptions.PolarsError):
                 pass
