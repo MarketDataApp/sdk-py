@@ -138,3 +138,11 @@ def format_duration_log(duration_ms: float) -> str:
     elif duration_ms < 100000:
         return f"{duration_ms / 1000:04.1f}s"
     return f"{duration_ms / 1000:.0f}s".rjust(5)
+
+
+def obfuscate_token(token: str) -> str:
+    if not isinstance(token, str):
+        return str(token)
+    if len(token) <= 4:
+        return "****"
+    return "*" * (len(token) - 4) + token[-4:]
