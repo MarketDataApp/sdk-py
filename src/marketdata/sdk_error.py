@@ -15,6 +15,8 @@ class MarketDataClientErrorResult:
     error: Exception
 
     def __init__(self, error: BaseMarketdataException):
+        if not isinstance(error, BaseMarketdataException):
+            error = BaseMarketdataException.from_exception(error)
         self.error = error
 
     @property

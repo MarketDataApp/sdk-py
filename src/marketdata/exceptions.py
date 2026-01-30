@@ -11,9 +11,13 @@ class BaseMarketdataException(Exception):
     def __init__(self, message: str, timestamp: datetime | None = None):
         super().__init__(message)
         self.message = message
-        self.timestamp = timestamp or datetime.now(timezone("US/Eastern")).strftime(
-            "%Y-%m-%d %H:%M:%S"
+        self.timestamp = timestamp or self.format_timestamp(
+            datetime.now(timezone("US/Eastern"))
         )
+
+    @classmethod
+    def format_timestamp(cls, timestamp: datetime):
+        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
     @property
     def support_context(self) -> dict:
@@ -22,6 +26,12 @@ class BaseMarketdataException(Exception):
             message=self.message,
             exception_type=self.__class__.__name__,
         )
+
+    @classmethod
+    def from_exception(cls, exception: Exception):
+        timestamp = cls.format_timestamp(datetime.now(timezone("US/Eastern")))
+        message = str(exception)
+        return cls(message, timestamp)
 
 
 class MarketdataHttpError(BaseMarketdataException):
