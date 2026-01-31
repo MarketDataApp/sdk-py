@@ -1,4 +1,5 @@
 import datetime
+import os
 from unittest.mock import patch
 
 import pytest
@@ -15,7 +16,7 @@ from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import NO_TOKEN_VALUE
 from marketdata.retry import get_retry_adapter
 from marketdata.sdk_error import MarketDataClientErrorResult
-from marketdata.settings import settings
+from marketdata.settings import MarketDataSettings, settings
 from marketdata.types import UserRateLimits
 from marketdata.utils import format_duration_log
 
@@ -316,3 +317,11 @@ def test_client_pre_and_post_request_logs(client, respx_mock):
             mock_logger_info.call_args_list[0].assert_called_with(
                 f"GET 200 000ms 1234567890 {last_request.request.url}"
             )
+
+
+def test_settings_extra_env_vars():
+    with patch.dict(
+        os.environ, {"RANDOM_VAR_FOR_TESTING": "123", "MARKETDATA_TOKEN": "test_token"}
+    ):
+        settings = MarketDataSettings()
+        assert settings.marketdata_token == "test_token"
