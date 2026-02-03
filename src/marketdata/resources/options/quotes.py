@@ -93,7 +93,11 @@ def quotes(
         )
         if not has_results:
             return MarketDataClientErrorResult(
-                error=RequestError("No responses from API")
+                error=RequestError(
+                    message="No responses from API",
+                    request=responses[0].request,
+                    response=responses[0],
+                )
             )
 
         data = [_parse_data(response) for response in responses]

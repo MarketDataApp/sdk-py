@@ -109,23 +109,39 @@ class MarketDataClient:
                 retry_status_codes
                 and isinstance(retry_status_codes, int)
                 and retry_status_codes == response.status_code,
-                RequestError(f"Request failed with: {_get_response_errmsg(response)}"),
+                RequestError(
+                    message=f"Request failed with: {_get_response_errmsg(response)}",
+                    request=response.request,
+                    response=response,
+                ),
             ),
             (
                 retry_status_codes
                 and isinstance(retry_status_codes, Callable)
                 and retry_status_codes(response.status_code),
-                RequestError(f"Request failed with: {_get_response_errmsg(response)}"),
+                RequestError(
+                    message=f"Request failed with: {_get_response_errmsg(response)}",
+                    request=response.request,
+                    response=response,
+                ),
             ),
             (
                 retry_status_codes
                 and isinstance(retry_status_codes, list)
                 and response.status_code in retry_status_codes,
-                RequestError(f"Request failed with: {_get_response_errmsg(response)}"),
+                RequestError(
+                    message=_get_response_errmsg(response),
+                    request=response.request,
+                    response=response,
+                ),
             ),
             (
                 raise_for_status and not _validate_status(response),
-                BadStatusCodeError(_get_response_errmsg(response)),
+                BadStatusCodeError(
+                    message=_get_response_errmsg(response),
+                    request=response.request,
+                    response=response,
+                ),
             ),
         ]
         for condition, exc in conditions_to_error:

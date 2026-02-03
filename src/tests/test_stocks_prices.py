@@ -180,7 +180,7 @@ def test_get_stocks_prices_response_bad_status_code(respx_mock, client):
 
     result = client.stocks.prices(symbols="TSLA", output_format=OutputFormat.INTERNAL)
     assert isinstance(result, MarketDataClientErrorResult)
-    assert result.error.args[0] == "Request failed with: Test error message"
+    assert result.error.message == "Request failed with: Test error message"
 
 
 def test_get_stocks_prices_status_offline(respx_mock, client):
