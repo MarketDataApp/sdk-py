@@ -26,7 +26,11 @@ class MarketDataSettings(BaseSettings, UniversalParamsSettings):
     marketdata_api_version: str = "v1"
     marketdata_logging_level: str = "INFO"
 
-    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 settings = MarketDataSettings()
