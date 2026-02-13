@@ -39,6 +39,11 @@ def expirations(
         self.client.default_params, user_universal_params
     )
 
+    # Force dateformat=unix so the API returns unix timestamps instead of
+    # date-only strings (yyyy-mm-dd) which caused off-by-one-day errors
+    # when converted to datetime objects with timezone info.
+    user_universal_params.date_format = None
+
     url = self._build_url(
         path=f"options/expirations/{symbol}/",
         user_universal_params=user_universal_params,
@@ -46,6 +51,7 @@ def expirations(
         extra_params=kwargs,
         excluded_params=["symbol"],
     )
+    url += "&dateformat=unix"
     self.logger.debug("Fetching options expirations...")
 
     response = self.client._make_request(method="GET", url=url)

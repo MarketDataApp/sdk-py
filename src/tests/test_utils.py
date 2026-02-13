@@ -27,12 +27,34 @@ def test_format_timestamp():
     assert format_timestamp(1714732800.0) == datetime.datetime.fromtimestamp(
         1714732800, tz=pytz.timezone("US/Eastern")
     )
+    # Test 'Z' suffix for Python < 3.11 compatibility
+    # Construct expected datetime using localize to avoid pytz LMT issues
+    expected_z = pytz.timezone("US/Eastern").localize(
+        datetime.datetime(2024, 1, 1, 7, 0, 0)
+    )
+    assert format_timestamp("2024-01-01T12:00:00Z") == expected_z
+
     with pytest.raises(ValueError):
         format_timestamp("2024-01-01 12:00:00.0:00:00")
+    # Coverage for line 21-23 (string that's not float)
+    with pytest.raises(ValueError):
+        format_timestamp("invalid-date")
+    # Test numeric exceptions (OSError/OverflowError) - coverage for line 30-31
     with pytest.raises(ValueError):
         format_timestamp(99999999999999)
+    # Coverage for line 33 (final fallback)
+    with pytest.raises(ValueError):
+        # List is not str, int, float, or None
+        format_timestamp([])
     with pytest.raises(ValueError):
         format_timestamp(None)
+
+
+def test_format_timestamp_date_only_localization():
+    val = "2026-02-20"
+    dt = format_timestamp(val)
+    assert dt == datetime.datetime(2026, 2, 20, 0, 0, 0)
+    assert dt.tzinfo is None
 
 
 def test_check_is_date():
