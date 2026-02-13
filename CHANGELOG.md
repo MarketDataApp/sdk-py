@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-02-13
+
+### Fixed
+
+- Timezone handling: API times are now correctly parsed; expirations use `dateformat=unix` for complete timestamps
+- Token obfuscation in logs for security
+- Stock candles now accept string input for 'from' and 'to' dates
+- Settings model now allows extra environment variables without validation errors
+- User agent string is now RFC 7231 compliant
+- URL building for /user endpoint
+
+### Added
+
+- `support_info` and `support_context` properties on error results for enhanced debugging
+- Improved exception wrapping ensures all errors include support context
+
+### Changed
+
+- Updated logging format and resource lifecycle logging
+- Removed /user and /status requests from response logging
+- User agent updated to match PyPI package name (marketdata-sdk-py)
+
 ## [1.1.0] - 2026-01-15
 
 ### Added
