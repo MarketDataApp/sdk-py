@@ -5,7 +5,7 @@ The `markets` resource provides access to market status information, allowing yo
 ## Accessing the Markets Resource
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 markets = client.markets
@@ -65,7 +65,7 @@ When both `from_date` and `to_date` are provided, the method validates that `fro
 **Get current market status (DataFrame):**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 df = client.markets.status()
@@ -76,7 +76,7 @@ print(df)
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 df = client.markets.status(date=datetime.date(2024, 12, 25))
@@ -87,7 +87,7 @@ print(df)
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 df = client.markets.status(
@@ -100,7 +100,7 @@ print(df)
 **Get market status using countback:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Get market status for the last 30 days
@@ -112,7 +112,7 @@ print(df)
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 df = client.markets.status(
@@ -125,8 +125,7 @@ print(df)
 **Get market status as internal objects:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 status_list = client.markets.status(
@@ -143,8 +142,7 @@ for status in status_list:
 **Get market status with human-readable format:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # Uses Status and Date instead of status and date
@@ -163,8 +161,7 @@ for status in status_list:
 **Get market status as JSON:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 json_data = client.markets.status(
@@ -178,8 +175,7 @@ print(json_data)
 
 ```python
 from pathlib import Path
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # CSV is written to file and filename is returned
@@ -203,8 +199,7 @@ if csv_file:
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import DateFormat, Mode
+from marketdata import MarketDataClient, DateFormat, Mode
 
 client = MarketDataClient()
 # Use custom date format and mode
@@ -229,8 +224,7 @@ When using `OutputFormat.INTERNAL`, the `status()` method returns a list of `Mar
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 status_list = client.markets.status(
@@ -257,8 +251,7 @@ When using `OutputFormat.INTERNAL` with `use_human_readable=True`, the `status()
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 status_list = client.markets.status(

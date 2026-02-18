@@ -24,9 +24,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
-from marketdata.sdk_error import MarketDataClientErrorResult
+from marketdata import MarketDataClient, MarketDataClientErrorResult, OutputFormat
 
 
 class StockPriceTracker:
