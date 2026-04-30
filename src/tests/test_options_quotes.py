@@ -2,9 +2,12 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytest
 import pytz
 
+from marketdata.exceptions import MinMaxDateValidationError
 from marketdata.input_types.base import OutputFormat
+from marketdata.input_types.options import OptionsQuotesInput
 from marketdata.output_types.options_quotes import (
     OptionsQuotes,
     OptionsQuotesHumanReadable,
@@ -512,3 +515,48 @@ def test_options_quotes_human_readable_get_null_csv_string():
         + ",".join([""] * len(fields)).replace("_", " ")
     )
     assert null_csv_string == expected_csv_string
+
+
+def test_options_quotes_input_date_range_aliases_on_wire(load_json, respx_mock, client):
+    mock_data = load_json("options_quotes_response_200")
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
+    ).respond(json=mock_data, status_code=200)
+
+    client.options.quotes(
+        symbols="AAPL271217C00255000",
+        from_date="2026-04-14",
+        to_date="2026-04-18",
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("from") == "2026-04-14"
+    assert params.get("to") == "2026-04-18"
+    assert params.get("from_date") is None
+    assert params.get("to_date") is None
+
+
+def test_options_quotes_input_date_param_on_wire(load_json, respx_mock, client):
+    mock_data = load_json("options_quotes_response_200")
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
+    ).respond(json=mock_data, status_code=200)
+
+    client.options.quotes(
+        symbols="AAPL271217C00255000",
+        date="2026-04-15",
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("date") == "2026-04-15"
+
+
+def test_options_quotes_input_from_after_to_raises():
+    with pytest.raises(MinMaxDateValidationError):
+        OptionsQuotesInput(
+            symbols="AAPL271217C00255000",
+            from_date=datetime.date(2026, 4, 18),
+            to_date=datetime.date(2026, 4, 14),
+        )
