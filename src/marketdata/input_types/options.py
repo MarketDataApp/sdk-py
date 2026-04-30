@@ -38,10 +38,14 @@ class OptionsChainInput(BaseInputType):
         description="The number of days to expiration to filter by", default=None
     )
     from_date: datetime.date | str | None = Field(
-        description="The start date to fetch options chain for", default=None
+        description="The start date to fetch options chain for",
+        default=None,
+        alias="from",
     )
     to_date: datetime.date | str | None = Field(
-        description="The end date to fetch options chain for", default=None
+        description="The end date to fetch options chain for",
+        default=None,
+        alias="to",
     )
     month: int | None = Field(description="The month to filter by", default=None)
     year: int | None = Field(description="The year to filter by", default=None)
