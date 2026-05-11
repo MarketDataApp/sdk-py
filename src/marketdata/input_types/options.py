@@ -38,10 +38,14 @@ class OptionsChainInput(BaseInputType):
         description="The number of days to expiration to filter by", default=None
     )
     from_date: datetime.date | str | None = Field(
-        description="The start date to fetch options chain for", default=None
+        description="The start date to fetch options chain for",
+        default=None,
+        alias="from",
     )
     to_date: datetime.date | str | None = Field(
-        description="The end date to fetch options chain for", default=None
+        description="The end date to fetch options chain for",
+        default=None,
+        alias="to",
     )
     month: int | None = Field(description="The month to filter by", default=None)
     year: int | None = Field(description="The year to filter by", default=None)
@@ -135,12 +139,31 @@ class OptionsQuotesInput(BaseInputType):
     symbols: str | list[str] = Field(
         description="A single symbol string or a list of symbol strings", min_length=1
     )
+    date: datetime.date | str | None = Field(
+        description="Historical end-of-day quote date (ISO 8601, unix, or spreadsheet)",
+        default=None,
+    )
+    from_date: datetime.date | str | None = Field(
+        description="Start of date range, inclusive (ISO 8601, unix, or spreadsheet)",
+        default=None,
+        alias="from",
+    )
+    to_date: datetime.date | str | None = Field(
+        description="End of date range, exclusive (ISO 8601, unix, or spreadsheet)",
+        default=None,
+        alias="to",
+    )
 
     @field_validator("symbols")
     def validate_symbols(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, str):
             return value.split(",") if "," in value else [value]
         return value
+
+    @model_validator(mode="after")
+    def validate_input(self) -> "OptionsQuotesInput":
+        self._validate_min_max_dates("from_date", "to_date")
+        return self
 
 
 class OptionsStrikesInput(BaseInputType):

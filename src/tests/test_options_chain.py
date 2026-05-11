@@ -287,3 +287,23 @@ def test_get_options_chain_response_200_csv(respx_mock, client):
         "AAPL", output_format=OutputFormat.CSV, filename="test.csv"
     )
     assert pathlib.Path(output).read_text() == "AS RECEIVED FROM API"
+
+
+def test_options_chain_input_date_range_aliases_on_wire(load_json, respx_mock, client):
+    mock_data = load_json("options_chain_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
+        json=mock_data, status_code=200
+    )
+
+    client.options.chain(
+        "AAPL",
+        from_date="2026-04-14",
+        to_date="2026-04-18",
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("from") == "2026-04-14"
+    assert params.get("to") == "2026-04-18"
+    assert params.get("from_date") is None
+    assert params.get("to_date") is None
