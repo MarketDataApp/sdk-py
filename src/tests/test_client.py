@@ -23,18 +23,22 @@ from marketdata.utils import format_duration_log
 
 def test_get_retry_adapter(client):
     retry_adapter = get_retry_adapter(
-        attempts=3,
-        backoff=0.5,
+        attempts=4,
+        initial_delay=1.0,
         exceptions=[],
         logger=client.logger,
     )
     assert retry_adapter is not None
-    assert retry_adapter.stop.max_attempt_number == 3
-    assert retry_adapter.wait.multiplier == 0.5
-    assert retry_adapter.retry.exception_types == Exception
+    assert retry_adapter.stop.max_attempt_number == 4
+    assert retry_adapter.retry.exception_types == (Exception,)
     assert retry_adapter.reraise == False
-    assert retry_adapter.wait.min == 0.5
-    assert retry_adapter.wait.max == 5
+
+    state_mock = type("S", (), {"attempt_number": 1})()
+    assert retry_adapter.wait(state_mock) == 1.0
+    state_mock.attempt_number = 2
+    assert retry_adapter.wait(state_mock) == 2.0
+    state_mock.attempt_number = 3
+    assert retry_adapter.wait(state_mock) == 4.0
 
 
 def test_user_rate_limits_str():
@@ -71,7 +75,9 @@ def test_client_headers_no_token(respx_mock):
     }
 
 
-def test_client_make_request_retry(client, respx_mock):
+def test_client_make_request_retry(client, respx_mock, monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+
     respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
         json={},
         status_code=502,
@@ -88,10 +94,10 @@ def test_client_make_request_retry(client, respx_mock):
     # 2nd request is stocks.prices (and it fails with 502 status code)
     assert respx_mock.calls[1].request.url.path == "/v1/stocks/prices/"
 
-    # 3rd request is API status check
+    # 3rd request is API status check (triggered by before_sleep after 1st fail)
     assert respx_mock.calls[2].request.url.path == "/status/"
 
-    # 4th, 5th, 6th requests are retries
+    # 4th, 5th, 6th requests are retries (cached status, no extra /status/ calls)
     assert respx_mock.calls[3].request.url.path == "/v1/stocks/prices/"
     assert respx_mock.calls[4].request.url.path == "/v1/stocks/prices/"
     assert respx_mock.calls[5].request.url.path == "/v1/stocks/prices/"
@@ -317,6 +323,109 @@ def test_client_pre_and_post_request_logs(client, respx_mock):
             mock_logger_info.call_args_list[0].assert_called_with(
                 f"GET 200 000ms 1234567890 {last_request.request.url}"
             )
+
+
+def test_client_max_retries_default(client):
+    assert client.max_retries == 3
+
+
+def test_client_max_retries_custom():
+    with patch.object(MarketDataClient, "_setup_rate_limits"):
+        c = MarketDataClient(token="test", max_retries=5)
+    assert c.max_retries == 5
+
+
+def test_client_max_retries_zero():
+    with patch.object(MarketDataClient, "_setup_rate_limits"):
+        c = MarketDataClient(token="test", max_retries=0)
+    assert c.max_retries == 0
+
+
+def test_client_max_retries_negative_raises():
+    with pytest.raises(ValueError):
+        MarketDataClient(token="test", max_retries=-1)
+
+
+def test_client_max_retries_zero_no_retry(respx_mock, monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    headers = {
+        "x-api-ratelimit-limit": "100",
+        "x-api-ratelimit-remaining": "99",
+        "x-api-ratelimit-reset": "60",
+        "x-api-ratelimit-consumed": "1",
+    }
+    respx_mock.get("https://api.marketdata.app/user/").respond(
+        json={}, headers=headers, status_code=200
+    )
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json={}, status_code=502
+    )
+
+    c = MarketDataClient(token="test", max_retries=0)
+    setattr(
+        c,
+        "_extract_rate_limits",
+        lambda x: UserRateLimits(
+            requests_limit=100,
+            requests_remaining=99,
+            requests_reset=60,
+            requests_consumed=1,
+        ),
+    )
+
+    result = c.stocks.prices(symbols="AAPL")
+    assert isinstance(result, MarketDataClientErrorResult)
+    # 1 /user/ + 1 /v1/stocks/prices/ (no retry, no status check)
+    assert respx_mock.calls.call_count == 2
+
+
+def test_client_max_retries_one(respx_mock, monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    headers = {
+        "x-api-ratelimit-limit": "100",
+        "x-api-ratelimit-remaining": "99",
+        "x-api-ratelimit-reset": "60",
+        "x-api-ratelimit-consumed": "1",
+    }
+    respx_mock.get("https://api.marketdata.app/user/").respond(
+        json={}, headers=headers, status_code=200
+    )
+    import time as _time
+
+    _now = _time.time()
+    respx_mock.get("https://api.marketdata.app/status/").respond(
+        json={
+            "service": ["/v1/stocks/bulkquotes/"],
+            "status": ["online"],
+            "online": [True],
+            "uptimePct30d": [100],
+            "uptimePct90d": [100],
+            "updated": [_now],
+        },
+        headers=headers,
+        status_code=200,
+    )
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json={}, status_code=502
+    )
+
+    c = MarketDataClient(token="test", max_retries=1)
+    setattr(
+        c,
+        "_extract_rate_limits",
+        lambda x: UserRateLimits(
+            requests_limit=100,
+            requests_remaining=99,
+            requests_reset=60,
+            requests_consumed=1,
+        ),
+    )
+
+    result = c.stocks.prices(symbols="AAPL")
+    assert isinstance(result, MarketDataClientErrorResult)
+    # /user/ + attempt 1 + /status/ + attempt 2 = 4 calls
+    prices_calls = [c for c in respx_mock.calls if c.request.url.path == "/v1/stocks/prices/"]
+    assert len(prices_calls) == 2
 
 
 def test_settings_extra_env_vars():

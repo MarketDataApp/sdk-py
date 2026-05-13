@@ -1,14 +1,12 @@
 from functools import wraps
+from logging import DEBUG
 from typing import TYPE_CHECKING, Callable
+
+from tenacity import before_sleep_log
 
 from marketdata.api_status import API_STATUS_DATA, APIStatusResult
 from marketdata.exceptions import RequestError
-from marketdata.internal_settings import (
-    MAX_RETRY_ATTEMPTS,
-    MAX_RETRY_BACKOFF,
-    MIN_RETRY_BACKOFF,
-    RETRY_BACKOFF,
-)
+from marketdata.internal_settings import INITIAL_RETRY_DELAY
 from marketdata.resources.base import BaseResource
 from marketdata.retry import get_retry_adapter
 
@@ -25,25 +23,27 @@ def api_error_handler(func: Callable = None, service: str = None) -> Callable:
         resource: BaseResource = args[0]
         client: "MarketDataClient" = resource.client
         logger = client.logger
+        log_before_sleep = before_sleep_log(logger, log_level=DEBUG)
 
-        try:
-            return func(*args, **kwargs)
-        except RequestError as e:
+        def _status_check_before_sleep(retry_state):
+            # Status check seam: 9.5 will replace the impl of should_refresh/
+            # refresh/get_api_status with the dual-threshold + async refresh
+            # logic; this hook stays put.
             if API_STATUS_DATA.should_refresh:
                 API_STATUS_DATA.refresh(client)
-
             status = API_STATUS_DATA.get_api_status(client, service)
-            if status in (APIStatusResult.ONLINE, APIStatusResult.UNKNOWN):
-                retry_adapter = get_retry_adapter(
-                    attempts=MAX_RETRY_ATTEMPTS,
-                    backoff=RETRY_BACKOFF,
-                    exceptions=[RequestError],
-                    logger=logger,
-                    reraise=True,
-                    min_backoff=MIN_RETRY_BACKOFF,
-                    max_backoff=MAX_RETRY_BACKOFF,
-                )
-                return retry_adapter(func, *args, **kwargs)
-            raise e
+            if status == APIStatusResult.OFFLINE:
+                raise retry_state.outcome.exception()
+            log_before_sleep(retry_state)
+
+        retry_adapter = get_retry_adapter(
+            attempts=client.max_retries + 1,
+            initial_delay=INITIAL_RETRY_DELAY,
+            exceptions=[RequestError],
+            logger=logger,
+            reraise=True,
+            before_sleep=_status_check_before_sleep,
+        )
+        return retry_adapter(func, *args, **kwargs)
 
     return wrapper

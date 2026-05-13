@@ -4,65 +4,85 @@ import pytest
 from httpx import Request, Response
 
 from marketdata.api_error import api_error_handler
+from marketdata.api_status import APIStatusResult
 from marketdata.exceptions import RequestError
 from marketdata.resources.base import BaseResource
-from src.marketdata.api_status import APIStatusResult
 
 
 class DummyResource(BaseResource):
+    call_count = 0
+
     @api_error_handler
     def test_function_fails(self):
+        DummyResource.call_count += 1
         request = Request(method="GET", url="https://example.com")
         response = Response(status_code=500)
         raise RequestError("test exception", request=request, response=response)
+
+
+@pytest.fixture(autouse=True)
+def _reset_dummy():
+    DummyResource.call_count = 0
+    yield
+    DummyResource.call_count = 0
+
+
+@pytest.fixture(autouse=True)
+def _no_sleep(monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_status_refresh(monkeypatch):
+    monkeypatch.setattr(
+        "marketdata.api_error.API_STATUS_DATA.refresh",
+        lambda *args, **kwargs: True,
+    )
 
 
 @patch(
     "marketdata.api_error.API_STATUS_DATA.get_api_status",
     return_value=APIStatusResult.OFFLINE,
 )
-@patch(
-    "marketdata.api_error.get_retry_adapter",
-    return_value=lambda x, *args, **kwargs: x(*args, **kwargs),
-)
-def test_api_error_handler_fails_when_api_is_offline(
-    retry_adapter, api_status_data, client
-):
+def test_api_error_handler_offline_aborts_after_first_failure(_, client):
     resource = DummyResource(client=client)
     with pytest.raises(RequestError):
         resource.test_function_fails()
-    retry_adapter.assert_not_called()
+    # Offline status raises from before_sleep, so only the 1st attempt runs.
+    assert DummyResource.call_count == 1
 
 
 @patch(
     "marketdata.api_error.API_STATUS_DATA.get_api_status",
     return_value=APIStatusResult.ONLINE,
 )
-@patch(
-    "marketdata.api_error.get_retry_adapter",
-    return_value=lambda x, *args, **kwargs: x(*args, **kwargs),
-)
-def test_api_error_handler_fails_when_api_is_online(
-    retry_adapter, api_status_data, client
-):
+def test_api_error_handler_online_retries_max_attempts(_, client):
     resource = DummyResource(client=client)
     with pytest.raises(RequestError):
         resource.test_function_fails()
-    retry_adapter.assert_called_once()
+    # Default max_retries=3 → 1 initial + 3 retries = 4 total attempts.
+    assert DummyResource.call_count == 4
 
 
 @patch(
     "marketdata.api_error.API_STATUS_DATA.get_api_status",
     return_value=APIStatusResult.UNKNOWN,
 )
-@patch(
-    "marketdata.api_error.get_retry_adapter",
-    return_value=lambda x, *args, **kwargs: x(*args, **kwargs),
-)
-def test_api_error_handler_fails_when_api_is_unknown(
-    retry_adapter, api_status_data, client
-):
+def test_api_error_handler_unknown_retries_max_attempts(_, client):
     resource = DummyResource(client=client)
     with pytest.raises(RequestError):
         resource.test_function_fails()
-    retry_adapter.assert_called_once()
+    assert DummyResource.call_count == 4
+
+
+@patch(
+    "marketdata.api_error.API_STATUS_DATA.get_api_status",
+    return_value=APIStatusResult.ONLINE,
+)
+def test_api_error_handler_respects_max_retries_zero(_, client):
+    client.max_retries = 0
+    resource = DummyResource(client=client)
+    with pytest.raises(RequestError):
+        resource.test_function_fails()
+    # max_retries=0 → 1 attempt, no retries, status check never invoked.
+    assert DummyResource.call_count == 1

@@ -8,6 +8,7 @@ from marketdata.exceptions import BadStatusCodeError, RateLimitError, RequestErr
 from marketdata.input_types.base import UserUniversalAPIParams
 from marketdata.internal_settings import (
     HTTP_TIMEOUT,
+    MAX_RETRY_ATTEMPTS,
     NO_TOKEN_VALUE,
     RETRY_STATUS_CODES,
 )
@@ -23,8 +24,16 @@ from marketdata.utils import format_duration_log, obfuscate_token
 
 class MarketDataClient:
 
-    def __init__(self, token: str = None, logger: Logger = None):
+    def __init__(
+        self,
+        token: str = None,
+        logger: Logger = None,
+        max_retries: int = MAX_RETRY_ATTEMPTS,
+    ):
+        if max_retries < 0:
+            raise ValueError("max_retries must be >= 0")
         self.token = token or settings.marketdata_token
+        self.max_retries = max_retries
         self.library_version = version("marketdata-sdk-py")
         self.library_user_agent = self._get_user_agent()
 
