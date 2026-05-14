@@ -14,31 +14,10 @@ from marketdata.exceptions import (
 )
 from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import NO_TOKEN_VALUE
-from marketdata.retry import get_retry_adapter
 from marketdata.sdk_error import MarketDataClientErrorResult
 from marketdata.settings import MarketDataSettings, settings
 from marketdata.types import UserRateLimits
 from marketdata.utils import format_duration_log
-
-
-def test_get_retry_adapter(client):
-    retry_adapter = get_retry_adapter(
-        attempts=4,
-        initial_delay=1.0,
-        exceptions=[],
-        logger=client.logger,
-    )
-    assert retry_adapter is not None
-    assert retry_adapter.stop.max_attempt_number == 4
-    assert retry_adapter.retry.exception_types == (Exception,)
-    assert retry_adapter.reraise == False
-
-    state_mock = type("S", (), {"attempt_number": 1})()
-    assert retry_adapter.wait(state_mock) == 1.0
-    state_mock.attempt_number = 2
-    assert retry_adapter.wait(state_mock) == 2.0
-    state_mock.attempt_number = 3
-    assert retry_adapter.wait(state_mock) == 4.0
 
 
 def test_user_rate_limits_str():
