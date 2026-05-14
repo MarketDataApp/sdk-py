@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from marketdata.api_status import API_STATUS_DATA, APIStatusResult
+from marketdata.exceptions import InvalidStatusDataError
 from marketdata.internal_settings import (
     CACHE_VALIDITY_INTERVAL,
     REFRESH_API_STATUS_INTERVAL,
@@ -208,6 +209,14 @@ def test_trigger_async_refresh_runs_in_background(respx_mock, client):
     assert not thread.is_alive()
     assert API_STATUS_DATA._refresh_in_flight is False
     assert API_STATUS_DATA.service == ["/v1/markets/status/"]
+
+
+@pytest.mark.parametrize("missing_key", ["service", "status", "online"])
+def test_update_raises_when_required_key_missing(missing_key):
+    data = {"service": ["x"], "status": ["online"], "online": [True]}
+    data.pop(missing_key)
+    with pytest.raises(InvalidStatusDataError, match=missing_key):
+        API_STATUS_DATA.update(data)
 
 
 def test_async_refresh_clears_in_flight_on_failure(respx_mock, client):
