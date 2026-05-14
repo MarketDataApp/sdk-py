@@ -1,3 +1,4 @@
+import math
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from logging import DEBUG, Logger
@@ -16,9 +17,13 @@ def parse_retry_after(value: str | None) -> float | None:
         return None
     value = value.strip()
     try:
-        return max(0.0, float(value))
+        parsed = float(value)
     except ValueError:
-        pass
+        parsed = None
+    if parsed is not None:
+        if not math.isfinite(parsed):
+            return None
+        return max(0.0, parsed)
     try:
         target = parsedate_to_datetime(value)
     except (TypeError, ValueError):

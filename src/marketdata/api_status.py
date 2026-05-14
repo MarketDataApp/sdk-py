@@ -29,34 +29,19 @@ class APIStatusData:
         self.service = []
         self.status = []
         self.online = []
-        self.uptimePct30d = []
-        self.uptimePct90d = []
-        self.updated = []
 
     def update(self, data: dict):
         try:
             new_service = data["service"]
             new_status = data["status"]
             new_online = data["online"]
-            new_uptime30 = data["uptimePct30d"]
-            new_uptime90 = data["uptimePct90d"]
-            new_updated = data["updated"]
         except KeyError as e:
             raise InvalidStatusDataError(f"Invalid status data: {e}") from e
         with self._lock:
             self.service = new_service
             self.status = new_status
             self.online = new_online
-            self.uptimePct30d = new_uptime30
-            self.uptimePct90d = new_uptime90
-            self.updated = new_updated
             self._last_refresh_at = datetime.datetime.now()
-
-    @property
-    def last_updated(self) -> datetime.datetime:
-        if not self.updated:
-            return datetime.datetime(1970, 1, 1)
-        return datetime.datetime.fromtimestamp(min(self.updated))
 
     @property
     def cache_age(self) -> datetime.timedelta:
@@ -124,15 +109,22 @@ class APIStatusData:
                 return
             self._refresh_in_flight = True
 
-        thread = threading.Thread(
-            target=self._async_refresh, args=(client,), daemon=True
-        )
-        self._refresh_thread = thread
-        thread.start()
+        try:
+            thread = threading.Thread(
+                target=self._async_refresh, args=(client,), daemon=True
+            )
+            self._refresh_thread = thread
+            thread.start()
+        except Exception:
+            with self._lock:
+                self._refresh_in_flight = False
+            raise
 
     def _async_refresh(self, client: "MarketDataClient") -> None:
         try:
             self.refresh(client)
+        except Exception:
+            client.logger.exception("Async status refresh failed")
         finally:
             with self._lock:
                 self._refresh_in_flight = False

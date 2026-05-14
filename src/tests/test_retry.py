@@ -56,6 +56,9 @@ def test_get_retry_adapter(client):
         ("3.5", 3.5),
         ("-5", 0.0),
         ("not-a-date", None),
+        ("nan", None),
+        ("inf", None),
+        ("-inf", None),
     ],
 )
 def test_parse_retry_after_seconds(value, expected):

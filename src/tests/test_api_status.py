@@ -111,9 +111,6 @@ def _populate_cache_with_age(age: datetime.timedelta):
     API_STATUS_DATA.service = ["/v1/markets/status/"]
     API_STATUS_DATA.status = ["online"]
     API_STATUS_DATA.online = [True]
-    API_STATUS_DATA.uptimePct30d = [100]
-    API_STATUS_DATA.uptimePct90d = [100]
-    API_STATUS_DATA.updated = [int(time.time())]
     API_STATUS_DATA._last_refresh_at = datetime.datetime.now() - age
 
 
@@ -219,4 +216,38 @@ def test_async_refresh_clears_in_flight_on_failure(respx_mock, client):
     API_STATUS_DATA._trigger_async_refresh(client)
     thread = API_STATUS_DATA._refresh_thread
     thread.join(timeout=5)
+    assert API_STATUS_DATA._refresh_in_flight is False
+
+
+def test_async_refresh_logs_unexpected_exception(client, monkeypatch):
+    def boom(_):
+        raise RuntimeError("network exploded")
+
+    monkeypatch.setattr(API_STATUS_DATA, "refresh", boom)
+    logged = []
+    monkeypatch.setattr(
+        client.logger, "exception", lambda msg, *a, **kw: logged.append(msg)
+    )
+
+    API_STATUS_DATA._trigger_async_refresh(client)
+    thread = API_STATUS_DATA._refresh_thread
+    thread.join(timeout=5)
+
+    assert logged == ["Async status refresh failed"]
+    assert API_STATUS_DATA._refresh_in_flight is False
+
+
+def test_trigger_async_refresh_clears_flag_when_thread_construction_fails(
+    client, monkeypatch
+):
+    def boom(*args, **kwargs):
+        raise RuntimeError("cannot spawn")
+
+    import marketdata.api_status as mod
+
+    monkeypatch.setattr(mod.threading, "Thread", boom)
+
+    with pytest.raises(RuntimeError):
+        API_STATUS_DATA._trigger_async_refresh(client)
+
     assert API_STATUS_DATA._refresh_in_flight is False
