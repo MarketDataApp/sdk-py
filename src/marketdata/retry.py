@@ -28,8 +28,6 @@ def parse_retry_after(value: str | None) -> float | None:
         target = parsedate_to_datetime(value)
     except (TypeError, ValueError):
         return None
-    if target is None:
-        return None
     if target.tzinfo is None:
         target = target.replace(tzinfo=timezone.utc)
     return max(0.0, (target - datetime.now(timezone.utc)).total_seconds())

@@ -77,6 +77,14 @@ def test_parse_retry_after_http_date_past():
     assert parse_retry_after("Wed, 21 Oct 1995 07:28:00 GMT") == 0.0
 
 
+def test_parse_retry_after_naive_asctime_treated_as_utc():
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=120)
+    header = future.strftime("%a %b %d %H:%M:%S %Y")
+    result = parse_retry_after(header)
+    assert result is not None
+    assert 110 < result <= 120
+
+
 def test_compute_wait_retry_after_overrides_exponential(client):
     retry_adapter = get_retry_adapter(
         attempts=4,
