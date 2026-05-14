@@ -26,11 +26,6 @@ def api_error_handler(func: Callable = None, service: str = None) -> Callable:
         log_before_sleep = before_sleep_log(logger, log_level=DEBUG)
 
         def _status_check_before_sleep(retry_state):
-            # Status check seam: 9.5 will replace the impl of should_refresh/
-            # refresh/get_api_status with the dual-threshold + async refresh
-            # logic; this hook stays put.
-            if API_STATUS_DATA.should_refresh:
-                API_STATUS_DATA.refresh(client)
             status = API_STATUS_DATA.get_api_status(client, service)
             if status == APIStatusResult.OFFLINE:
                 raise retry_state.outcome.exception()

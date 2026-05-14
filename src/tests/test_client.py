@@ -56,6 +56,13 @@ def test_client_headers_no_token(respx_mock):
 
 def test_client_make_request_retry(client, respx_mock, monkeypatch):
     monkeypatch.setattr("time.sleep", lambda *_: None)
+    from marketdata.api_status import API_STATUS_DATA
+
+    monkeypatch.setattr(
+        API_STATUS_DATA,
+        "_trigger_async_refresh",
+        lambda c: API_STATUS_DATA.refresh(c),
+    )
 
     respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
         json={},
@@ -65,21 +72,15 @@ def test_client_make_request_retry(client, respx_mock, monkeypatch):
     result = client.stocks.prices(symbols="AAPL")
     assert isinstance(result, MarketDataClientErrorResult)
 
+    prices_calls = [
+        c for c in respx_mock.calls if c.request.url.path == "/v1/stocks/prices/"
+    ]
+    status_calls = [
+        c for c in respx_mock.calls if c.request.url.path == "/status/"
+    ]
+    assert len(prices_calls) == 4
+    assert len(status_calls) == 1
     assert respx_mock.calls.call_count == 6
-
-    # 1st request is for user rate limits
-    assert respx_mock.calls[0].request.url.path == "/user/"
-
-    # 2nd request is stocks.prices (and it fails with 502 status code)
-    assert respx_mock.calls[1].request.url.path == "/v1/stocks/prices/"
-
-    # 3rd request is API status check (triggered by before_sleep after 1st fail)
-    assert respx_mock.calls[2].request.url.path == "/status/"
-
-    # 4th, 5th, 6th requests are retries (cached status, no extra /status/ calls)
-    assert respx_mock.calls[3].request.url.path == "/v1/stocks/prices/"
-    assert respx_mock.calls[4].request.url.path == "/v1/stocks/prices/"
-    assert respx_mock.calls[5].request.url.path == "/v1/stocks/prices/"
 
 
 def test_client_make_request_bad_status_not_retry(client, respx_mock):
@@ -354,7 +355,6 @@ def test_client_max_retries_zero_no_retry(respx_mock, monkeypatch):
 
     result = c.stocks.prices(symbols="AAPL")
     assert isinstance(result, MarketDataClientErrorResult)
-    # 1 /user/ + 1 /v1/stocks/prices/ (no retry, no status check)
     assert respx_mock.calls.call_count == 2
 
 
@@ -402,7 +402,6 @@ def test_client_max_retries_one(respx_mock, monkeypatch):
 
     result = c.stocks.prices(symbols="AAPL")
     assert isinstance(result, MarketDataClientErrorResult)
-    # /user/ + attempt 1 + /status/ + attempt 2 = 4 calls
     prices_calls = [c for c in respx_mock.calls if c.request.url.path == "/v1/stocks/prices/"]
     assert len(prices_calls) == 2
 

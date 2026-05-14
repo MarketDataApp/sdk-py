@@ -32,14 +32,6 @@ def _no_sleep(monkeypatch):
     monkeypatch.setattr("time.sleep", lambda *_: None)
 
 
-@pytest.fixture(autouse=True)
-def _no_status_refresh(monkeypatch):
-    monkeypatch.setattr(
-        "marketdata.api_error.API_STATUS_DATA.refresh",
-        lambda *args, **kwargs: True,
-    )
-
-
 @patch(
     "marketdata.api_error.API_STATUS_DATA.get_api_status",
     return_value=APIStatusResult.OFFLINE,
@@ -48,7 +40,6 @@ def test_api_error_handler_offline_aborts_after_first_failure(_, client):
     resource = DummyResource(client=client)
     with pytest.raises(RequestError):
         resource.test_function_fails()
-    # Offline status raises from before_sleep, so only the 1st attempt runs.
     assert DummyResource.call_count == 1
 
 
@@ -60,7 +51,6 @@ def test_api_error_handler_online_retries_max_attempts(_, client):
     resource = DummyResource(client=client)
     with pytest.raises(RequestError):
         resource.test_function_fails()
-    # Default max_retries=3 → 1 initial + 3 retries = 4 total attempts.
     assert DummyResource.call_count == 4
 
 
@@ -84,5 +74,4 @@ def test_api_error_handler_respects_max_retries_zero(_, client):
     resource = DummyResource(client=client)
     with pytest.raises(RequestError):
         resource.test_function_fails()
-    # max_retries=0 → 1 attempt, no retries, status check never invoked.
     assert DummyResource.call_count == 1

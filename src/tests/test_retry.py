@@ -87,7 +87,6 @@ def test_compute_wait_retry_after_overrides_exponential(client):
         response=_retry_after_response("7"),
     )
     state = _make_retry_state(attempt_number=2, exc=exc)
-    # Exponential would yield 2.0; Retry-After overrides to 7.0.
     assert retry_adapter.wait(state) == 7.0
 
 

@@ -13,6 +13,7 @@ HTTP_TIMEOUT = 60
 VALID_STATUS_CODES = [200, 203]
 GLOBAL_EXCLUDED_PARAMS = ["output_format", "filename"]
 REFRESH_API_STATUS_INTERVAL = datetime.timedelta(minutes=4, seconds=30)
+CACHE_VALIDITY_INTERVAL = datetime.timedelta(minutes=5)
 ALLOWED_POSITIONAL_PARAMS = ["symbol", "symbols", "lookup"]
 DATAFRAME_HANDLERS_PRIORITY = ["pandas", "polars"]
 NO_TOKEN_VALUE = NoTokenValueType()

@@ -12,11 +12,6 @@ from tenacity import (
 
 
 def parse_retry_after(value: str | None) -> float | None:
-    """Parse a Retry-After header (RFC 7231 §7.1.3).
-
-    Accepts delta-seconds or HTTP-date. Returns None when the value is
-    missing or unparseable so callers can fall back to their default wait.
-    """
     if not value:
         return None
     value = value.strip()
