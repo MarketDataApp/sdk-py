@@ -4,6 +4,7 @@ import time
 
 import pytest
 
+from marketdata.api_status import API_STATUS_DATA
 from marketdata.client import MarketDataClient
 from marketdata.types import UserRateLimits
 
@@ -23,6 +24,15 @@ def load_json():
 @pytest.fixture(autouse=True)
 def chdir(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _reset_api_status_data():
+    API_STATUS_DATA.__init__()
+    yield
+    if API_STATUS_DATA._refresh_thread is not None:
+        API_STATUS_DATA._refresh_thread.join(timeout=2)
+    API_STATUS_DATA.__init__()
 
 
 @pytest.fixture
