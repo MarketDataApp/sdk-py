@@ -5,7 +5,7 @@ The `funds` resource provides access to funds market data, including historical 
 ## Accessing the Funds Resource
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 funds = client.funds
@@ -65,7 +65,7 @@ Fetches funds candles (OHLC data) for a symbol with support for various timefram
 **Get daily candles for a fund symbol (DataFrame):**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -78,7 +78,7 @@ print(df)
 **Get candles with specific resolution:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Get weekly candles
@@ -93,7 +93,7 @@ df = client.funds.candles("VFINX", resolution="Y")
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Fetch candles for a specific date range
@@ -110,7 +110,7 @@ print(df)
 **Get candles using countback:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Get last 100 daily candles
@@ -121,8 +121,7 @@ print(df)
 **Get candles as internal objects:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -138,8 +137,7 @@ for candle in candles:
 **Get candles with human-readable format:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # Uses Date, Open, High, Low, Close instead of t, o, h, l, c
@@ -157,8 +155,7 @@ for candle in candles:
 **Get candles as JSON:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -172,8 +169,7 @@ print(json_data)
 
 ```python
 from pathlib import Path
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -195,8 +191,7 @@ if csv_file:
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import DateFormat, Mode
+from marketdata import MarketDataClient, DateFormat, Mode
 
 client = MarketDataClient()
 # Use custom date format and mode
@@ -237,8 +232,7 @@ When `use_human_readable=True`:
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument

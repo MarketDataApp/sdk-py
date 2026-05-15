@@ -104,7 +104,7 @@ MARKETDATA_TOKEN=your_token_here
 You can pass the token when creating a client instance:
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient(token="your_token_here")
 ```
@@ -114,7 +114,7 @@ client = MarketDataClient(token="your_token_here")
 ### Create a client
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 from logging import Logger
 
 # Token will be automatically obtained from MARKETDATA_TOKEN environment variable
@@ -191,7 +191,7 @@ The SDK provides access to different market data resources:
 #### Quick Example
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 
@@ -262,8 +262,7 @@ For detailed information about return types and object structures for each resou
 You can specify the output format when calling resource methods:
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 
@@ -335,8 +334,7 @@ File path for CSV output (only used with `output_format=OutputFormat.CSV`).
 #### Example: Using Universal Parameters
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat, DateFormat, Mode
+from marketdata import MarketDataClient, OutputFormat, DateFormat, Mode
 from pathlib import Path
 
 client = MarketDataClient()
@@ -371,7 +369,7 @@ The SDK uses a combination of exceptions and return values for error handling:
 Raised when API rate limits are exceeded (before retry logic):
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 from marketdata.exceptions import RateLimitError
 
 try:
@@ -399,8 +397,7 @@ Raised for various validation errors:
 - Invalid input parameters
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 from pathlib import Path
 
 try:
@@ -420,9 +417,8 @@ except ValueError as e:
 Raised when date range validation fails (e.g., `from_date` is greater than `to_date`). This exception is typically caught internally by the `@handle_exceptions` decorator and converted to `MarketDataClientErrorResult`. You generally won't need to catch it directly unless you're working with low-level validation.
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient, MarketDataClientErrorResult
 from marketdata.exceptions import MinMaxDateValidationError
-from marketdata.sdk_error import MarketDataClientErrorResult
 import datetime
 
 try:
@@ -445,9 +441,8 @@ except MinMaxDateValidationError as e:
 Raised when arguments are passed incorrectly. Only the `symbol` or `symbols` parameter can be passed as a positional argument. All other parameters must be keyword-only:
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient, OutputFormat
 from marketdata.exceptions import KeywordOnlyArgumentError
-from marketdata.input_types.base import OutputFormat
 
 try:
     client = MarketDataClient()
@@ -467,8 +462,7 @@ except KeywordOnlyArgumentError as e:
 This is a special result type returned by resource methods when errors occur. It wraps the original exception and allows you to check for errors without exception handling. **All resource methods return either the expected result or `MarketDataClientErrorResult` - they never return `None`.**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.sdk_error import MarketDataClientErrorResult
+from marketdata import MarketDataClient, MarketDataClientErrorResult
 
 client = MarketDataClient()
 result = client.stocks.prices("AAPL")
@@ -513,9 +507,8 @@ Exceptions are caught internally by the `@handle_exceptions` decorator and conve
 Always check for `MarketDataClientErrorResult` return values and handle exceptions when calling resource methods:
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient, MarketDataClientErrorResult
 from marketdata.exceptions import RateLimitError, RequestError
-from marketdata.sdk_error import MarketDataClientErrorResult
 
 client = MarketDataClient()
 try:
@@ -551,7 +544,7 @@ All resource methods include API status checking and automatic retry logic. See 
 If a service is offline when checked, the method raises the original `RequestError` exception instead of retrying:
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 from marketdata.exceptions import RequestError
 
 client = MarketDataClient()

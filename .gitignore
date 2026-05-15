@@ -209,3 +209,6 @@ __marimo__/
 
 # Project specific
 output/
+
+# Mac OS
+.DS_Store

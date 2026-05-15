@@ -5,7 +5,7 @@ The `options` resource provides access to options market data, including expirat
 ## Accessing the Options Resource
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 options = client.options
@@ -62,7 +62,7 @@ Fetches available expiration dates for a given symbol. This method includes API 
 **Get all expirations for a symbol:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -75,8 +75,7 @@ print(df)
 **Get expirations as internal object:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -95,8 +94,7 @@ Note: `expirations()` returns a single `OptionsExpirations` object, not a list. 
 **Get expirations as JSON:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -110,8 +108,7 @@ print(json_data)
 
 ```python
 from pathlib import Path
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -139,7 +136,7 @@ if csv_file:
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -240,7 +237,7 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 **Get full options chain:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -254,7 +251,7 @@ print(chain)
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -273,7 +270,7 @@ print(chain)
 **Filter by strike and side:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -294,7 +291,7 @@ print(chain)
 **Filter by liquidity:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -318,7 +315,7 @@ print(chain)
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -345,8 +342,7 @@ print(chain)
 **Get chain as internal object:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -365,8 +361,7 @@ Note: `chain()` returns a single `OptionsChain` object, not a list. All properti
 **Get chain as JSON:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -380,8 +375,7 @@ print(json_data)
 
 ```python
 from pathlib import Path
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -408,8 +402,7 @@ if csv_file:
 **Using universal parameters:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import DateFormat, Mode
+from marketdata import MarketDataClient, DateFormat, Mode
 
 client = MarketDataClient()
 # Use custom date format and mode
@@ -466,7 +459,7 @@ Fetches the option symbol for a given lookup string. The lookup string should co
 **Get option symbol for specific parameters:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # lookup can be passed positionally or as keyword argument
@@ -480,8 +473,7 @@ print(lookup_result)
 **Get lookup as internal object:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # lookup can be passed positionally or as keyword argument
@@ -505,8 +497,7 @@ Note: `lookup()` returns a single `OptionsLookup` object, not a list.
 **Get lookup as JSON:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # lookup can be passed positionally or as keyword argument
@@ -526,8 +517,7 @@ print(json_data)
 
 ```python
 from pathlib import Path
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # lookup can be passed positionally or as keyword argument
@@ -600,7 +590,7 @@ Fetches options quotes for one or more option symbols. This method includes API 
 **Get quotes for a single option symbol:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -613,7 +603,7 @@ print(quotes)
 **Get quotes for multiple option symbols:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -634,8 +624,7 @@ print(quotes)
 **Get quotes as internal object:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -653,8 +642,7 @@ Note: `quotes()` returns a single `OptionsQuotes` object, not a list. All proper
 **Get quotes as JSON:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -668,8 +656,7 @@ print(json_data)
 
 ```python
 from pathlib import Path
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -696,8 +683,7 @@ if csv_file:
 **Using universal parameters:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import DateFormat, Mode
+from marketdata import MarketDataClient, DateFormat, Mode
 
 client = MarketDataClient()
 # Use custom date format and mode
@@ -759,7 +745,7 @@ Fetches available strike prices for a given symbol. This method includes API sta
 **Get all strikes for a symbol:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -773,7 +759,7 @@ print(df)
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -795,7 +781,7 @@ print(df)
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -815,8 +801,7 @@ print(df)
 **Get strikes as internal object:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -839,8 +824,7 @@ Note: `strikes()` returns a single `OptionsStrikes` object, not a list. The `Opt
 **Get strikes as JSON:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -854,8 +838,7 @@ print(json_data)
 
 ```python
 from pathlib import Path
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -883,8 +866,7 @@ if csv_file:
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import DateFormat, Mode
+from marketdata import MarketDataClient, DateFormat, Mode
 
 client = MarketDataClient()
 # Use custom date format and mode
@@ -930,8 +912,7 @@ When `use_human_readable=True`:
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -984,8 +965,7 @@ All properties are lists with the same length, where each index represents a sin
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -1094,8 +1074,7 @@ When `use_human_readable=True`:
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -1126,8 +1105,7 @@ if quotes:
 **Get quotes with human-readable format:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 quotes = client.options.quotes(
@@ -1174,8 +1152,7 @@ When `use_human_readable=True`:
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -1215,8 +1192,7 @@ When `use_human_readable=True`:
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # lookup can be passed positionally or as keyword argument
@@ -1238,8 +1214,7 @@ if lookup:
 **Get lookup with human-readable format:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # Uses Symbol instead of optionSymbol

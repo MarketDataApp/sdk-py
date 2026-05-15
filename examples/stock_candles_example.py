@@ -15,8 +15,7 @@ from datetime import datetime, timedelta
 
 import finplot as fplt
 
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 VOL_SCALE = 1e6
 

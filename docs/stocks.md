@@ -5,7 +5,7 @@ The `stocks` resource provides access to stock market data, including real-time 
 ## Accessing the Stocks Resource
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 stocks = client.stocks
@@ -57,7 +57,7 @@ Fetches stock prices for one or more symbols. This method includes API status ch
 **Get prices for a single symbol (DataFrame):**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -80,8 +80,7 @@ print(df)
 **Get prices as internal objects:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -96,8 +95,7 @@ for price in prices:
 **Get prices as JSON:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -111,8 +109,7 @@ print(json_data)
 
 ```python
 from pathlib import Path
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -132,8 +129,7 @@ if csv_file:
 **Using universal parameters:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import DateFormat, Mode
+from marketdata import MarketDataClient, DateFormat, Mode
 
 client = MarketDataClient()
 # Use custom date format and mode
@@ -189,7 +185,7 @@ Fetches stock quotes for one or more symbols. This method includes API status ch
 **Get quotes for a single symbol (DataFrame):**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -212,8 +208,7 @@ print(df)
 **Get quotes as internal objects:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -231,8 +226,7 @@ for quote in quotes:
 **Get quotes with human-readable format:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # Uses Symbol, Ask, Bid, Mid, Last, Change_Price, Change_Percent, Volume, Date
@@ -252,8 +246,7 @@ for quote in quotes:
 **Get quotes as JSON:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -267,8 +260,7 @@ print(json_data)
 
 ```python
 from pathlib import Path
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -288,8 +280,7 @@ if csv_file:
 **Using universal parameters:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import DateFormat, Mode
+from marketdata import MarketDataClient, DateFormat, Mode
 
 client = MarketDataClient()
 # Use custom date format and mode
@@ -304,7 +295,7 @@ df = client.stocks.quotes(
 **Using extended quotes:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Get extended quotes
@@ -315,7 +306,7 @@ print(df)
 **Using 52-week data:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Get quotes with 52-week high/low
@@ -382,7 +373,7 @@ When both `from_date` and `to_date` are provided, the method behavior depends on
 **Get daily candles for a symbol (DataFrame):**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -395,7 +386,7 @@ print(df)
 **Get candles with specific resolution:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Get hourly candles
@@ -410,7 +401,7 @@ df = client.stocks.candles("AAPL", resolution="W")
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Fetch candles for a specific date range
@@ -428,7 +419,7 @@ print(df)
 **Get candles using countback:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Get last 100 daily candles
@@ -439,8 +430,7 @@ print(df)
 **Get candles as internal objects:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -457,8 +447,7 @@ for candle in candles:
 **Get candles with human-readable format:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # Uses Date, Open, High, Low, Close, Volume instead of t, o, h, l, c, v
@@ -477,8 +466,7 @@ for candle in candles:
 **Get candles as JSON:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -492,8 +480,7 @@ print(json_data)
 
 ```python
 from pathlib import Path
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -515,8 +502,7 @@ if csv_file:
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import DateFormat, Mode
+from marketdata import MarketDataClient, DateFormat, Mode
 
 client = MarketDataClient()
 # Use custom date format and mode
@@ -535,7 +521,7 @@ df = client.stocks.candles(
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Get extended candles (pre-market and after-hours) with split adjustment
@@ -597,7 +583,7 @@ Fetches earnings data for a symbol. This method includes API status checking and
 **Get earnings for a symbol (DataFrame):**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -611,7 +597,7 @@ print(df)
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Fetch earnings for a specific date range
@@ -626,7 +612,7 @@ print(df)
 **Get earnings using countback:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Get last 10 earnings reports
@@ -637,8 +623,7 @@ print(df)
 **Get earnings as internal objects:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -656,8 +641,7 @@ print(f"Estimated EPS: {earnings.estimatedEPS}")
 **Get earnings with human-readable format:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # Uses Symbol, Fiscal_Year, Fiscal_Quarter, Reported_EPS, Estimated_EPS, etc.
@@ -677,8 +661,7 @@ print(f"Estimated EPS: {earnings.Estimated_EPS}")
 **Get earnings as JSON:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -692,8 +675,7 @@ print(json_data)
 
 ```python
 from pathlib import Path
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -714,8 +696,7 @@ if csv_file:
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import DateFormat, Mode
+from marketdata import MarketDataClient, DateFormat, Mode
 
 client = MarketDataClient()
 # Use custom date format and mode
@@ -775,7 +756,7 @@ Fetches news articles for a symbol. This method includes API status checking and
 **Get news for a symbol (DataFrame):**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -789,7 +770,7 @@ print(df)
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Fetch news for a specific date range
@@ -804,7 +785,7 @@ print(df)
 **Get news using countback:**
 
 ```python
-from marketdata.client import MarketDataClient
+from marketdata import MarketDataClient
 
 client = MarketDataClient()
 # Get last 50 news articles
@@ -815,8 +796,7 @@ print(df)
 **Get news as internal objects:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -835,8 +815,7 @@ for article in news:
 **Get news with human-readable format:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # Uses Symbol, Date instead of symbol, updated
@@ -858,8 +837,7 @@ for article in news:
 **Get news as JSON:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -873,8 +851,7 @@ print(json_data)
 
 ```python
 from pathlib import Path
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -895,8 +872,7 @@ if csv_file:
 
 ```python
 import datetime
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import DateFormat, Mode
+from marketdata import MarketDataClient, DateFormat, Mode
 
 client = MarketDataClient()
 # Use custom date format and mode
@@ -936,8 +912,7 @@ When `use_human_readable=True`:
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -958,8 +933,7 @@ for price in prices:
 **Get prices with human-readable format:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # Uses Symbol, Mid, Change_Price, Change_Percent, Date
@@ -1015,8 +989,7 @@ When `use_human_readable=True`:
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbols can be passed positionally or as keyword argument
@@ -1062,8 +1035,7 @@ When `use_human_readable=True`:
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -1120,8 +1092,7 @@ When `use_human_readable=True`:
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -1148,8 +1119,7 @@ for i in range(len(earnings.symbol)):
 **Get earnings with human-readable format:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # Uses Symbol, Fiscal_Year, Fiscal_Quarter, Reported_EPS, Estimated_EPS, etc.
@@ -1198,8 +1168,7 @@ When `use_human_readable=True`:
 ### Example Usage
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
@@ -1220,8 +1189,7 @@ for article in news:
 **Get news with human-readable format:**
 
 ```python
-from marketdata.client import MarketDataClient
-from marketdata.input_types.base import OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 # Uses Symbol, Date instead of symbol, updated
