@@ -65,8 +65,13 @@ def expirations(
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
         data = response.json()
         handler = get_dataframe_output_handler()
+        # When the user explicitly filters columns we must not force
+        # "expirations" into the index: doing so when it is the only requested
+        # column would promote all data into the index and leave an apparently
+        # empty DataFrame.
+        index_columns = [] if user_universal_params.columns else ["expirations"]
         return handler(data, output_model, user_universal_params).get_result(
-            index_columns=["expirations"]
+            index_columns=index_columns
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
