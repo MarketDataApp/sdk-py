@@ -43,8 +43,8 @@ class MarketDataClient:
             self.token if self.token == NO_TOKEN_VALUE else obfuscate_token(self.token)
         )
         self.logger.debug(f"Token: {logged_token}")
-        self.logger.info(f"Base URL: {settings.marketdata_base_url}")
-        self.logger.info(f"API Version: {settings.marketdata_api_version}")
+        self.logger.debug(f"Base URL: {settings.marketdata_base_url}")
+        self.logger.debug(f"API Version: {settings.marketdata_api_version}")
 
         self.base_url = settings.marketdata_base_url
         self.api_version = settings.marketdata_api_version
