@@ -123,12 +123,12 @@ class OptionsChainInput(BaseInputType):
 
     @model_validator(mode="after")
     def validate_input(self) -> "OptionsChainInput":
-        params_typles = [
+        params_tuples = [
             ("min_bid", "max_bid"),
             ("min_ask", "max_ask"),
         ]
-        for min_param, max_param in params_typles:
-            self._validate_min_max_dates(min_param, max_param)
+        for min_param, max_param in params_tuples:
+            self._validate_min_max_value(min_param, max_param)
         return self
 
 
