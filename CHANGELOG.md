@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-06-10
+
+### Fixed
+
+- `options.chain()` min/max bid/ask price filters are now actually validated (#32)
+- `days_to_expiration` filter on `options.chain()` is now sent to the API correctly (was silently ignored) (#30)
+- `options.expirations(columns=[...])` no longer returns an empty DataFrame (#23)
+- `strike_limit` on `options.chain()` accepts integer values without API rejection (#24)
+- `options.quotes()` now exposes `date`, `from`, and `to` params for historical date-range queries (#19)
+
+### Added
+
+- Package root re-exports — `from marketdata import MarketDataClient, MarketDataClientErrorResult, OutputFormat, DateFormat, Mode` (#17)
+- `Retry-After` response header is now honored on retries
+- API status check now uses the cached `/status` endpoint
+
+### Changed
+
+- Default logging level lowered to WARNING — SDK is quiet by default (#25)
+- Retry backoff strategy updated
+
 ## [1.2.0] - 2026-02-13
 
 ### Fixed
