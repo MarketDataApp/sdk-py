@@ -334,3 +334,22 @@ def test_options_chain_strike_limit_is_int_on_wire(load_json, respx_mock, client
 
     params = respx_mock.calls.last.request.url.params
     assert params.get("strikeLimit") == "10"
+
+
+def test_options_chain_input_days_to_expiration_alias_on_wire(
+    load_json, respx_mock, client
+):
+    mock_data = load_json("options_chain_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
+        json=mock_data, status_code=200
+    )
+
+    client.options.chain(
+        "AAPL",
+        days_to_expiration=30,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("dte") == "30"
+    assert params.get("days_to_expiration") is None
