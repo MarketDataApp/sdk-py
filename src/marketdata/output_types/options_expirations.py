@@ -8,10 +8,11 @@ from marketdata.utils import format_timestamp
 class OptionsExpirations:
     s: str
     expirations: list[datetime.datetime]
-    updated: datetime.datetime
+    updated: datetime.datetime | None = None
 
     def __post_init__(self):
-        self.updated = format_timestamp(self.updated)
+        if self.updated is not None:
+            self.updated = format_timestamp(self.updated)
         self.expirations = [
             format_timestamp(expiration) for expiration in self.expirations
         ]

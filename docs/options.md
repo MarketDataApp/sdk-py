@@ -198,7 +198,7 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 
 - `strike` (str, optional): Filter by strike price (e.g., "150", "ATM", "ITM", "OTM")
 - `delta` (float, optional): Filter by delta value
-- `strike_limit` (float, optional): Limit the number of strikes
+- `strike_limit` (int, optional): Limit the number of strikes
 - `range` (str, optional): Strike range filter
 
 **Price / Liquidity Filters:**

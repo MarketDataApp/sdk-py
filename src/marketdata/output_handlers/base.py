@@ -1,3 +1,4 @@
+import types
 from abc import ABC, abstractmethod
 from dataclasses import is_dataclass
 from datetime import date, datetime
@@ -29,7 +30,9 @@ class BaseOutputHandler(ABC):
         args = get_args(field_type)
         if origin in (list, list, Iterable):
             return any(self._type_includes(arg, target) for arg in args)
-        if origin is Union:
+        # Handle both typing.Union[X, None] and the PEP 604 `X | None` form,
+        # whose origin is types.UnionType rather than typing.Union.
+        if origin is Union or origin is types.UnionType:
             return any(
                 self._type_includes(arg, target)
                 for arg in args

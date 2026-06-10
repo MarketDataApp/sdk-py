@@ -66,7 +66,7 @@ class OptionsChainInput(BaseInputType):
         description="The strike price to filter by", default=None
     )
     delta: float | None = Field(description="The delta to filter by", default=None)
-    strike_limit: float | None = Field(
+    strike_limit: int | None = Field(
         description="The strike limit to filter by", alias="strikeLimit", default=None
     )
     range: str | None = Field(description="The range to filter by", default=None)
