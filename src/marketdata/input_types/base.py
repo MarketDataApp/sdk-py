@@ -4,7 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from marketdata.exceptions import MinMaxDateValidationError
+from marketdata.exceptions import MinMaxDateValidationError, MinMaxValueValidationError
 from marketdata.utils import check_is_date
 
 BaseModelConfig = ConfigDict(populate_by_name=True, frozen=False)
@@ -25,6 +25,17 @@ class BaseInputType(BaseModel):
                 raise MinMaxDateValidationError(
                     f"{min_param} must be less than {max_param}"
                 )
+
+    def _validate_min_max_value(
+        self, min_param: str | None, max_param: str | None
+    ) -> None:
+        min_value = getattr(self, min_param)
+        max_value = getattr(self, max_param)
+
+        if min_value is not None and max_value is not None and min_value > max_value:
+            raise MinMaxValueValidationError(
+                f"{min_param} must be less than or equal to {max_param}"
+            )
 
 
 class OutputFormat(str, Enum):

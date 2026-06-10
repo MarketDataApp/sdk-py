@@ -94,5 +94,13 @@ class InvalidStatusDataError(BaseMarketdataException):
     pass
 
 
-class MinMaxDateValidationError(BaseMarketdataException):
+class MinMaxValidationError(BaseMarketdataException):
+    pass
+
+
+class MinMaxValueValidationError(MinMaxValidationError):
+    pass
+
+
+class MinMaxDateValidationError(MinMaxValidationError):
     pass
