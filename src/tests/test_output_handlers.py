@@ -40,6 +40,12 @@ class DummySchemaOptionalDates:
     updated: Union[datetime.datetime, None] = None
 
 
+@dataclass
+class DummySchemaNonDateContainer:
+    mapping: dict[str, int]
+    updated: datetime.datetime
+
+
 class PassthroughHandler(BaseOutputHandler):
     def _get_result(self, *args, **kwargs):
         return {"ok": True}
@@ -112,6 +118,20 @@ def test_base_output_handler_date_columns_from_schema():
         user_universal_params=_make_params(),
     )
     assert handler._get_date_columns() == ["dates"]
+    assert handler._get_datetime_columns() == ["updated"]
+
+
+def test_base_output_handler_ignores_non_date_container_fields():
+    """A field whose type origin is neither a sequence nor a union (e.g. a
+    `dict`) must not be treated as a date column — exercises the fall-through
+    return in `_type_includes`.
+    """
+    handler = PassthroughHandler(
+        data={},
+        output_schema=DummySchemaNonDateContainer,
+        user_universal_params=_make_params(),
+    )
+    assert handler._get_date_columns() == []
     assert handler._get_datetime_columns() == ["updated"]
 
 

@@ -35,7 +35,9 @@ class OptionsChainInput(BaseInputType):
         description="The expiration date to filter by", default=None
     )
     days_to_expiration: int | None = Field(
-        description="The number of days to expiration to filter by", default=None
+        description="The number of days to expiration to filter by",
+        alias="dte",
+        default=None,
     )
     from_date: datetime.date | str | None = Field(
         description="The start date to fetch options chain for",
@@ -64,7 +66,7 @@ class OptionsChainInput(BaseInputType):
         description="The strike price to filter by", default=None
     )
     delta: float | None = Field(description="The delta to filter by", default=None)
-    strike_limit: float | None = Field(
+    strike_limit: int | None = Field(
         description="The strike limit to filter by", alias="strikeLimit", default=None
     )
     range: str | None = Field(description="The range to filter by", default=None)

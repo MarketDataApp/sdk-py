@@ -1,6 +1,7 @@
 import datetime
 import os
-from unittest.mock import patch
+from logging import Logger
+from unittest.mock import MagicMock, patch
 
 import pytest
 import pytz
@@ -412,3 +413,45 @@ def test_settings_extra_env_vars():
     ):
         settings = MarketDataSettings()
         assert settings.marketdata_token == "test_token"
+
+
+def test_default_logging_level_is_warning(monkeypatch):
+    """Issue #25: the SDK must default to WARNING so importing it does not
+    flood the user's terminal with INFO output.
+    """
+    monkeypatch.delenv("MARKETDATA_LOGGING_LEVEL", raising=False)
+    fresh_settings = MarketDataSettings()
+    assert fresh_settings.marketdata_logging_level == "WARNING"
+
+
+def test_client_init_base_url_and_api_version_logged_at_debug(respx_mock):
+    """Issue #25: `Base URL` and `API Version` must be logged at DEBUG rather
+    than INFO so that the default INFO output stays quiet.
+    """
+    headers = {
+        "x-api-ratelimit-limit": "100",
+        "x-api-ratelimit-remaining": "99",
+        "x-api-ratelimit-reset": "60",
+        "x-api-ratelimit-consumed": "1",
+    }
+    respx_mock.get("https://api.marketdata.app/user/").respond(
+        json={}, headers=headers, status_code=200
+    )
+
+    logger = MagicMock(spec=Logger)
+    MarketDataClient(token="test", logger=logger)
+
+    info_messages = [call.args[0] for call in logger.info.call_args_list]
+    debug_messages = [call.args[0] for call in logger.debug.call_args_list]
+
+    # Sanity: the constructor still emits the top-level "Initializing" line at
+    # INFO, so the mock is wired correctly.
+    assert any("Initializing" in m for m in info_messages)
+
+    # The noisy details must not be at INFO anymore.
+    assert not any("Base URL" in m for m in info_messages)
+    assert not any("API Version" in m for m in info_messages)
+
+    # They must still be available, just at DEBUG.
+    assert any("Base URL" in m for m in debug_messages)
+    assert any("API Version" in m for m in debug_messages)

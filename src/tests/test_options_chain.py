@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytz
 
 from marketdata.input_types.base import OutputFormat
+from marketdata.input_types.options import OptionsChainInput
 from marketdata.output_types.options_chain import (
     OptionsChain,
     OptionsChainHumanReadable,
@@ -307,3 +308,48 @@ def test_options_chain_input_date_range_aliases_on_wire(load_json, respx_mock, c
     assert params.get("to") == "2026-04-18"
     assert params.get("from_date") is None
     assert params.get("to_date") is None
+
+
+def test_options_chain_input_strike_limit_typed_as_int():
+    """Issue #24: `strike_limit` is a count of strikes, so an integer input
+    must be kept as an int instead of being coerced to a float.
+    """
+    input_params = OptionsChainInput(strike_limit=10)
+    assert input_params.strike_limit == 10
+    assert type(input_params.strike_limit) is int
+
+
+def test_options_chain_strike_limit_is_int_on_wire(load_json, respx_mock, client):
+    """Issue #24: `strike_limit=10` must be sent as `strikeLimit=10`, not as the
+    float `strikeLimit=10.0` that the API rejects.
+    """
+    mock_data = load_json("options_chain_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
+        json=mock_data, status_code=200
+    )
+
+    client.options.chain(
+        "AAPL", strike_limit=10, output_format=OutputFormat.INTERNAL
+    )
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("strikeLimit") == "10"
+
+
+def test_options_chain_input_days_to_expiration_alias_on_wire(
+    load_json, respx_mock, client
+):
+    mock_data = load_json("options_chain_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
+        json=mock_data, status_code=200
+    )
+
+    client.options.chain(
+        "AAPL",
+        days_to_expiration=30,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("dte") == "30"
+    assert params.get("days_to_expiration") is None
