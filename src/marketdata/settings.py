@@ -24,7 +24,7 @@ class MarketDataSettings(BaseSettings, UniversalParamsSettings):
     marketdata_token: str | NoTokenValueType = NO_TOKEN_VALUE
     marketdata_base_url: str = "https://api.marketdata.app"
     marketdata_api_version: str = "v1"
-    marketdata_logging_level: str = "INFO"
+    marketdata_logging_level: str = "WARNING"
 
     model_config = ConfigDict(
         env_file=".env",
