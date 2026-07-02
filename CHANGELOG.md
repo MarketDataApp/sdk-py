@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Token obfuscation in logs no longer reveals the token length, and never reveals any characters of short tokens
 - API error messages extracted from response bodies are now bounded, so a malformed or hostile response cannot balloon exception messages and logs
 - Malformed rate-limit headers no longer crash a successful request with a raw `KeyError`/`ValueError`; the SDK logs a warning and keeps the previous limits
-- GitHub Actions are pinned to full commit SHAs in CI and publish workflows; the test workflow token is now read-only
+- The PyPI publish action is pinned to a fixed release tag instead of a moving branch ref; the test workflow token is now read-only
 
 ## [1.3.0] - 2026-06-10
 
