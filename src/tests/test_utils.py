@@ -6,6 +6,8 @@ import pytz
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.utils import (
     check_is_date,
+    encode_path,
+    encode_path_segment,
     format_duration_log,
     format_timestamp,
     merge_csv_texts,
@@ -165,9 +167,35 @@ def test_format_duration_hundred_s():
 
 
 def test_obfuscate_token():
-    assert obfuscate_token("1234567890ABCD") == "**********ABCD"
+    # Fixed-width mask: never reveals token length
+    assert obfuscate_token("1234567890ABCD") == "****ABCD"
     assert obfuscate_token("ABCD") == "****"
     assert obfuscate_token("ABC") == "****"
     assert obfuscate_token("") == "****"
-    assert obfuscate_token("12345") == "*2345"
+    # Short tokens never reveal any characters
+    assert obfuscate_token("12345") == "****"
+    assert obfuscate_token("12345678") == "****"
     assert obfuscate_token(None) == "None"
+
+
+def test_encode_path_segment():
+    # Valid symbols pass through unchanged
+    assert encode_path_segment("AAPL") == "AAPL"
+    assert encode_path_segment("BRK.B") == "BRK.B"
+    assert encode_path_segment("AAPL250117C00150000") == "AAPL250117C00150000"
+    assert encode_path_segment(5) == "5"
+    # Path traversal and query/fragment smuggling are neutralized
+    assert encode_path_segment("AAPL/../../user") == "AAPL%2F..%2F..%2Fuser"
+    assert encode_path_segment("AAPL?a=b") == "AAPL%3Fa%3Db"
+    assert encode_path_segment("AAPL#frag") == "AAPL%23frag"
+
+
+def test_encode_path():
+    # Valid lookup strings keep their slashes, spaces are percent-encoded
+    assert encode_path("AAPL 7/28/2023 200 Call") == "AAPL%207/28/2023%20200%20Call"
+    # Dot-segments cannot traverse to another endpoint
+    assert encode_path("AAPL/../../user") == "AAPL/%2E%2E/%2E%2E/user"
+    assert encode_path("..") == "%2E%2E"
+    assert encode_path(".") == "%2E"
+    # Query/fragment smuggling is neutralized
+    assert encode_path("AAPL?a=b#frag") == "AAPL%3Fa%3Db%23frag"

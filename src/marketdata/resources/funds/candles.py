@@ -9,7 +9,7 @@ from marketdata.output_types.funds_candles import FundsCandle, FundsCandlesHuman
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
 from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
-from marketdata.utils import get_data_records
+from marketdata.utils import encode_path_segment, get_data_records
 
 
 @handle_exceptions
@@ -32,7 +32,7 @@ def candles(
     )
 
     url = self._build_url(
-        path=f"funds/candles/{input_params.resolution}/{symbol}/",
+        path=f"funds/candles/{encode_path_segment(input_params.resolution)}/{encode_path_segment(symbol)}/",
         user_universal_params=user_universal_params,
         input_params=input_params,
         extra_params=kwargs,

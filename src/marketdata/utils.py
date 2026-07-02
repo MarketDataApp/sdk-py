@@ -3,6 +3,7 @@ import datetime
 from enum import Enum
 from io import StringIO
 from typing import Any
+from urllib.parse import quote
 
 import pytz
 
@@ -143,8 +144,31 @@ def format_duration_log(duration_ms: float) -> str:
 
 
 def obfuscate_token(token: str) -> str:
+    # Fixed-width mask so the log output never reveals the token length,
+    # and the last 4 chars are only shown when they are a small fraction of the token.
     if not isinstance(token, str):
         return str(token)
-    if len(token) <= 4:
+    if len(token) <= 8:
         return "****"
-    return "*" * (len(token) - 4) + token[-4:]
+    return "****" + token[-4:]
+
+
+def encode_path_segment(value: Any) -> str:
+    # Percent-encode a single URL path segment so caller-supplied input
+    # (e.g. a symbol) cannot smuggle extra path segments ("AAPL/../../user"),
+    # query params or fragments into the request. Valid symbols
+    # (alphanumerics, ".", "-", "_") are unaffected.
+    return quote(str(value), safe="")
+
+
+def encode_path(value: str) -> str:
+    # Percent-encode a multi-segment URL path (e.g. an options lookup string,
+    # where "/" is valid inside dates). Literal slashes are kept, but
+    # dot-segments ("." / "..") are neutralized so caller-supplied input
+    # cannot traverse to a different endpoint.
+    quoted = quote(str(value))
+    segments = [
+        s.replace(".", "%2E") if s and s.strip(".") == "" else s
+        for s in quoted.split("/")
+    ]
+    return "/".join(segments)

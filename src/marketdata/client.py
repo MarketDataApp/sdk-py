@@ -19,7 +19,7 @@ from marketdata.resources.options import OptionsResource
 from marketdata.resources.stocks import StocksResource
 from marketdata.settings import settings
 from marketdata.types import UserRateLimits
-from marketdata.utils import format_duration_log, obfuscate_token
+from marketdata.utils import format_duration_log, obfuscate_token, resume_long_text
 
 
 class MarketDataClient:
@@ -100,11 +100,14 @@ class MarketDataClient:
         raise_for_status: bool,
     ) -> None:
         def _get_response_errmsg(response: Response):
+            # Bound the error message so a malformed or hostile response body
+            # cannot balloon exception messages and log output.
             try:
                 data = response.json()
-                return data["errmsg"]
-            except:
-                return response.text
+                errmsg = data["errmsg"]
+            except Exception:
+                errmsg = response.text
+            return resume_long_text(str(errmsg), max_length=500)
 
         def _validate_status(response: Response):
             try:
@@ -170,14 +173,22 @@ class MarketDataClient:
             response_log_level=DEBUG,
         )
 
-    def _extract_rate_limits(self, response: Response) -> UserRateLimits:
+    def _extract_rate_limits(self, response: Response) -> UserRateLimits | None:
         self.logger.debug(f"Extracting response rate limits from response headers")
-        return UserRateLimits(
-            requests_limit=int(response.headers["x-api-ratelimit-limit"]),
-            requests_remaining=int(response.headers["x-api-ratelimit-remaining"]),
-            requests_reset=int(response.headers["x-api-ratelimit-reset"]),
-            requests_consumed=int(response.headers["x-api-ratelimit-consumed"]),
-        )
+        try:
+            return UserRateLimits(
+                requests_limit=int(response.headers["x-api-ratelimit-limit"]),
+                requests_remaining=int(response.headers["x-api-ratelimit-remaining"]),
+                requests_reset=int(response.headers["x-api-ratelimit-reset"]),
+                requests_consumed=int(response.headers["x-api-ratelimit-consumed"]),
+            )
+        except (KeyError, ValueError) as e:
+            # Malformed response (e.g. missing or non-numeric rate-limit
+            # headers) must not crash the request that already succeeded.
+            self.logger.warning(
+                f"Could not extract rate limits from response headers: {e!r}"
+            )
+            return None
 
     def _pre_request_logs(self, method: str, url: str, **kwargs):
         self.logger.debug(f"Making request to URL: {self.base_url}/{url}")
@@ -221,6 +232,8 @@ class MarketDataClient:
         )
 
         if populate_rate_limits:
-            self.rate_limits = self._extract_rate_limits(response)
+            rate_limits = self._extract_rate_limits(response)
+            if rate_limits is not None:
+                self.rate_limits = rate_limits
 
         return response
