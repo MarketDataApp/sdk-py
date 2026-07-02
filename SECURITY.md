@@ -45,8 +45,9 @@ Out of scope:
 - **The MarketData API backend** itself. Report API/server vulnerabilities
   through the API's own channel, not here.
 - **Third-party dependencies.** Vulnerabilities in resolved dependencies
-  (`uv.lock`) are reported upstream. We will bump the affected dependency here
-  once a fixed version exists.
+  (`uv.lock`) are tracked by Dependabot (see `.github/dependabot.yml`); report
+  them upstream. We will bump the affected dependency here once a fixed version
+  exists.
 
 ## Security Fix Policy
 
