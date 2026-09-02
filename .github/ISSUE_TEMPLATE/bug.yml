@@ -1,0 +1,206 @@
+name: Bug Report
+description: Report a bug in the Market Data Python SDK
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill out all required fields so we can reproduce and fix it quickly.
+
+        **Note:** This SDK returns data exactly as the API provides it. Before reporting, please confirm the behavior differs from what the [API documentation](https://www.marketdata.app/docs/api) describes (not just something unexpected to you).
+
+        **Most resource methods do not raise.** `client.stocks.*`, `client.options.*`, `client.funds.*` and `client.markets.*` catch their own exceptions and return a `MarketDataClientErrorResult` instead. If your call "returned something strange", print `result.support_info` and paste it below — that block is the single most useful thing in this form.
+
+  - type: checkboxes
+    id: api-docs-verified
+    attributes:
+      label: API documentation verification
+      options:
+        - label: I have reviewed the [API documentation](https://www.marketdata.app/docs/api) for this endpoint
+          required: true
+        - label: The behavior I'm reporting differs from what the API documentation describes
+          required: true
+
+  - type: dropdown
+    id: resource
+    attributes:
+      label: SDK resource
+      description: Which part of the SDK is affected?
+      options:
+        - stocks
+        - options
+        - funds
+        - markets
+        - MarketDataClient / settings (MARKETDATA_* env vars, .env)
+        - Errors (MarketDataClientErrorResult, marketdata.exceptions)
+        - Output formats (DATAFRAME / INTERNAL / JSON / CSV)
+        - pandas / polars DataFrame handling
+        - Input validation (Pydantic input models)
+        - Logging / token obfuscation
+        - Rate limiting / retries / API status checking
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: method
+    attributes:
+      label: Method
+      description: Which method are you calling? (for example stocks.candles, options.chain, markets.status)
+      placeholder: stocks.candles
+    validations:
+      required: true
+
+  - type: dropdown
+    id: output-format
+    attributes:
+      label: Output format in use
+      description: The value of `output_format` on the call (default is `OutputFormat.DATAFRAME`).
+      options:
+        - "OutputFormat.DATAFRAME (default)"
+        - OutputFormat.INTERNAL
+        - OutputFormat.JSON
+        - OutputFormat.CSV
+    validations:
+      required: false
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction code
+      description: Complete, self-contained Python that demonstrates the bug — including the imports and the client construction, so we can run it as-is.
+      render: python
+      placeholder: |
+        from marketdata import MarketDataClient, MarketDataClientErrorResult, OutputFormat
+
+        client = MarketDataClient(token="...")  # or set MARKETDATA_TOKEN
+
+        result = client.stocks.candles(
+            "AAPL",
+            resolution="D",
+            countback=5,
+            output_format=OutputFormat.INTERNAL,
+        )
+
+        if isinstance(result, MarketDataClientErrorResult):
+            print(result.support_info)
+        else:
+            print(result)
+        # Bug: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happens? Include exact values, and the full traceback if an exception escaped the SDK.
+      placeholder: |
+        Returned MarketDataClientErrorResult(error=BadStatusCodeError(...)) instead of a DataFrame
+    validations:
+      required: true
+
+  - type: textarea
+    id: support-info
+    attributes:
+      label: Support info (if the call returned a MarketDataClientErrorResult)
+      description: |
+        Error results carry a support block. Print it with:
+
+        ```python
+        from marketdata import MarketDataClientErrorResult
+
+        if isinstance(result, MarketDataClientErrorResult):
+            print(result.support_info)
+        ```
+
+        It contains the request id, URL, status code and timestamp we need for triage. Your API token is never included.
+      render: text
+      placeholder: |
+        --- MARKET DATA SUPPORT INFO ---
+        request_id:		8a1b2c3d4e5f6g7h-SJC
+        request_url:		https://api.marketdata.app/v1/stocks/candles/D/AAPL/?format=json&countback=-5
+        status_code:		422
+        timestamp:		2026-09-02 16:01:49
+        message:		countback must be a positive integer
+        exception_type:		BadStatusCodeError
+        --------------------------------
+    validations:
+      required: false
+
+  - type: input
+    id: sdk-version
+    attributes:
+      label: SDK version
+      description: |
+        Run `pip show marketdata-sdk-py`, or print `MarketDataClient().library_version`. For example `1.3.0`.
+      placeholder: "1.3.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: Run `python --version`. The SDK requires Python 3.10 or later; CI tests 3.10, 3.11 and 3.12.
+      placeholder: "3.12.7"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: dataframe-library
+    attributes:
+      label: DataFrame library installed
+      description: Only relevant for `OutputFormat.DATAFRAME`. pandas wins when both are installed.
+      options:
+        - pandas
+        - polars (polars-lts-cpu)
+        - both
+        - neither
+    validations:
+      required: false
+
+  - type: input
+    id: dependency-versions
+    attributes:
+      label: Key dependency versions
+      description: Output of `pip show httpx pydantic pandas polars-lts-cpu | grep -E "^(Name|Version)"`, or just the versions you know.
+      placeholder: "httpx 0.28.1, pydantic 2.12.5, pandas 2.3.3"
+    validations:
+      required: false
+
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system
+      description: For example "Ubuntu 24.04", "macOS 15.2 (arm64)", "Windows 11".
+      placeholder: "Ubuntu 24.04"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: sanity
+    attributes:
+      label: Before you file
+      options:
+        - label: I can still reproduce this on the latest released version of `marketdata-sdk-py`
+          required: false
+        - label: I checked that no `MARKETDATA_*` environment variable or `.env` file is changing the behavior
+          required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Any other relevant information (client arguments in use, `MARKETDATA_*` settings, workarounds tried, whether it is intermittent, etc.)
+    validations:
+      required: false
