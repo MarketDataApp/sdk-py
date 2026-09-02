@@ -8,6 +8,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Bundle all action bumps into a single PR.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
 
@@ -15,5 +20,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # One PR for minor/patch bumps; majors stay separate PRs since they can
+    # break consumers and need individual review.
+    groups:
+      uv-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
     labels:
       - "dependencies"
