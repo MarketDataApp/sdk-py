@@ -27,6 +27,7 @@
 - **Options Trading Data**: Complete options chains, expirations, strikes, quotes, and lookup
 - **Mutual Funds**: Historical candles and pricing data
 - **Market Status**: Real-time market open/closed status for multiple countries
+- **Utilities**: API service status, an echo of your request headers, and your account's credit counters
 - **Multiple Output Formats**: DataFrames (pandas/polars), JSON, CSV, or Python objects
 - **Built-in Retry Logic**: Automatic retry with exponential backoff for reliable data fetching
 - **Type-Safe**: Full Pydantic validation and type hints
@@ -186,6 +187,10 @@ The SDK provides access to different market data resources:
   - Methods: `status()`
   - See [Markets Documentation](docs/markets.md) for detailed usage
 
+- **Utilities**: API service status, request headers echo (with the IP the API detected) and the account's credit counters
+  - Methods: `status()`, `headers()`, `user()`
+  - See [Utilities Documentation](docs/utilities.md) for detailed usage
+
 > **Note:** For stocks, options, and funds resources, the `symbol`, `symbols`, or `lookup` parameter (depending on the method) can be passed as the first positional argument or as a keyword argument. All other parameters must be keyword-only. For markets resource, all parameters must be keyword-only.
 
 #### Quick Example
@@ -258,6 +263,7 @@ For detailed information about return types and object structures for each resou
 - [Options Documentation](docs/options.md) - Object types: `OptionsExpirations`, `OptionsChain`, `OptionsStrikes`, `OptionsQuotes`, `OptionsLookup`
 - [Funds Documentation](docs/funds.md) - Object type: `FundsCandle`
 - [Markets Documentation](docs/markets.md) - Object type: `MarketStatus`
+- [Utilities Documentation](docs/utilities.md) - Object types: `ServiceStatus`, `RequestHeaders`, `User`
 
 You can specify the output format when calling resource methods:
 
@@ -600,7 +606,8 @@ MARKETDATA_MODE=live
 │   ├── stocks.md         # Stocks resource documentation
 │   ├── options.md        # Options resource documentation
 │   ├── funds.md          # Funds resource documentation
-│   └── markets.md        # Markets resource documentation
+│   ├── markets.md        # Markets resource documentation
+│   └── utilities.md      # Utilities resource documentation
 ├── src/
 │   ├── tests/            # Test suite
 │   │   ├── conftest.py   # Pytest configuration and fixtures

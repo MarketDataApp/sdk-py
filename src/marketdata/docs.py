@@ -83,12 +83,16 @@ def docs(func: Callable = None, *, exclude_params: list[str] = None):
     if func is None:
         return lambda f: docs(f, exclude_params=exclude_params)
 
+    docs_info = _get_func_info(func, exclude_params)
     inner = getattr(func, "__wrapped__", None)
 
-    inner_docs_info = _get_func_info(inner, exclude_params) if inner else {}
-    docs_info = _get_func_info(func, exclude_params)
+    # A plain function (no `universal_params` wrapper underneath) documents
+    # itself; a wrapped one merges the inner signature with the wrapper's.
+    if inner is None:
+        func.__docs__ = _get_docstring_from_func_info(docs_info)
+        return func
 
-    combined_docs_info = inner_docs_info
+    combined_docs_info = _get_func_info(inner, exclude_params)
     combined_docs_info["params"].extend(docs_info["params"])
     combined_docs_info["return"] = docs_info["return"]
 

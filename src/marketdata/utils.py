@@ -91,6 +91,26 @@ def _start_of_day(day: datetime.date, like: datetime.datetime) -> datetime.datet
     return datetime.datetime.combine(day, datetime.time.min, tzinfo=like.tzinfo)
 
 
+def dict_to_csv(data: dict, exclude_keys: list[str] | None = None) -> str:
+    """Render a decoded JSON object as CSV text.
+
+    Column-oriented payloads (values are lists) become one row per entry;
+    a flat object becomes a single row. Used for the endpoints that only
+    speak JSON, so ``OutputFormat.CSV`` still produces a file.
+    """
+    if not data:
+        return ""
+    records = get_data_records(data, exclude_keys=exclude_keys)
+    output = StringIO()
+    # A bare line feed, so the text-mode file write yields the platform's
+    # newline instead of a doubled carriage return on Windows.
+    writer = csv.writer(output, lineterminator="\n")
+    if records:
+        writer.writerow(list(records[0].keys()))
+        writer.writerows(list(row.values()) for row in records)
+    return output.getvalue()
+
+
 def split_dates_by_timeframe(
     start: datetime.datetime,
     end: datetime.datetime,

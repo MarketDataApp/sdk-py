@@ -81,3 +81,16 @@ def test_get_docstring_from_func_info():
         + "\nMethod name: test_func\n\n## Parameters\n\n- a (int): \n- b (str): \n- c (bool): \n"
     )
     assert docstring == expected_docstring
+
+
+def test_docs_on_a_plain_function_documents_its_own_signature():
+    from marketdata.docs import docs
+
+    @docs
+    def plain(self, *, limit: int = 5) -> list[int]:
+        """Plain function without a universal_params wrapper."""
+        return [limit]
+
+    assert "Method name: plain" in plain.__docs__
+    assert "- limit (int)" in plain.__docs__
+    assert "list[int]" in plain.__docs__

@@ -17,6 +17,7 @@ from marketdata.resources.funds import FundsResource
 from marketdata.resources.markets import MarketsResource
 from marketdata.resources.options import OptionsResource
 from marketdata.resources.stocks import StocksResource
+from marketdata.resources.utilities import UtilitiesResource
 from marketdata.settings import settings
 from marketdata.types import UserRateLimits
 from marketdata.utils import format_duration_log, obfuscate_token, resume_long_text
@@ -61,6 +62,7 @@ class MarketDataClient:
         self.markets = MarketsResource(client=self)
         self.options = OptionsResource(client=self)
         self.stocks = StocksResource(client=self)
+        self.utilities = UtilitiesResource(client=self)
 
     def __del__(self):
         if hasattr(self, "client"):

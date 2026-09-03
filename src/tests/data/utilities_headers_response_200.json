@@ -1,0 +1,14 @@
+{
+    "accept": "*/*",
+    "accept-encoding": "gzip, br",
+    "authorization": "Bearer *******************************************************zOD0",
+    "cf-connecting-ip": "203.0.113.7",
+    "cf-ipcountry": "AR",
+    "cf-ray": "a35612271fcb8f28",
+    "cf-visitor": "{\"scheme\":\"https\"}",
+    "connection": "Keep-Alive",
+    "host": "api.marketdata.app",
+    "user-agent": "marketdata-sdk-py/1.3.0",
+    "x-forwarded-proto": "https",
+    "x-real-ip": "203.0.113.7"
+}

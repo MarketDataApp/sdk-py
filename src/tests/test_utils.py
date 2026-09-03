@@ -6,6 +6,7 @@ import pytz
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.utils import (
     check_is_date,
+    dict_to_csv,
     encode_path,
     encode_path_segment,
     format_duration_log,
@@ -260,3 +261,26 @@ def test_encode_path():
     assert encode_path(".") == "%2E"
     # Query/fragment smuggling is neutralized
     assert encode_path("AAPL?a=b#frag") == "AAPL%3Fa%3Db%23frag"
+
+
+def test_dict_to_csv_column_oriented_payload():
+    data = {
+        "s": "ok",
+        "service": ["/v1/a/", "/v1/b/"],
+        "online": [True, False],
+        "updated": [1, 2],
+    }
+
+    assert dict_to_csv(data, exclude_keys=["s"]) == (
+        "service,online,updated\n/v1/a/,True,1\n/v1/b/,False,2\n"
+    )
+
+
+def test_dict_to_csv_flat_object_is_a_single_row():
+    data = {"user-agent": "sdk/1.0", "cf-ray": "abc"}
+
+    assert dict_to_csv(data) == "user-agent,cf-ray\nsdk/1.0,abc\n"
+
+
+def test_dict_to_csv_empty_payload():
+    assert dict_to_csv({}) == ""
