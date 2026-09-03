@@ -405,21 +405,21 @@ for bad in ("out.txt", "nope/out.csv"):
 # does not name the offending path.
 ```
 
-#### 4.1b A custom filename is validated and then discarded
+#### 4.1b A custom filename is honored
 
 ```python
 path = client.stocks.prices("AAPL", output_format=OutputFormat.CSV, filename="mine.csv")
-print(path)   # observed: <cwd>/output/YYYYmmdd_HHMMSS_ffffff.csv
+print(path)   # <cwd>/mine.csv, absolute
 ```
 
-`BaseResource._validate_user_universal_params` sets `result_data["filename"] = None`
-before re-validating, which makes the `filename` validator mint a fresh timestamped path
-in `output/`. The caller's filename is checked (an invalid one still fails, per 4.1) and
-then dropped. The README documents custom filenames as honored, so the two disagree.
+`BaseResource._validate_user_universal_params` merges settings < client defaults < call
+and only defaults `filename` when nobody supplied one (#60: it used to force `None`
+unconditionally, so the caller's validated filename was replaced by a timestamped path in
+`output/` and the call still looked successful).
 
 **Verify on every pass**, and check the same for the other resources: the file that gets
-written must be the file the caller asked for, and the returned path must be the file that
-was written.
+written must be the file the caller asked for, the returned path must be the file that
+was written, and no `output/` directory appears when a filename was given.
 
 #### 4.2 The default path
 
@@ -430,7 +430,7 @@ print(Path(path).exists(), Path(path).read_text()[:200])
 
 # Verify: the returned absolute path exists and holds the CSV.
 # Note: `output/` is created in the caller's current working directory as a side
-# effect of validation — including when a filename WAS supplied (see 4.1b).
+# effect of validation whenever no filename is supplied (see #43).
 ```
 
 #### 4.3 Chunked candles merge

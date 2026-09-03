@@ -112,7 +112,10 @@ class BaseResource:
         result_data.update(default_params_data)
         result_data.update(user_universal_params_data)
 
-        result_data["filename"] = None  # This will force filename to be populated
+        # Only default the filename when nobody supplied one. The validator mints a
+        # timestamped path in output/ for None, so forcing None here unconditionally
+        # threw away a caller-supplied (and already validated) filename (#60).
+        result_data.setdefault("filename", None)
         user_universal_params = UserUniversalAPIParams.model_validate(result_data)
 
         # When using internal output format, we dont filter columns as the internal output format needs all columns
