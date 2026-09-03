@@ -14,9 +14,13 @@ if TYPE_CHECKING:
     from marketdata.client import MarketDataClient
 
 
-def api_error_handler(func: Callable = None, service: str = None) -> Callable:
+def api_error_handler(
+    func: Callable = None, service: str = None, check_status: bool = True
+) -> Callable:
     if func is None:
-        return lambda f: api_error_handler(f, service=service)
+        return lambda f: api_error_handler(
+            f, service=service, check_status=check_status
+        )
 
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -26,9 +30,12 @@ def api_error_handler(func: Callable = None, service: str = None) -> Callable:
         log_before_sleep = before_sleep_log(logger, log_level=DEBUG)
 
         def _status_check_before_sleep(retry_state):
-            status = API_STATUS_DATA.get_api_status(client, service)
-            if status == APIStatusResult.OFFLINE:
-                raise retry_state.outcome.exception()
+            # Endpoints outside /v1/ (the utilities) have no entry in the
+            # /status/ service list, so they opt out of the check.
+            if check_status:
+                status = API_STATUS_DATA.get_api_status(client, service)
+                if status == APIStatusResult.OFFLINE:
+                    raise retry_state.outcome.exception()
             log_before_sleep(retry_state)
 
         retry_adapter = get_retry_adapter(

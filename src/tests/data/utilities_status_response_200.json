@@ -1,0 +1,33 @@
+{
+    "s": "ok",
+    "service": [
+        "/v1/markets/status/",
+        "/v1/options/chain/",
+        "/v1/stocks/quotes/"
+    ],
+    "status": [
+        "online",
+        "online",
+        "offline"
+    ],
+    "online": [
+        true,
+        true,
+        false
+    ],
+    "uptimePct30d": [
+        1,
+        0.99935,
+        0.9986499999999999
+    ],
+    "uptimePct90d": [
+        0.99494,
+        0.99466,
+        0.99446
+    ],
+    "updated": [
+        1735707600,
+        1735707600,
+        1735707600
+    ]
+}
