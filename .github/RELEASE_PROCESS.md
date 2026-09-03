@@ -194,7 +194,7 @@ and `MarketDataApp/sdk-java`, should:
   version; `CHANGELOG.md` contains a `## [X.Y.Z]` section. Print the extracted notes.
 - **Call `test.yml`** (`workflow_call`, not a copied job) against the exact ref, so the
   release gate and everyday CI cannot drift apart — including the live integration suite
-  once one exists (see §7).
+  (see §7).
 - **Resolve `ref` to a concrete commit SHA** and tag that SHA, so a branch moving mid-run
   cannot change what ships.
 - Create the tag and the GitHub Release with notes extracted from `CHANGELOG.md`.
@@ -212,29 +212,25 @@ gate.
 |---|---|
 | PyPI Trusted Publishing | configured, through the `pypi` and `testpypi` environments; no API token secret is stored |
 | `pypi` / `testpypi` environment protection rules | **none** — no reviewer stands between a published Release and PyPI |
-| `MARKETDATA_TOKEN` secret | **absent** |
-| Live integration suite | **absent** |
+| `MARKETDATA_TOKEN` secret | present; consumed by the `integration` job in `test.yml` |
+| Live integration suite | present: `src/tests/integration/`, one live test per endpoint (utilities pending #63), runs on every pull request; a missing token fails the job |
 | `CODECOV_TOKEN` secret | present; `test.yml` uploads `coverage.xml` with `fail_ci_if_error: true` |
 | `main` branch protection | enabled: `test (3.10)`, `test (3.11)` and `test (3.12)` are required checks; force pushes and deletions are blocked. **No required reviewer**, so a release PR can be merged by its author |
 | Default branch | `main` |
 
-> ### The integration gap
+> ### The integration suite
 >
-> **`sdk-py` has no `MARKETDATA_TOKEN` secret, and no CI job that references one.** The
-> entire suite — 344 tests at the time of writing — mocks HTTP through `respx`, so nothing
-> in CI has ever spoken to `api.marketdata.app`. A release can therefore be cut, uploaded
-> and installed by users without a single request having been made against the live API.
+> `src/tests/integration/` exercises every resource against `api.marketdata.app` with the
+> free-trial symbols, asserting on the decoded response shape. It is excluded from the
+> default `pytest` run and from `./test.sh`; the `integration` job in `test.yml` runs it on
+> every pull request and on manual dispatch, and **fails when `MARKETDATA_TOKEN` is
+> absent** rather than skipping (§17.3), so a green pipeline cannot mean "ran nothing".
+> Dependabot pull requests cannot read repository secrets, so for them the job is skipped
+> as a whole, which the checks list shows as skipped, never as passed.
 >
-> §17.3 of the SDK requirements calls for a `MARKETDATA_TOKEN` secret whose **absence
-> fails the job rather than skipping it**, precisely so a green pipeline cannot mean "ran
-> nothing". This repository does not yet satisfy that. Closing the gap needs three things,
-> in order: an integration suite that exercises each resource against the live API; the
-> `MARKETDATA_TOKEN` repository secret; and a CI job that fails when the token is missing.
-> Creating the secret is a maintainer action and is deliberately not part of this
-> document's scope.
->
-> Until then, treat the manual smoke test in §5 as the only live verification a release
-> gets, and run it every time.
+> The suite has not yet been wired into a release gate: until `tag-and-release.yml`
+> exists (§6, #61), run it by hand on the exact commit before tagging, and keep the manual
+> smoke test in §5 as the final check after publishing.
 
 > ### Coverage is at 100%, and nothing enforces it
 >

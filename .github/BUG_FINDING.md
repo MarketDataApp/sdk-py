@@ -771,12 +771,13 @@ each line ran, not that it did the right thing.
 
 Two blind spots make that gap wider here than the number suggests:
 
-- **Every test mocks HTTP through `respx`.** There is no live integration suite and no
-  `MARKETDATA_TOKEN` secret in CI (see [RELEASE_PROCESS.md](./RELEASE_PROCESS.md) §7), so
-  the suite proves the SDK agrees with the fixtures in `src/tests/data/` — not that the
-  fixtures still match what `api.marketdata.app` sends. A parameter the API silently
-  ignores looks identical to one it honors. **Every bug hunt should include at least one
-  pass against the live API with a real token.**
+- **The unit suite mocks HTTP through `respx`.** It proves the SDK agrees with the
+  fixtures in `src/tests/data/` — not that the fixtures still match what
+  `api.marketdata.app` sends. The live suite in `src/tests/integration/` (one test per
+  endpoint, run on every pull request; see [RELEASE_PROCESS.md](./RELEASE_PROCESS.md) §7)
+  is the check against the real API, but it asserts shapes, not values: a parameter the
+  API silently ignores can still look identical to one it honors. **Every bug hunt should
+  include at least one pass against the live API with a real token.**
 - **Nothing enforces the number.** There is no `--cov-fail-under`, no `codecov.yml`, and
   no coverage status check in branch protection. Coverage can fall without failing a
   build.

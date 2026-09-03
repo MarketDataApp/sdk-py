@@ -340,9 +340,10 @@ Closing due to inactivity. If you can provide the requested information, feel fr
        assert params["dte"] == "30"
        ```
 
-7. [ ] **If the fix touches live-API behavior, verify it by hand.** This repository has
-       **no live integration suite and no `MARKETDATA_TOKEN` secret**, so CI cannot check
-       this for you (see `RELEASE_PROCESS.md` §7):
+7. [ ] **If the fix touches live-API behavior, cover it in the live suite.** The
+       integration tests in `src/tests/integration/` run on every pull request (see
+       `RELEASE_PROCESS.md` §7); add or adjust the test for the affected endpoint, and
+       verify by hand first:
 
        ```bash
        MARKETDATA_TOKEN=... python -c "
