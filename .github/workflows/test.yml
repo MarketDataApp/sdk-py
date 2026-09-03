@@ -13,6 +13,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      # One Python version failing must not cancel the other two: the release
+      # process reads all three results, and a cancelled job hides its own.
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     
@@ -47,6 +50,10 @@ jobs:
         echo "Coverage file found:"
         ls -lh coverage.xml
     
+    # Coverage reporting is optional (SDK requirements 17.3): a missing
+    # CODECOV_TOKEN must not fail the job. Runs triggered by Dependabot (and by
+    # forks) never receive repository secrets, so with fail_ci_if_error the
+    # upload step turned every dependency update red while the suite passed.
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v7
       with:
@@ -54,5 +61,5 @@ jobs:
         files: ./coverage.xml
         flags: unittests
         name: codecov-python-${{ matrix.python-version }}
-        fail_ci_if_error: true
+        fail_ci_if_error: false
         verbose: true
