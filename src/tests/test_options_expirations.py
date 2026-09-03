@@ -18,11 +18,7 @@ ET = pytz.timezone("US/Eastern")
 
 
 def test_options_expirations_str():
-    timestamp = int(
-        datetime.datetime(
-            2025, 1, 1, 0, 0, 0, 0, ET
-        ).timestamp()
-    )
+    timestamp = int(datetime.datetime(2025, 1, 1, 0, 0, 0, 0, ET).timestamp())
 
     instance = OptionsExpirations(
         s="ok",
@@ -34,11 +30,7 @@ def test_options_expirations_str():
 
 
 def test_options_expirations_human_readable_str():
-    timestamp = int(
-        datetime.datetime(
-            2025, 1, 1, 0, 0, 0, 0, ET
-        ).timestamp()
-    )
+    timestamp = int(datetime.datetime(2025, 1, 1, 0, 0, 0, 0, ET).timestamp())
     instance = OptionsExpirationsHumanReadable(
         Expirations=[timestamp],
         Date=timestamp,
@@ -64,9 +56,7 @@ def test_get_options_expirations_response_200_internal(load_json, respx_mock, cl
         1764910800, tz=ET
     )
     assert expirations.expirations[0].date() == datetime.date(2025, 12, 5)
-    assert expirations.updated == datetime.datetime.fromtimestamp(
-        1764941963, tz=ET
-    )
+    assert expirations.updated == datetime.datetime.fromtimestamp(1764941963, tz=ET)
 
 
 def test_get_options_expirations_response_200_json(load_json, respx_mock, client):
@@ -97,9 +87,7 @@ def test_get_options_expirations_human_response_200(load_json, respx_mock, clien
         1765515600, tz=ET
     )
     assert expirations.Expirations[0].date() == datetime.date(2025, 12, 12)
-    assert expirations.Date == datetime.datetime.fromtimestamp(
-        1765561297, tz=ET
-    )
+    assert expirations.Date == datetime.datetime.fromtimestamp(1765561297, tz=ET)
 
 
 def test_get_options_expirations_response_200_dataframe_pandas(
@@ -205,9 +193,7 @@ def test_options_expirations_optional_updated():
     assert isinstance(str(instance), str)
 
 
-def test_get_options_expirations_columns_filter_dataframe_pandas(
-    respx_mock, client
-):
+def test_get_options_expirations_columns_filter_dataframe_pandas(respx_mock, client):
     """Issue #23: requesting `columns=["expirations"]` makes the API return
     only that column. The result must NOT be an empty DataFrame with the data
     silently moved into the index.
@@ -247,9 +233,7 @@ def test_get_options_expirations_columns_filter_dataframe_pandas(
         pd.testing.assert_frame_equal(df, expected_df)
 
 
-def test_get_options_expirations_columns_filter_dataframe_polars(
-    respx_mock, client
-):
+def test_get_options_expirations_columns_filter_dataframe_polars(respx_mock, client):
     """Issue #23 (regression guard for polars): filtering by a single column
     must keep the data accessible as a column.
     """
@@ -278,8 +262,7 @@ def test_get_options_expirations_columns_filter_dataframe_polars(
         # A single "expirations" column holding the timestamps converted to
         # US/Eastern datetimes, with nothing dropped.
         expected_expirations = [
-            datetime.datetime.fromtimestamp(ts, tz=ET)
-            for ts in expiration_timestamps
+            datetime.datetime.fromtimestamp(ts, tz=ET) for ts in expiration_timestamps
         ]
         assert df.columns == ["expirations"]
         assert df["expirations"].to_list() == expected_expirations
@@ -294,9 +277,7 @@ def test_get_options_expirations_partial_response_internal(respx_mock, client):
         "s": "ok",
         "expirations": expiration_timestamps,
     }
-    respx_mock.get(
-        "https://api.marketdata.app/v1/options/expirations/AAPL/"
-    ).respond(
+    respx_mock.get("https://api.marketdata.app/v1/options/expirations/AAPL/").respond(
         json=partial_data,
         status_code=200,
     )

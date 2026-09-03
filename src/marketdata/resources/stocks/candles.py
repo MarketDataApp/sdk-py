@@ -20,6 +20,7 @@ from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
 from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 from marketdata.utils import (
+    encode_path_segment,
     get_data_records,
     merge_csv_texts,
     split_dates_by_timeframe,
@@ -68,7 +69,7 @@ def candles(
             input_params.to_date = to_date
 
         url = self._build_url(
-            path=f"stocks/candles/{input_params.resolution}/{symbol}/",
+            path=f"stocks/candles/{encode_path_segment(input_params.resolution)}/{encode_path_segment(symbol)}/",
             user_universal_params=user_universal_params,
             input_params=input_params,
             extra_params=kwargs,

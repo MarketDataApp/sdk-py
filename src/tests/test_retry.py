@@ -13,9 +13,7 @@ def _make_retry_state(attempt_number: int, exc: Exception | None):
     if exc is not None:
         outcome = MagicMock()
         outcome.exception.return_value = exc
-    return type(
-        "S", (), {"attempt_number": attempt_number, "outcome": outcome}
-    )()
+    return type("S", (), {"attempt_number": attempt_number, "outcome": outcome})()
 
 
 def _retry_after_response(value: str) -> Response:
@@ -66,7 +64,9 @@ def test_parse_retry_after_seconds(value, expected):
 
 
 def test_parse_retry_after_http_date_future():
-    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=60)
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+        seconds=60
+    )
     header = future.strftime("%a, %d %b %Y %H:%M:%S GMT")
     result = parse_retry_after(header)
     assert result is not None
@@ -78,7 +78,9 @@ def test_parse_retry_after_http_date_past():
 
 
 def test_parse_retry_after_naive_asctime_treated_as_utc():
-    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=120)
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+        seconds=120
+    )
     header = future.strftime("%a %b %d %H:%M:%S %Y")
     result = parse_retry_after(header)
     assert result is not None

@@ -35,10 +35,7 @@ def test_api_status_data(load_json, respx_mock, client):
 
     API_STATUS_DATA.refresh(client)
     for service in ALL_SERVICES:
-        assert (
-            API_STATUS_DATA.get_api_status(client, service)
-            == APIStatusResult.ONLINE
-        )
+        assert API_STATUS_DATA.get_api_status(client, service) == APIStatusResult.ONLINE
 
 
 def test_api_status_data_offline(load_json, respx_mock, client):
@@ -52,8 +49,7 @@ def test_api_status_data_offline(load_json, respx_mock, client):
     API_STATUS_DATA.refresh(client)
     for service in ALL_SERVICES:
         assert (
-            API_STATUS_DATA.get_api_status(client, service)
-            == APIStatusResult.OFFLINE
+            API_STATUS_DATA.get_api_status(client, service) == APIStatusResult.OFFLINE
         )
 
 
@@ -180,6 +176,7 @@ def test_trigger_async_refresh_skips_when_in_flight(client):
         return m
 
     import marketdata.api_status as mod
+
     original_thread = mod.threading.Thread
     mod.threading.Thread = fake_thread
     try:

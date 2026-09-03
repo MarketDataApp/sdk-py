@@ -9,7 +9,7 @@ from marketdata.output_types.stocks_news import StockNews, StockNewsHumanReadabl
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
 from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
-from marketdata.utils import get_data_records
+from marketdata.utils import encode_path_segment, get_data_records
 
 
 @handle_exceptions
@@ -38,7 +38,7 @@ def news(
     )
 
     url = self._build_url(
-        path=f"stocks/news/{symbol}/",
+        path=f"stocks/news/{encode_path_segment(symbol)}/",
         user_universal_params=user_universal_params,
         input_params=input_params,
         extra_params=kwargs,

@@ -50,9 +50,7 @@ def get_retry_adapter(
         if exc is not None:
             response = getattr(exc, "response", None)
             if response is not None:
-                retry_after = parse_retry_after(
-                    response.headers.get("Retry-After")
-                )
+                retry_after = parse_retry_after(response.headers.get("Retry-After"))
                 if retry_after is not None:
                     return retry_after
         return initial_delay * 2 ** (retry_state.attempt_number - 1)

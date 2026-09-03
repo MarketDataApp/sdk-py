@@ -18,7 +18,7 @@ from marketdata.output_types.options_quotes import (
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
 from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
-from marketdata.utils import merge_csv_texts
+from marketdata.utils import encode_path_segment, merge_csv_texts
 
 
 @handle_exceptions
@@ -50,7 +50,7 @@ def quotes(
 
     def _get_response(symbol: str) -> Response:
         url = self._build_url(
-            path=f"options/quotes/{symbol}/",
+            path=f"options/quotes/{encode_path_segment(symbol)}/",
             user_universal_params=user_universal_params,
             input_params=input_params,
             extra_params=kwargs,

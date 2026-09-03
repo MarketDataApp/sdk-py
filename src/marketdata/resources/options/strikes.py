@@ -12,6 +12,7 @@ from marketdata.output_types.options_strikes import (
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
 from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
+from marketdata.utils import encode_path_segment
 
 
 @handle_exceptions
@@ -40,7 +41,7 @@ def strikes(
     )
 
     url = self._build_url(
-        path=f"options/strikes/{symbol}/",
+        path=f"options/strikes/{encode_path_segment(symbol)}/",
         user_universal_params=user_universal_params,
         input_params=input_params,
         extra_params=kwargs,

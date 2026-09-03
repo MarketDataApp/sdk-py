@@ -48,6 +48,11 @@ Out of scope:
   (`uv.lock`) are tracked by Dependabot (see `.github/dependabot.yml`); report
   them upstream. We will bump the affected dependency here once a fixed version
   exists.
+- **CSV formula injection.** CSV output is intentionally byte-faithful to the
+  API response: the SDK does not escape or rewrite cell values (e.g. values
+  beginning with `=`, `+`, `-`, `@`). Guarding against formula execution when a
+  CSV is opened in a spreadsheet application is the consuming application's
+  responsibility.
 
 ## Security Fix Policy
 

@@ -1,5 +1,4 @@
 from typing import Annotated, Any
-from urllib.parse import quote
 
 from marketdata.api_error import api_error_handler
 from marketdata.docs import docs
@@ -13,6 +12,7 @@ from marketdata.output_types.options_lookup import (
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
 from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
+from marketdata.utils import encode_path
 
 
 @handle_exceptions
@@ -44,7 +44,7 @@ def lookup(
     # All params are already in the path
     _format_date = lambda date: date.strftime("%d-%M-%Y")
     excluded_params = OptionsLookupInput.model_fields.keys()
-    lookup_quote = quote(input_params.lookup)
+    lookup_quote = encode_path(input_params.lookup)
 
     url = self._build_url(
         path=f"options/lookup/{lookup_quote}/",

@@ -328,9 +328,7 @@ def test_options_chain_strike_limit_is_int_on_wire(load_json, respx_mock, client
         json=mock_data, status_code=200
     )
 
-    client.options.chain(
-        "AAPL", strike_limit=10, output_format=OutputFormat.INTERNAL
-    )
+    client.options.chain("AAPL", strike_limit=10, output_format=OutputFormat.INTERNAL)
 
     params = respx_mock.calls.last.request.url.params
     assert params.get("strikeLimit") == "10"

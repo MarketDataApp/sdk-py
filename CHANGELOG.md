@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- Caller-supplied symbols are now percent-encoded in request paths, preventing path traversal and query smuggling via untrusted input; valid symbols are unaffected
+- `options.lookup()` neutralizes dot-segments in the lookup string so it cannot traverse to a different endpoint; valid lookup strings (including dates with slashes) are unaffected
+- Token obfuscation in logs no longer reveals the token length, and never reveals any characters of short tokens
+- API error messages extracted from response bodies are now bounded, so a malformed or hostile response cannot balloon exception messages and logs
+- Malformed rate-limit headers no longer crash a successful request with a raw `KeyError`/`ValueError`; the SDK logs a warning and keeps the previous limits
+- The PyPI publish action is pinned to a fixed release tag instead of a moving branch ref; the test workflow token is now read-only
+
 ## [1.3.0] - 2026-06-10
 
 ### Fixed

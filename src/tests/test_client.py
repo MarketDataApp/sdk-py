@@ -76,9 +76,7 @@ def test_client_make_request_retry(client, respx_mock, monkeypatch):
     prices_calls = [
         c for c in respx_mock.calls if c.request.url.path == "/v1/stocks/prices/"
     ]
-    status_calls = [
-        c for c in respx_mock.calls if c.request.url.path == "/status/"
-    ]
+    status_calls = [c for c in respx_mock.calls if c.request.url.path == "/status/"]
     assert len(prices_calls) == 4
     assert len(status_calls) == 1
     assert respx_mock.calls.call_count == 6
@@ -403,7 +401,9 @@ def test_client_max_retries_one(respx_mock, monkeypatch):
 
     result = c.stocks.prices(symbols="AAPL")
     assert isinstance(result, MarketDataClientErrorResult)
-    prices_calls = [c for c in respx_mock.calls if c.request.url.path == "/v1/stocks/prices/"]
+    prices_calls = [
+        c for c in respx_mock.calls if c.request.url.path == "/v1/stocks/prices/"
+    ]
     assert len(prices_calls) == 2
 
 
@@ -455,3 +455,58 @@ def test_client_init_base_url_and_api_version_logged_at_debug(respx_mock):
     # They must still be available, just at DEBUG.
     assert any("Base URL" in m for m in debug_messages)
     assert any("API Version" in m for m in debug_messages)
+
+
+def test_response_errmsg_is_bounded(client):
+    # A hostile/malformed response body must not balloon exception messages
+    request = Request("GET", "https://api.marketdata.app/v1/stocks/quotes/AAPL/")
+    response = Response(502, text="x" * 100_000, request=request)
+
+    with pytest.raises(RequestError) as exc_info:
+        client._validate_response_status_code(
+            response, retry_status_codes=lambda x: x > 500, raise_for_status=True
+        )
+    assert len(str(exc_info.value)) < 1_000
+
+
+def test_extract_rate_limits_missing_headers_returns_none(client, caplog):
+    request = Request("GET", "https://api.marketdata.app/v1/stocks/quotes/AAPL/")
+    response = Response(200, json={}, request=request)
+
+    # Bypass the conftest instance-level patch to test the real method
+    result = MarketDataClient._extract_rate_limits(client, response)
+    assert result is None
+
+
+def test_extract_rate_limits_garbage_headers_returns_none(client):
+    request = Request("GET", "https://api.marketdata.app/v1/stocks/quotes/AAPL/")
+    response = Response(
+        200,
+        json={},
+        headers={
+            "x-api-ratelimit-limit": "not-a-number",
+            "x-api-ratelimit-remaining": "99",
+            "x-api-ratelimit-reset": "60",
+            "x-api-ratelimit-consumed": "1",
+        },
+        request=request,
+    )
+
+    result = MarketDataClient._extract_rate_limits(client, response)
+    assert result is None
+
+
+def test_make_request_keeps_rate_limits_on_malformed_response(client, respx_mock):
+    # A malformed response (no rate-limit headers) must not crash the request
+    # nor clobber previously known rate limits
+    respx_mock.get("https://api.marketdata.app/v1/markets/status/").respond(
+        json={}, status_code=200
+    )
+    previous = client.rate_limits
+    # Remove the conftest instance-level patch so the real extraction runs
+    if "_extract_rate_limits" in client.__dict__:
+        del client.__dict__["_extract_rate_limits"]
+
+    response = client._make_request(method="GET", url="markets/status/")
+    assert response.status_code == 200
+    assert client.rate_limits == previous
