@@ -84,24 +84,42 @@ def merge_csv_texts(csv_texts: list[str], headers: list[str]) -> str:
     return output.getvalue()
 
 
+_ONE_DAY = datetime.timedelta(days=1)
+
+
+def _start_of_day(day: datetime.date, like: datetime.datetime) -> datetime.datetime:
+    return datetime.datetime.combine(day, datetime.time.min, tzinfo=like.tzinfo)
+
+
 def split_dates_by_timeframe(
     start: datetime.datetime,
     end: datetime.datetime,
     timeframe: datetime.timedelta,
 ) -> list[tuple[datetime.datetime, datetime.datetime]]:
-    if start >= end:
-        raise ValueError("start must be before end")
+    """Split ``[start, end]`` into consecutive ranges of at most ``timeframe`` days.
 
+    The ranges never share a calendar day: each one ends the day before the
+    next starts. ``from``/``to`` travel on the wire as dates and the API treats
+    ``to`` as inclusive, so two ranges sharing a boundary day would fetch that
+    day twice (#51). The first range keeps ``start`` and the last keeps ``end``
+    untouched; interior boundaries are midnight in the timezone of ``start``.
+    """
+    if start > end:
+        raise ValueError("start must not be after end")
+    if timeframe < _ONE_DAY:
+        raise ValueError("timeframe must be at least one day")
+
+    end_day = end.date()
     ranges: list[tuple[datetime.datetime, datetime.datetime]] = []
-    current = start
+    range_start = start
 
     while True:
-        next_cut = current + timeframe
-        if next_cut >= end:
-            ranges.append((current, end))
+        last_day = range_start.date() + timeframe - _ONE_DAY
+        if last_day >= end_day:
+            ranges.append((range_start, end))
             break
-        ranges.append((current, next_cut))
-        current = next_cut
+        ranges.append((range_start, _start_of_day(last_day, start)))
+        range_start = _start_of_day(last_day + _ONE_DAY, start)
 
     return ranges
 

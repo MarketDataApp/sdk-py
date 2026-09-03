@@ -49,8 +49,8 @@ def candles(
     Fetches stock candles data for a symbol.
 
     Supports various timeframes (minutely, hourly, daily, weekly, monthly, yearly)
-    and automatically handles large date ranges by splitting them into year-long
-    chunks and fetching them concurrently.
+    and automatically handles large date ranges by splitting them into year-long,
+    non-overlapping chunks and fetching them concurrently.
     """
     user_universal_params = self._validate_user_universal_params(
         self.client.default_params, user_universal_params

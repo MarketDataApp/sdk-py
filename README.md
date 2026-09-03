@@ -768,7 +768,7 @@ The SDK uses Pydantic for input validation:
 
 The SDK uses concurrent requests for efficient data fetching in specific scenarios:
 
-- **`stocks.candles()`**: For intraday resolutions (minutely/hourly), large date ranges are automatically split into year-long chunks and fetched concurrently (up to 50 concurrent requests by default)
+- **`stocks.candles()`**: For intraday resolutions (minutely/hourly), large date ranges are automatically split into year-long, non-overlapping chunks and fetched concurrently (up to 50 concurrent requests by default)
 - **`options.quotes()`**: Multiple option symbols are fetched concurrently (up to 50 concurrent requests by default)
 
 When concurrent requests are used, responses are automatically merged into a single result. If no valid responses are received, a `MarketDataClientErrorResult` is returned.

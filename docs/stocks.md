@@ -364,7 +364,7 @@ Fetches stock candles (OHLCV data) for a symbol with support for various timefra
 
 When both `from_date` and `to_date` are provided, the method behavior depends on the resolution:
 
-- **For intraday resolutions (minutely/hourly)**: The date range is automatically split into year-long chunks, fetched concurrently using a thread pool executor (up to 50 concurrent requests), and merged into a single response. This allows efficient fetching of large historical date ranges without manual pagination.
+- **For intraday resolutions (minutely/hourly)**: The date range is automatically split into year-long chunks, fetched concurrently using a thread pool executor (up to 50 concurrent requests), and merged into a single response. Chunks never share a calendar day, so no candle is requested twice. This allows efficient fetching of large historical date ranges without manual pagination.
 
 - **For non-intraday resolutions (daily/weekly/monthly/yearly)**: The entire date range is fetched in a single request without splitting.
 

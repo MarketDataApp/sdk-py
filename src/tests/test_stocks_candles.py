@@ -3,6 +3,7 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import httpx
 import pytest
 import pytz
 from freezegun import freeze_time
@@ -462,3 +463,94 @@ def test_stocks_candles_intraday_string_dates(load_json, respx_mock, client):
         output_format=OutputFormat.INTERNAL,
     )
     assert len(candles) == 253
+
+
+def _wire_ranges(respx_mock) -> list[tuple[datetime.date, datetime.date]]:
+    ranges = []
+    for call in respx_mock.calls:
+        params = call.request.url.params
+        if "from" in params:
+            ranges.append(
+                (
+                    datetime.date.fromisoformat(params["from"]),
+                    datetime.date.fromisoformat(params["to"]),
+                )
+            )
+    return sorted(ranges)
+
+
+def test_stocks_candles_intraday_chunks_never_share_a_day_on_the_wire(
+    load_json, respx_mock, client
+):
+    """Issue #51: the API treats a date-only `to=` as inclusive, so the day
+    that closes one chunk must not open the next one."""
+    respx_mock.get("https://api.marketdata.app/v1/stocks/candles/H/AAPL/").respond(
+        json=load_json("stocks_candles_response_200"), status_code=200
+    )
+    start, end = datetime.date(2020, 1, 1), datetime.date(2022, 10, 1)
+
+    client.stocks.candles(
+        "AAPL",
+        resolution="H",
+        from_date=start,
+        to_date=end,
+        output_format=OutputFormat.JSON,
+    )
+
+    ranges = _wire_ranges(respx_mock)
+    assert len(ranges) == 3
+    assert ranges[0][0] == start
+    assert ranges[-1][1] == end
+    for (_, previous_to), (next_from, _) in zip(ranges, ranges[1:]):
+        assert next_from == previous_to + datetime.timedelta(days=1)
+
+
+def test_stocks_candles_intraday_inclusive_api_yields_each_day_once(respx_mock, client):
+    """Regression for #51 against an API double that, like the real one,
+    returns every candle of the `to=` day. Before the fix each boundary day
+    came back twice in the merged result."""
+
+    def _one_candle_per_day(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        first = datetime.date.fromisoformat(params["from"])
+        last = datetime.date.fromisoformat(params["to"])
+        stamps = [
+            int(
+                datetime.datetime.combine(
+                    first + datetime.timedelta(days=i),
+                    datetime.time(12),
+                    tzinfo=datetime.timezone.utc,
+                ).timestamp()
+            )
+            for i in range((last - first).days + 1)
+        ]
+        n = len(stamps)
+        return httpx.Response(
+            200,
+            json={
+                "s": "ok",
+                "t": stamps,
+                "o": [1.0] * n,
+                "h": [1.0] * n,
+                "l": [1.0] * n,
+                "c": [1.0] * n,
+                "v": [1] * n,
+            },
+        )
+
+    respx_mock.get("https://api.marketdata.app/v1/stocks/candles/H/AAPL/").mock(
+        side_effect=_one_candle_per_day
+    )
+    start, end = datetime.date(2020, 1, 1), datetime.date(2022, 10, 1)
+
+    data = client.stocks.candles(
+        "AAPL",
+        resolution="H",
+        from_date=start,
+        to_date=end,
+        output_format=OutputFormat.JSON,
+    )
+
+    expected_days = (end - start).days + 1
+    assert len(data["t"]) == expected_days
+    assert len(set(data["t"])) == expected_days
