@@ -786,6 +786,20 @@ Rate limits are tracked via response headers and updated after each request:
 
 ## Development
 
+### Tests
+
+```bash
+./test.sh   # unit suite: mocked HTTP, runs offline
+```
+
+The live integration suite under `src/tests/integration/` calls `api.marketdata.app` and is excluded from the default run. It needs a token and fails, rather than skips, without one:
+
+```bash
+MARKETDATA_TOKEN=... uv run pytest src/tests/integration -m integration
+```
+
+It uses the free-trial symbols (AAPL, VFINX), so a run costs no API credits. CI runs it on every pull request.
+
 ### Linting
 
 ```bash

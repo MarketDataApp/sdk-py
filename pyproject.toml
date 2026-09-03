@@ -98,3 +98,8 @@ packages = ["src/marketdata"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+markers = [
+    "integration: talks to the live Market Data API; needs MARKETDATA_TOKEN and is excluded from the default run",
+]
+# The live suite is opt-in: `pytest src/tests/integration -m integration`.
+addopts = "-m 'not integration'"

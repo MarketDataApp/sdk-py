@@ -5,6 +5,8 @@ on:
     branches: [ main, master, develop ]
   pull_request:
     branches: [ main, master, develop ]
+  # Manual runs exist for the live suite: an ordinary push never triggers it.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -63,3 +65,50 @@ jobs:
         name: codecov-python-${{ matrix.python-version }}
         fail_ci_if_error: false
         verbose: true
+
+  integration:
+    name: Integration Tests (live)
+    # SDK requirements §13: the live suite runs on every pull request (and on
+    # manual dispatch), never on plain pushes. Dependabot runs cannot read
+    # repository secrets, so their PRs skip this JOB: that shows as "skipped"
+    # in the checks, not as a green run that tested nothing.
+    if: >-
+      (github.event_name == 'pull_request' && github.actor != 'dependabot[bot]') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # Every step talks to the live API; without a cap one hung request would
+    # hold the runner until the 6-hour default.
+    timeout-minutes: 15
+    env:
+      MARKETDATA_TOKEN: ${{ secrets.MARKETDATA_TOKEN }}
+
+    steps:
+    - uses: actions/checkout@v7
+
+    # §17.3: a missing token must fail the job, never skip it. The suite's own
+    # conftest fails too; this step makes the reason visible before any test.
+    - name: Refuse to run without the live API token
+      run: |
+        if [ -z "$MARKETDATA_TOKEN" ]; then
+          echo "::error::MARKETDATA_TOKEN secret is missing; the live integration suite fails rather than skips (SDK requirements 17.3)."
+          exit 1
+        fi
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v10.0.1
+      with:
+        version: "latest"
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: uv sync --group dev
+
+    - name: Install package
+      run: uv pip install -e .
+
+    - name: Run the live integration suite
+      run: uv run pytest src/tests/integration -m integration -p no:cacheprovider
