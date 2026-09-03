@@ -105,23 +105,84 @@ def test_merge_csv_texts():
     assert result == expected
 
 
-def test_split_dates_by_timeframe():
-    start = datetime.datetime(2024, 1, 1, tzinfo=pytz.timezone("US/Eastern"))
-    end = datetime.datetime(2024, 1, 31, tzinfo=pytz.timezone("US/Eastern"))
-    timeframe = datetime.timedelta(days=1)
-    result = split_dates_by_timeframe(start, end, timeframe)
-    assert len(result) == 30
+ET = pytz.timezone("US/Eastern")
 
-    assert result[0] == (
-        datetime.datetime(2024, 1, 1, tzinfo=pytz.timezone("US/Eastern")),
-        datetime.datetime(2024, 1, 2, tzinfo=pytz.timezone("US/Eastern")),
+
+def _days_between(first: datetime.date, last: datetime.date) -> list[datetime.date]:
+    return [first + datetime.timedelta(days=i) for i in range((last - first).days + 1)]
+
+
+def test_split_dates_by_timeframe():
+    start = datetime.datetime(2024, 1, 1, tzinfo=ET)
+    end = datetime.datetime(2024, 1, 31, tzinfo=ET)
+    result = split_dates_by_timeframe(start, end, datetime.timedelta(days=1))
+
+    # 31 calendar days, one range each: a range ends on the day it starts and
+    # the next one begins the following day (#51).
+    assert len(result) == 31
+    assert result[0] == (start, datetime.datetime(2024, 1, 1, tzinfo=ET))
+    assert result[1] == (
+        datetime.datetime(2024, 1, 2, tzinfo=ET),
+        datetime.datetime(2024, 1, 2, tzinfo=ET),
     )
-    assert result[-1] == (
-        datetime.datetime(2024, 1, 30, tzinfo=pytz.timezone("US/Eastern")),
-        datetime.datetime(2024, 1, 31, tzinfo=pytz.timezone("US/Eastern")),
+    assert result[-1] == (datetime.datetime(2024, 1, 31, tzinfo=ET), end)
+
+
+def test_split_dates_by_timeframe_ranges_are_disjoint_and_contiguous():
+    start = datetime.datetime(2020, 1, 1, tzinfo=ET)
+    end = datetime.datetime(2022, 10, 1, tzinfo=ET)
+    result = split_dates_by_timeframe(start, end, datetime.timedelta(days=365))
+
+    assert len(result) == 3
+    assert result[0][0] == start
+    assert result[-1][1] == end
+    for (_, previous_end), (next_start, _) in zip(result, result[1:]):
+        assert next_start.date() == previous_end.date() + datetime.timedelta(days=1)
+
+    # Every day between start and end is covered exactly once, and no range
+    # spans more than the timeframe.
+    covered = [set(_days_between(s.date(), e.date())) for s, e in result]
+    assert all(len(days) <= 365 for days in covered)
+    assert sum(len(days) for days in covered) == len(
+        _days_between(start.date(), end.date())
     )
+    assert set().union(*covered) == set(_days_between(start.date(), end.date()))
+
+
+def test_split_dates_by_timeframe_single_range_when_within_timeframe():
+    start = datetime.datetime(2024, 1, 1, 9, 30, tzinfo=ET)
+    end = datetime.datetime(2024, 3, 1, 16, 0, tzinfo=ET)
+    timeframe = datetime.timedelta(days=365)
+
+    assert split_dates_by_timeframe(start, end, timeframe) == [(start, end)]
+    # A same-day intraday range is valid and is a single range too.
+    assert split_dates_by_timeframe(start, start, timeframe) == [(start, start)]
+
+
+def test_split_dates_by_timeframe_keeps_caller_instants():
+    start = datetime.datetime(2024, 1, 1, 9, 30, tzinfo=ET)
+    end = datetime.datetime(2024, 1, 3, 16, 0, tzinfo=ET)
+    result = split_dates_by_timeframe(start, end, datetime.timedelta(days=1))
+
+    # The caller's instants survive at both ends; only interior boundaries are
+    # generated, at midnight in the caller's timezone.
+    assert result[0][0] is start
+    assert result[-1][1] is end
+    assert result[0][1] == datetime.datetime(2024, 1, 1, tzinfo=ET)
+    assert result[1] == (
+        datetime.datetime(2024, 1, 2, tzinfo=ET),
+        datetime.datetime(2024, 1, 2, tzinfo=ET),
+    )
+
+
+def test_split_dates_by_timeframe_rejects_bad_input():
+    start = datetime.datetime(2024, 1, 1, tzinfo=ET)
+    end = datetime.datetime(2024, 1, 31, tzinfo=ET)
+
     with pytest.raises(ValueError):
-        split_dates_by_timeframe(end, start, timeframe)
+        split_dates_by_timeframe(end, start, datetime.timedelta(days=1))
+    with pytest.raises(ValueError):
+        split_dates_by_timeframe(start, end, datetime.timedelta(hours=12))
 
 
 def test_resume_long_text():

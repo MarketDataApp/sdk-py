@@ -497,8 +497,8 @@ candles = client.stocks.candles(
 )
 # `split_dates_by_timeframe` cuts this into 365-day ranges and runs them through
 # a ThreadPoolExecutor.
-# Verify: the boundary candle appears exactly once. The ranges are built as
-# [start, cut] and [cut, end] — the cut instant belongs to both.
+# Verify: the boundary candle appears exactly once. The ranges are disjoint
+# calendar days: each chunk ends the day before the next one starts (#51).
 # Bug indicator: a duplicated candle at each year boundary.
 ```
 
