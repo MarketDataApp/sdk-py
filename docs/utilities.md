@@ -35,7 +35,7 @@ Fetches the live status of every API service: whether it is online, its 30 and 9
 #### Returns
 
 - `ServiceStatus` fields: `service` (str, e.g. `/v1/stocks/quotes/`), `status` (str, `online` or `offline`), `online` (bool), `uptimePct30d` (float, 0 to 1), `uptimePct90d` (float, 0 to 1), `updated` (datetime). The `is_online` property is true when both `online` and `status` say so.
-- `MarketDataClientErrorResult`: If an error occurs.
+- Raises a `BaseMarketdataException` subclass if an error occurs; see the [README](../README.md#error-handling).
 
 #### Example
 
@@ -62,7 +62,7 @@ Same as `status()`: `output_format` and `filename`.
 
 - `RequestHeaders`: `headers` (dict, names normalized to lowercase) plus the helpers `get(name)` (case-insensitive), `detected_ip` (from `cf-connecting-ip`, falling back to `x-real-ip`), `user_agent` and `authorization`.
 - With `OutputFormat.DATAFRAME` a one-row DataFrame with one column per header; with `OutputFormat.CSV` a two-line file.
-- `MarketDataClientErrorResult`: If an error occurs.
+- Raises a `BaseMarketdataException` subclass if an error occurs; see the [README](../README.md#error-handling).
 
 #### Example
 
@@ -84,7 +84,7 @@ Same as `status()`: `output_format` and `filename`.
 
 - `User`: `credit_limit` (int), `credits_remaining` (int, can be negative after an oversized request), `options_data_permissions` (str, empty when the plan has none) and the `has_options_data` property. The API body still names these fields `x-ratelimit-requests-*`; the SDK exposes them in API-credits terms.
 - With `OutputFormat.JSON`, `OutputFormat.DATAFRAME` and `OutputFormat.CSV` the API's own field names are kept.
-- `MarketDataClientErrorResult`: If an error occurs, including `401` without a valid token.
+- Raises `BadStatusCodeError` on failure, including `401` without a valid token; see the [README](../README.md#error-handling).
 
 #### Example
 

@@ -39,8 +39,8 @@ For this SDK, "anything a caller must react to" includes: removing or renaming a
 name exported from `marketdata/__init__.py`; changing a resource method's signature or
 the meaning of a keyword argument; changing the fields of an output model
 (`StockCandle`, `OptionsChain`, `MarketStatus`, …); changing which exception type in
-`marketdata.exceptions` is produced for a given failure; changing the shape of
-`MarketDataClientErrorResult`; changing a user-visible default (`output_format`,
+`marketdata.exceptions` is produced for a given failure; changing the fields of
+`support_context` / `support_info`; changing a user-visible default (`output_format`,
 `max_retries`, the retry backoff, `MARKETDATA_BASE_URL`, `MARKETDATA_API_VERSION`,
 `MARKETDATA_LOGGING_LEVEL`); tightening a Pydantic input model so a previously accepted
 call is now rejected; or raising the minimum Python version.

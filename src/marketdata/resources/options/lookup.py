@@ -11,11 +11,9 @@ from marketdata.output_types.options_lookup import (
 )
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 from marketdata.utils import encode_path
 
 
-@handle_exceptions
 @api_error_handler(service="/v1/options/lookup/")
 @docs(exclude_params=["user_universal_params", "input_params"])
 @universal_params(resource_input_type=OptionsLookupInput)
@@ -26,13 +24,7 @@ def lookup(
     user_universal_params: UserUniversalAPIParams,
     input_params: OptionsLookupInput,
     **kwargs: dict[str, Any],
-) -> (
-    OptionsLookup
-    | OptionsLookupHumanReadable
-    | dict
-    | str
-    | MarketDataClientErrorResult
-):
+) -> OptionsLookup | OptionsLookupHumanReadable | dict | str:
     """
     Fetches options lookup data for a given lookup string.
     The lookup string should contain the underlying symbol, expiration date, strike price, and option side.

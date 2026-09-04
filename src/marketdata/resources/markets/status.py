@@ -11,11 +11,9 @@ from marketdata.output_types.markets_status import (
 )
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 from marketdata.utils import get_data_records
 
 
-@handle_exceptions
 @api_error_handler(service="/v1/markets/status/")
 @docs(exclude_params=["user_universal_params"])
 @universal_params(resource_input_type=MarketStatusInput)
@@ -25,9 +23,7 @@ def status(
     user_universal_params: UserUniversalAPIParams,
     input_params: MarketStatusInput,
     **kwargs: dict[str, Any],
-) -> (
-    MarketStatus | MarketStatusHumanReadable | dict | str | MarketDataClientErrorResult
-):
+) -> MarketStatus | MarketStatusHumanReadable | dict | str:
     """
     Fetches the current market status.
     """

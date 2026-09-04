@@ -3,8 +3,10 @@ import pathlib
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 import pytz
 
+from marketdata.exceptions import BadStatusCodeError, RequestError
 from marketdata.input_types.base import (
     OutputFormat,
 )
@@ -12,7 +14,6 @@ from marketdata.output_types.options_expirations import (
     OptionsExpirations,
     OptionsExpirationsHumanReadable,
 )
-from marketdata.sdk_error import MarketDataClientErrorResult
 
 ET = pytz.timezone("US/Eastern")
 
@@ -147,10 +148,8 @@ def test_get_options_expirations_response_400(respx_mock, client):
         status_code=400,
     )
 
-    result = client.options.expirations(
-        symbol="AAPL", output_format=OutputFormat.INTERNAL
-    )
-    assert isinstance(result, MarketDataClientErrorResult)
+    with pytest.raises(BadStatusCodeError) as exc_info:
+        client.options.expirations(symbol="AAPL", output_format=OutputFormat.INTERNAL)
 
 
 def test_get_options_expirations_status_offline(load_json, respx_mock, client):
@@ -174,10 +173,8 @@ def test_get_options_expirations_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    expirations = client.options.expirations(
-        symbol="AAPL", output_format=OutputFormat.INTERNAL
-    )
-    assert isinstance(expirations, MarketDataClientErrorResult)
+    with pytest.raises(RequestError) as exc_info:
+        client.options.expirations(symbol="AAPL", output_format=OutputFormat.INTERNAL)
 
 
 def test_options_expirations_optional_updated():

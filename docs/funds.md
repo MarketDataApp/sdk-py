@@ -56,9 +56,9 @@ Fetches funds candles (OHLC data) for a symbol with support for various timefram
 - If `output_format=OutputFormat.INTERNAL`: A list of `FundsCandle` objects (or `FundsCandlesHumanReadable` if `use_human_readable=True`)
 - If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
-- `MarketDataClientErrorResult`: If an error occurs (rate limits, validation errors, request failures, etc.)
+- Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** Always check for `MarketDataClientErrorResult` return values. The method never returns `None`.
+> **Note:** The method never returns `None`: it returns the requested output or raises.
 
 #### Examples
 

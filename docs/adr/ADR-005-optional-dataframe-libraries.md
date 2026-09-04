@@ -127,7 +127,6 @@ def quotes(...) -> (
     | StockQuotesHumanReadable
     | dict
     | str
-    | MarketDataClientErrorResult
 ):
     # ...
     if user_universal_params.output_format == OutputFormat.DATAFRAME:

@@ -6,10 +6,8 @@ from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.utilities_user import User
 from marketdata.resources.base import BaseResource
 from marketdata.resources.utilities.base import render, resolve_output_params
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 
 
-@handle_exceptions
 @api_error_handler(check_status=False)
 @docs
 def user(
@@ -17,7 +15,7 @@ def user(
     *,
     output_format: OutputFormat | None = None,
     filename: str | Path | None = None,
-) -> User | dict | str | MarketDataClientErrorResult:
+) -> User | dict | str:
     """
     Fetches the authenticated account's credit limit, remaining credits and
     options data permissions. The call is free, is never blocked by the

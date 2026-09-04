@@ -8,11 +8,9 @@ from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.stocks_news import StockNews, StockNewsHumanReadable
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 from marketdata.utils import encode_path_segment, get_data_records
 
 
-@handle_exceptions
 @api_error_handler(service="/v1/stocks/news/")
 @docs(exclude_params=["user_universal_params", "input_params"])
 @universal_params(resource_input_type=StocksNewsInput)
@@ -23,13 +21,7 @@ def news(
     user_universal_params: UserUniversalAPIParams,
     input_params: StocksNewsInput,
     **kwargs: dict[str, Any],
-) -> (
-    list[StockNews]
-    | list[StockNewsHumanReadable]
-    | dict
-    | str
-    | MarketDataClientErrorResult
-):
+) -> list[StockNews] | list[StockNewsHumanReadable] | dict | str:
     """
     Fetches stock news for a symbol.
     """

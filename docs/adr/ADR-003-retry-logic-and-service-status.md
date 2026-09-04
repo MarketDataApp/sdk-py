@@ -45,8 +45,8 @@ class KeywordOnlyArgumentError(Exception):
 **Rationale**:
 - **Transient errors** (`RateLimitError`, `RequestError`): Can be retried
 - **Permanent errors** (`BadStatusCodeError`, `KeywordOnlyArgumentError`): Should not be retried
-- **Error handling decorator**: `handle_exceptions()` wraps resource methods to catch and log errors uniformly
-- **Error result type**: `MarketDataClientErrorResult` allows returning errors without raising exceptions
+- **Exceptions propagate**: resource methods raise (SDK requirements §6.4); `api_error_handler` logs the terminal failure at ERROR and re-raises. The v1 `handle_exceptions` decorator and its `MarketDataClientErrorResult` return value were removed in v2.0 (#20)
+- **Support context**: every exception carries `request_id`, `request_url`, `status_code`, `timestamp`, `message` and `exception_type`, rendered by `support_info`
 
 This separation enables:
 - Intelligent retry logic that knows which exceptions to retry

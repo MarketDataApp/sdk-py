@@ -6,7 +6,7 @@ from httpx import Response
 
 from marketdata.api_error import api_error_handler
 from marketdata.docs import docs
-from marketdata.exceptions import RequestError
+from marketdata.exceptions import BadStatusCodeError
 from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.input_types.options import OptionsQuotesInput
 from marketdata.internal_settings import MAX_CONCURRENT_REQUESTS, VALID_STATUS_CODES
@@ -17,11 +17,9 @@ from marketdata.output_types.options_quotes import (
 )
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 from marketdata.utils import encode_path_segment, merge_csv_texts
 
 
-@handle_exceptions
 @api_error_handler(service="/v1/options/quotes/")
 @docs(exclude_params=["user_universal_params", "input_params"])
 @universal_params(resource_input_type=OptionsQuotesInput)
@@ -34,13 +32,7 @@ def quotes(
     user_universal_params: UserUniversalAPIParams,
     input_params: OptionsQuotesInput,
     **kwargs: dict[str, Any],
-) -> (
-    OptionsQuotes
-    | OptionsQuotesHumanReadable
-    | dict
-    | str
-    | MarketDataClientErrorResult
-):
+) -> OptionsQuotes | OptionsQuotesHumanReadable | dict | str:
     """
     Fetches options quotes for a given symbol.
     """
@@ -92,12 +84,12 @@ def quotes(
             ]
         )
         if not has_results:
-            return MarketDataClientErrorResult(
-                error=RequestError(
-                    message="No responses from API",
-                    request=responses[0].request,
-                    response=responses[0],
-                )
+            # Terminal: the API answered, just not with anything usable, so
+            # this must not trigger the retry loop the way RequestError does.
+            raise BadStatusCodeError(
+                message="No responses from API",
+                request=responses[0].request,
+                response=responses[0],
             )
 
         data = [_parse_data(response) for response in responses]

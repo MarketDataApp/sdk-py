@@ -8,11 +8,9 @@ from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.funds_candles import FundsCandle, FundsCandlesHumanReadable
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 from marketdata.utils import encode_path_segment, get_data_records
 
 
-@handle_exceptions
 @api_error_handler(service="/v1/funds/candles/")
 @docs(exclude_params=["user_universal_params", "input_params"])
 @universal_params(resource_input_type=FundsCandlesInput)
@@ -23,7 +21,7 @@ def candles(
     user_universal_params: UserUniversalAPIParams,
     input_params: FundsCandlesInput,
     **kwargs: dict[str, Any],
-) -> FundsCandle | FundsCandlesHumanReadable | dict | str | MarketDataClientErrorResult:
+) -> FundsCandle | FundsCandlesHumanReadable | dict | str:
     """
     Fetches funds candles data for a symbol.
     """

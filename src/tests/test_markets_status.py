@@ -2,15 +2,16 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytest
 import pytz
 
+from marketdata.exceptions import RequestError
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.markets import MarketStatusInput
 from marketdata.output_types.markets_status import (
     MarketStatus,
     MarketStatusHumanReadable,
 )
-from marketdata.sdk_error import MarketDataClientErrorResult
 
 
 def test_markets_status_str():
@@ -162,11 +163,11 @@ def test_get_markets_status_response_bad_status_code(respx_mock, client):
         status_code=501,
     )
 
-    result = client.markets.status(
-        output_format=OutputFormat.INTERNAL,
-    )
-    assert isinstance(result, MarketDataClientErrorResult)
-    assert result.error.message == "Request failed with: Test error message"
+    with pytest.raises(RequestError) as exc_info:
+        client.markets.status(
+            output_format=OutputFormat.INTERNAL,
+        )
+    assert exc_info.value.message == "Request failed with: Test error message"
 
 
 def test_get_markets_status_status_offline(load_json, respx_mock, client):
@@ -190,10 +191,10 @@ def test_get_markets_status_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    status_list = client.markets.status(
-        output_format=OutputFormat.INTERNAL,
-    )
-    assert isinstance(status_list, MarketDataClientErrorResult)
+    with pytest.raises(RequestError) as exc_info:
+        client.markets.status(
+            output_format=OutputFormat.INTERNAL,
+        )
 
 
 def test_get_markets_status_response_200_csv(respx_mock, client):

@@ -74,17 +74,15 @@ Familiarize yourself with the main components:
   `expirations`, `strikes`, `quotes`, `lookup`), `funds` (`candles`), `markets`
   (`status`).
 - The decorator stack on every resource method, outermost first:
-  `@handle_exceptions` → `@api_error_handler(service=...)` → `@docs(...)` →
-  `@universal_params(resource_input_type=...)`. Order matters: validation errors raised
-  inside `universal_params` are caught by `handle_exceptions` and **returned**, never
-  raised.
+  `@api_error_handler(service=...)` → `@docs(...)` →
+  `@universal_params(resource_input_type=...)`. Nothing catches: validation errors raised
+  inside `universal_params` and HTTP failures raised by the client both propagate to the
+  caller, after `api_error_handler` has logged the terminal failure at ERROR.
 - Input models (`input_types/`) — Pydantic. Field **aliases** are what reach the API:
   `from`, `to`, `dte`, `strikeLimit`, `minBid`, `maxBidAskSpreadPct`, `minOpenInterest`,
   `52week`, `adjustsplits`, `headers`, `human`, `dateformat`.
 - Output models (`output_types/`) and handlers (`output_handlers/pandas.py`,
   `output_handlers/polars.py`).
-- `MarketDataClientErrorResult` (`sdk_error.py`) — the error return type, with `.error`,
-  `.support_context` and `.support_info`.
 - `marketdata.exceptions` — `BaseMarketdataException` → `MarketdataHttpError` →
   {`BadStatusCodeError`, `RequestError`}; plus `RateLimitError`,
   `KeywordOnlyArgumentError`, `InvalidStatusDataError`, and `MinMaxValidationError` →
@@ -109,35 +107,35 @@ uv run --python 3.12 pytest -n 4 -q
 
 ---
 
-## Area 1: The Error Result Surface
+## Area 1: The Exception Surface
 
 ### What can go wrong
 
-- An exception escaping a resource method instead of returning a `MarketDataClientErrorResult`
+- A resource method returning `None` or an error object instead of raising
 - `support_info` missing the request id or URL, making triage impossible
 - An API token leaking into a log line, an exception message, or `request_url`
-- The wrong exception type on `result.error` for a given HTTP status
-- The original exception's cause lost, so the root failure is unrecoverable
+- The wrong exception class for a given HTTP status
+- A raw `httpx` or `json` exception reaching the caller without support context
 
 ### Test scenarios
 
 #### 1.1 Bad token
 
 ```python
-from marketdata import MarketDataClient, MarketDataClientErrorResult
+from marketdata import BaseMarketdataException, MarketDataClient
 
 client = MarketDataClient(token="obviously-invalid-token-1234")
-result = client.stocks.quotes("AAPL")
-
-if isinstance(result, MarketDataClientErrorResult):
-    print(type(result.error).__name__)   # expect BadStatusCodeError
-    print(result.support_info)
+try:
+    client.stocks.quotes("AAPL")
+except BaseMarketdataException as e:
+    print(e.exception_type)   # expect BadStatusCodeError, status_code 401
+    print(e.support_info)
 
 # Verify: the token does NOT appear anywhere in the output.
 # Bug indicator: the token echoed in request_url, the message, or a log line.
 ```
 
-Watch the logs as well as the return value. `client.py` logs the token through
+Watch the logs as well as the exception. `client.py` logs the token through
 `obfuscate_token`, which keeps the **last four characters** — that is intentional, but any
 line printing the token in full is a Tier 1 security bug (see `SECURITY.md`).
 
@@ -149,37 +147,41 @@ MARKETDATA_LOGGING_LEVEL=DEBUG python repro.py 2>&1 | grep -i "$MARKETDATA_TOKEN
 #### 1.2 Unknown symbol
 
 ```python
-result = client.stocks.quotes("ZZZZ_NOT_A_SYMBOL")
+try:
+    client.stocks.quotes("ZZZZ_NOT_A_SYMBOL")
+except BaseMarketdataException as e:
+    print(e.status_code, e.message)   # the API answers 400 "Bad parameters"
 
-# Verify: is this an error result, or a successful empty response?
-# Both are defensible; the SDK must pick one and apply it consistently across
-# stocks.quotes, stocks.prices, options.chain and markets.status.
-# Bug indicator: a raw KeyError or TypeError from the decoder rather than either.
+# Verify: a BadStatusCodeError with the API's status and message, consistently
+# across stocks.quotes, stocks.prices, options.chain and markets.status.
+# Bug indicator: a raw KeyError or TypeError from the decoder instead.
 ```
 
 #### 1.3 support_info completeness
 
 ```python
-result = client.stocks.candles("AAPL", countback=-5)
-print(result.support_info)
+try:
+    client.stocks.candles("AAPL", countback=-5)
+except BaseMarketdataException as e:
+    print(e.support_info)
 ```
 
 For an HTTP failure the block must carry all six fields:
 
 ```
 --- MARKET DATA SUPPORT INFO ---
-request_id:		8a1b2c3d4e5f6g7h-SJC
-request_url:		https://api.marketdata.app/v1/stocks/candles/D/AAPL/?format=json&countback=-5
-status_code:		422
-timestamp:		2026-09-02 16:01:49
-message:		countback must be a positive integer
-exception_type:		BadStatusCodeError
+request_id:     8a1b2c3d4e5f6g7h-SJC
+request_url:    https://api.marketdata.app/v1/stocks/candles/D/AAPL/?format=json&countback=-5
+status_code:    422
+timestamp:      2026-09-02 16:01:49
+message:        countback must be a positive integer
+exception_type: BadStatusCodeError
 --------------------------------
 ```
 
-For a non-HTTP failure (`MinMaxDateValidationError`, `RateLimitError`) only `timestamp`,
-`message` and `exception_type` appear — `BaseMarketdataException.support_context` has no
-request context to report. That is by design.
+For a failure that never reached the API (`MinMaxDateValidationError`, `RateLimitError`)
+the same six lines appear, with `request_id` / `request_url` reading `N/A` and
+`status_code` reading `0`. That is by design.
 
 **Bug indicator:** `request_id` reading `N/A` when the response genuinely carried a
 `cf-ray` header, a `status_code` of `0` on a real HTTP failure, or the token appearing in
@@ -202,18 +204,19 @@ failure or four pointless retries against a 404.
 
 ### Red flags
 
-- A bare `Exception`, `httpx.HTTPStatusError`, or `pydantic.ValidationError` reaching the caller
+- A resource method returning `None`, or anything other than the requested output, on failure
+- A bare `httpx.HTTPStatusError` or `json.JSONDecodeError` reaching the caller
 - An API token visible anywhere in output
 - `support_info` lines missing for an HTTP failure
-- `result.error` set to an exception type that does not describe what happened
+- An exception class that does not describe what happened
 
 ### Pass/fail criteria
 
 | Scenario | Pass | Fail |
 |---|---|---|
-| Bad token | `BadStatusCodeError` in an error result, token obfuscated | Raw exception, or token leaked |
-| Unknown symbol | Consistent: error result or empty success | `KeyError` / `TypeError` from the decoder |
-| support_info | All six fields for HTTP failures | Blank or missing fields |
+| Bad token | `BadStatusCodeError` raised, token obfuscated | Raw exception, or token leaked |
+| Unknown symbol | `BadStatusCodeError` with the API's status and message | `KeyError` / `TypeError` from the decoder |
+| support_info | All six fields on every SDK exception | Blank or missing fields |
 | Exception mapping | Retryable vs terminal correctly split | 5xx treated as terminal, or 4xx retried |
 
 ---
@@ -389,20 +392,20 @@ lives in a Pydantic `field_validator` rather than in the resource method.
 
 ```python
 from pathlib import Path
-from marketdata import MarketDataClient, MarketDataClientErrorResult, OutputFormat
+from marketdata import MarketDataClient, OutputFormat
 
 client = MarketDataClient()
 
 for bad in ("out.txt", "nope/out.csv"):
-    result = client.stocks.prices("AAPL", output_format=OutputFormat.CSV, filename=bad)
+    try:
+        client.stocks.prices("AAPL", output_format=OutputFormat.CSV, filename=bad)
+    except Exception as e:
+        print(type(e).__name__, e)
     print(type(result.error).__name__, result.error)
 
-# Verify: each returns a MarketDataClientErrorResult. The validator raises a
-# Pydantic ValidationError, which `handle_exceptions` rewraps as a
-# BaseMarketdataException, so `result.error` is NOT a bare ValueError — the
-# original message survives inside it.
-# Bug indicator: an unhandled exception escaping the call, or a message that
-# does not name the offending path.
+# Verify: each raises a Pydantic ValidationError whose message names the
+# offending path (the SDK's own classes are not involved in input validation).
+# Bug indicator: a bare ValueError with no path, or the call succeeding.
 ```
 
 #### 4.1b A custom filename is honored
@@ -564,13 +567,12 @@ cd "$(mktemp -d)" && python -m venv .venv && . .venv/bin/activate
 pip install marketdata-sdk-py          # no extras — no pandas, no polars
 python -c "
 from marketdata import MarketDataClient
-result = MarketDataClient().stocks.prices('AAPL')
-print(type(result).__name__, result.error)"
+MarketDataClient().stocks.prices('AAPL')"
 ```
 
-Expect a `MarketDataClientErrorResult` wrapping
-`ValueError("No dataframe output handler found")` — the default output format needs a
-DataFrame library that a bare `pip install marketdata-sdk-py` does not bring in.
+Expect a `ValueError("No dataframe output handler found")` to be raised — the default
+output format needs a DataFrame library that a bare `pip install marketdata-sdk-py` does
+not bring in.
 
 **Bug indicator:** an unhandled `ImportError`, or a message that does not tell the user to
 install pandas or polars.
@@ -726,12 +728,9 @@ client.stocks.prices("AAPL", output_format=OutputFormat.JSON)  # ok
 result = client.stocks.prices("AAPL", OutputFormat.JSON)       # rejected
 ```
 
-The last call produces a `KeywordOnlyArgumentError` — but `@handle_exceptions` catches it,
-so the method **returns** `MarketDataClientErrorResult(error=KeywordOnlyArgumentError(...))`
-rather than raising. The README documents this one as raised. Confirm which behavior is
-intended before filing: either the README is wrong, or `KeywordOnlyArgumentError` should
-be re-raised like the argument error it is. Whichever way it is settled, the two must
-agree.
+The last call raises `KeywordOnlyArgumentError` before any request is made, as the README
+documents. Bug indicator: the call going through with the positional value silently
+ignored, or a different exception class.
 
 Check also that `client.markets.status()` accepts **no** positional argument at all, and
 that `client.options.lookup("AAPL 20-12-2024 150.0 call")` accepts one.

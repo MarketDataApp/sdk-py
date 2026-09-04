@@ -5,14 +5,17 @@ from unittest.mock import patch
 import pytest
 import pytz
 
-from marketdata.exceptions import MinMaxDateValidationError
+from marketdata.exceptions import (
+    BadStatusCodeError,
+    MinMaxDateValidationError,
+    RequestError,
+)
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.options import OptionsQuotesInput
 from marketdata.output_types.options_quotes import (
     OptionsQuotes,
     OptionsQuotesHumanReadable,
 )
-from marketdata.sdk_error import MarketDataClientErrorResult
 
 
 def test_options_quotes_str():
@@ -217,11 +220,11 @@ def test_options_quotes_no_one_good_status_code(respx_mock, client):
         status_code=205,
     )
 
-    result = client.options.quotes(
-        symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
-    )
-    assert isinstance(result, MarketDataClientErrorResult)
-    assert result.error.message == "No responses from API"
+    with pytest.raises(BadStatusCodeError) as exc_info:
+        client.options.quotes(
+            symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
+        )
+    assert exc_info.value.message == "No responses from API"
 
 
 def test_get_options_quotes_response_200_dataframe_pandas(
@@ -337,10 +340,10 @@ def test_get_options_quotes_response_400(respx_mock, client):
         status_code=400,
     )
 
-    result = client.options.quotes(
-        symbols=["AAPL271217C00255000"], output_format=OutputFormat.INTERNAL
-    )
-    assert isinstance(result, MarketDataClientErrorResult)
+    with pytest.raises(BadStatusCodeError) as exc_info:
+        client.options.quotes(
+            symbols=["AAPL271217C00255000"], output_format=OutputFormat.INTERNAL
+        )
 
 
 def test_get_options_quotes_status_offline(respx_mock, client):
@@ -365,10 +368,10 @@ def test_get_options_quotes_status_offline(respx_mock, client):
         status_code=501,
     )
 
-    quotes = client.options.quotes(
-        symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
-    )
-    assert isinstance(quotes, MarketDataClientErrorResult)
+    with pytest.raises(RequestError) as exc_info:
+        client.options.quotes(
+            symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
+        )
 
 
 def test_get_options_quotes_response_200_csv(respx_mock, client):

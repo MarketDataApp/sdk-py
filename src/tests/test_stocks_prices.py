@@ -2,11 +2,12 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytest
 import pytz
 
+from marketdata.exceptions import RequestError
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.stocks_prices import StockPrice, StockPricesHumanReadable
-from marketdata.sdk_error import MarketDataClientErrorResult
 
 
 def test_stock_price_str():
@@ -178,9 +179,9 @@ def test_get_stocks_prices_response_bad_status_code(respx_mock, client):
         status_code=501,
     )
 
-    result = client.stocks.prices(symbols="TSLA", output_format=OutputFormat.INTERNAL)
-    assert isinstance(result, MarketDataClientErrorResult)
-    assert result.error.message == "Request failed with: Test error message"
+    with pytest.raises(RequestError) as exc_info:
+        client.stocks.prices(symbols="TSLA", output_format=OutputFormat.INTERNAL)
+    assert exc_info.value.message == "Request failed with: Test error message"
 
 
 def test_get_stocks_prices_status_offline(respx_mock, client):
@@ -204,8 +205,8 @@ def test_get_stocks_prices_status_offline(respx_mock, client):
         status_code=501,
     )
 
-    prices = client.stocks.prices(symbols="TSLA", output_format=OutputFormat.INTERNAL)
-    assert isinstance(prices, MarketDataClientErrorResult)
+    with pytest.raises(RequestError) as exc_info:
+        client.stocks.prices(symbols="TSLA", output_format=OutputFormat.INTERNAL)
 
 
 def test_get_stocks_prices_response_200_csv(respx_mock, client):
