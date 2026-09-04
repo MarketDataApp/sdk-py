@@ -15,11 +15,9 @@ if TYPE_CHECKING:
 
 
 def should_retry(exc: BaseException) -> bool:
-    """SDK requirements §9.2: retry server errors above 500 and network
-    failures; never 4xx, a plain 500, or a rate limit."""
-    if isinstance(exc, NetworkError):
-        return True
-    return isinstance(exc, ServerError) and exc.status_code > 500
+    """SDK requirements §9.2: retry ``ServerError`` (501 and above) and
+    ``NetworkError``; never a 4xx, an ``InternalError`` (500) or a rate limit."""
+    return isinstance(exc, (NetworkError, ServerError))
 
 
 def api_error_handler(

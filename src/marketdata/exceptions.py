@@ -15,8 +15,8 @@ status          exception
 404 + errmsg    ``NotFoundError``
 404 no_data     no exception: the resource returns an empty result
 429             ``RateLimitError`` (never retried, carries ``retry_after``)
-500             ``ServerError`` (not retried)
-501 to 599      ``ServerError`` (retried with exponential backoff)
+500             ``InternalError`` (the API failed; never retried)
+501 to 599      ``ServerError`` (the API is unavailable; retried with backoff)
 transport       ``NetworkError`` (retried)
 bad JSON body   ``ParseError``
 other 4xx       ``MarketdataHttpError``
@@ -148,8 +148,15 @@ class NotFoundError(MarketdataHttpError):
     """
 
 
+class InternalError(MarketdataHttpError):
+    """500: the API itself failed on the request. Retrying will not help, so
+    it is terminal. Not a ``ServerError``: catching one never catches the
+    other."""
+
+
 class ServerError(MarketdataHttpError):
-    """5xx. A plain 500 is terminal; 501 and above are retried."""
+    """501 to 599: the API is unavailable or a gateway answered for it. The
+    request never ran, so it is retried with exponential backoff."""
 
 
 class NetworkError(MarketdataHttpError):

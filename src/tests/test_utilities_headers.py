@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from marketdata.client import MarketDataClient
-from marketdata.exceptions import ServerError
+from marketdata.exceptions import InternalError
 from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import NO_TOKEN_VALUE
 from marketdata.output_types.utilities_headers import RequestHeaders
@@ -124,6 +124,6 @@ def test_get_utilities_headers_response_bad_status_code(respx_mock, client):
         json={"s": "error", "errmsg": "nope"}, status_code=500
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(InternalError) as exc_info:
         client.utilities.headers(output_format=OutputFormat.INTERNAL)
     assert exc_info.value.status_code == 500

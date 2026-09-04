@@ -428,11 +428,13 @@ One class per kind of failure, mapped from the HTTP status the API answered (SDK
 | 404 with an error message | `NotFoundError` | no |
 | 404 with `s: "no_data"` | none: the call returns an **empty result** (see below) | |
 | 429 | `RateLimitError`, with `retry_after` in seconds when the API sent it | no |
-| 500 | `ServerError` | no |
+| 500 | `InternalError` | no |
 | 501 and above | `ServerError` | yes, exponential backoff |
 | connection failure, timeout | `NetworkError` | yes |
 | undecodable body | `ParseError` | no |
 | any other 4xx | `MarketdataHttpError` | no |
+
+A `500` means the API itself failed on your request, so retrying would not help; `501` and above mean the API was unavailable or a gateway answered for it, which is why only those are retried. The two are separate classes: catching one never catches the other.
 
 All HTTP classes derive from `MarketdataHttpError` and keep the underlying `httpx` objects on `request` and `response`. `RateLimitError` is also raised by the pre-flight credit check, before any request goes out; in that case its request fields read `N/A`.
 
@@ -525,6 +527,7 @@ from marketdata.exceptions import (
     AuthenticationError,
     BadRequestError,
     BaseMarketdataException,
+    InternalError,
     NetworkError,
     RateLimitError,
     ServerError,
@@ -539,26 +542,28 @@ except RateLimitError as e:
     print(f"Out of credits, retry after {e.retry_after} seconds")
 except BadRequestError as e:
     print(f"The API rejected the request: {e.message}")
+except InternalError as e:
+    print(f"The API failed on this request: {e.message}")
 except (ServerError, NetworkError) as e:
-    print(f"The API kept failing after retries: {e.status_code} {e.message}")
+    print(f"The API stayed unavailable after retries: {e.status_code} {e.message}")
 except BaseMarketdataException as e:
     print(e.support_info)
 ```
 
 ## Retry Mechanism
 
-The SDK includes automatic retry logic for handling transient errors: server errors above 500 (`ServerError`) and connection failures or timeouts (`NetworkError`). Nothing else is retried: a 4xx, a plain 500 and a rate limit are final answers.
+The SDK includes automatic retry logic for handling transient errors: availability errors above 500 (`ServerError`) and connection failures or timeouts (`NetworkError`). Nothing else is retried: a 4xx, a 500 (`InternalError`, the API itself failed) and a rate limit are final answers.
 
 ### Retry Configuration
 
 - **Default retry attempts**: 3
 - **Backoff strategy**: Exponential with multiplier 0.5, minimum wait 0.5 seconds, maximum wait 5 seconds
-- **Retried failures**: any HTTP status code greater than 500 (502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout, ...) and any connection failure or timeout. A plain 500, every 4xx and a 429 are not retried.
+- **Retried failures**: any HTTP status code greater than 500 (502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout, ...) and any connection failure or timeout. A 500 (`InternalError`), every 4xx and a 429 are not retried.
 - **Default timeout**: 60 seconds per request
 
 ### How It Works
 
-The retry mechanism only retries `ServerError` with a status above 500 and `NetworkError`, and only if the API service status is `ONLINE` or `UNKNOWN`. The retry adapter uses the `tenacity` library and will retry up to the specified number of attempts with exponential backoff between retries; a `Retry-After` header from the API overrides the computed wait.
+The retry mechanism only retries `ServerError` (501 and above) and `NetworkError`, and only if the API service status is `ONLINE` or `UNKNOWN`. The retry adapter uses the `tenacity` library and will retry up to the specified number of attempts with exponential backoff between retries; a `Retry-After` header from the API overrides the computed wait.
 
 **Important:** Resource methods either return the requested result (DataFrame, list of objects, dict, or the CSV filename) or raise. There is no error return value; see [Error Handling](#error-handling).
 
@@ -596,7 +601,7 @@ except (ServerError, NetworkError) as e:
 
 The SDK automatically refreshes the API status cache when:
 - The cached status is older than 4 minutes and 30 seconds
-- A retryable failure (`ServerError` above 500, `NetworkError`) occurs in a method with status checking
+- A retryable failure (`ServerError`, `NetworkError`) occurs in a method with status checking
 
 The status refresh request does not count against rate limits (`check_rate_limits=False`) and does not update rate limit tracking (`populate_rate_limits=False`), ensuring that status checking does not interfere with your API usage while providing up-to-date service availability information.
 

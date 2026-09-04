@@ -32,7 +32,8 @@ class BadRequestError(MarketdataHttpError): ...        # 400
 class AuthenticationError(MarketdataHttpError): ...    # 401, never retried
 class ForbiddenError(MarketdataHttpError): ...         # 403
 class NotFoundError(MarketdataHttpError): ...          # 404 with errmsg; 404 no_data is an empty result
-class ServerError(MarketdataHttpError): ...            # 5xx; retried only above 500
+class InternalError(MarketdataHttpError): ...          # 500; the API failed, never retried
+class ServerError(MarketdataHttpError): ...            # 501 to 599; unavailable, retried
 class NetworkError(MarketdataHttpError): ...           # connection failure / timeout; retried
 class ParseError(MarketdataHttpError): ...             # undecodable body
 class RateLimitError(BaseMarketdataException): ...     # pre-flight or 429, never retried
@@ -40,8 +41,8 @@ class KeywordOnlyArgumentError(BaseMarketdataException): ...
 ```
 
 **Rationale**:
-- **Transient errors** (`ServerError` above 500, `NetworkError`): retried with exponential backoff (SDK requirements §9.2)
-- **Terminal errors** (every 4xx, a plain 500, `RateLimitError`, `ParseError`, the validation classes): never retried
+- **Transient errors** (`ServerError`, 501 and above, and `NetworkError`): retried with exponential backoff (SDK requirements §9.2)
+- **Terminal errors** (every 4xx, `InternalError` (500), `RateLimitError`, `ParseError`, the validation classes): never retried
 - **Mapping in one place**: `MarketDataClient._raise_for_status` is the only status-to-exception table (#62)
 - **Exceptions propagate**: resource methods raise (SDK requirements §6.4); `api_error_handler` logs the terminal failure at ERROR and re-raises. The v1 `handle_exceptions` decorator and its `MarketDataClientErrorResult` return value were removed in v2.0 (#20)
 - **Support context**: every exception carries `request_id`, `request_url`, `status_code`, `timestamp`, `message` and `exception_type`, rendered by `support_info`
@@ -133,7 +134,7 @@ if status == APIStatusResult.OFFLINE:
 retry_adapter = get_retry_adapter(
     attempts=3,
     backoff=1.0,
-    should_retry=should_retry,   # ServerError above 500 or NetworkError
+    should_retry=should_retry,   # ServerError (501 and above) or NetworkError
     logger=self.logger
 )
 

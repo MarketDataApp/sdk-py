@@ -7,6 +7,7 @@ from marketdata.exceptions import (
     AuthenticationError,
     BadRequestError,
     ForbiddenError,
+    InternalError,
     MarketdataHttpError,
     NetworkError,
     NotFoundError,
@@ -149,7 +150,9 @@ class MarketDataClient:
                 response=response,
                 retry_after=parse_retry_after(response.headers.get("Retry-After")),
             )
-        if status >= 500:
+        if status == 500:
+            raise InternalError(message, **context)
+        if status > 500:
             raise ServerError(message, **context)
         raise MarketdataHttpError(message, **context)
 

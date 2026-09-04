@@ -85,7 +85,7 @@ Familiarize yourself with the main components:
   `output_handlers/polars.py`).
 - `marketdata.exceptions` — `BaseMarketdataException` → `MarketdataHttpError` →
   {`BadRequestError`, `AuthenticationError`, `ForbiddenError`, `NotFoundError`,
-  `ServerError`, `NetworkError`, `ParseError`}; plus `RateLimitError`,
+  `InternalError`, `ServerError`, `NetworkError`, `ParseError`}; plus `RateLimitError`,
   `KeywordOnlyArgumentError`, `InvalidStatusDataError`, and `MinMaxValidationError` →
   {`MinMaxValueValidationError`, `MinMaxDateValidationError`}.
 - `settings.py` — a **module-level singleton**, `settings = MarketDataSettings()`,
@@ -194,14 +194,15 @@ the same six lines appear, with `request_id` / `request_url` reading `N/A` and
 # Walk the hierarchy and confirm each type is produced by the condition it names.
 from marketdata.exceptions import (
     BadRequestError, AuthenticationError, ForbiddenError, NotFoundError,
-    ServerError, NetworkError, ParseError, RateLimitError,
+    InternalError, ServerError, NetworkError, ParseError, RateLimitError,
     KeywordOnlyArgumentError, InvalidStatusDataError,
     MinMaxDateValidationError, MinMaxValueValidationError,
 )
 ```
 
-`ServerError` above 500 and `NetworkError` are what the retry loop retries on; everything
-else is terminal, and a 404 without `errmsg` is not an exception at all but an empty
+`ServerError` (501 and above) and `NetworkError` are what the retry loop retries on.
+Everything else is terminal: a 500 is an `InternalError` (the API itself failed, retrying
+will not help), and a 404 without `errmsg` is not an exception at all but an empty
 result. Getting these the wrong way round means either an unretried transient failure or
 four pointless retries against a 404.
 
@@ -694,7 +695,7 @@ Also confirm `client.rate_limits` advances across successive real calls, and tha
 #### 8.4 Status cache under concurrency
 
 ```python
-# Fire 20 concurrent calls that all trigger a retryable ServerError (status > 500).
+# Fire 20 concurrent calls that all trigger a retryable ServerError (501 and above).
 # Verify: one background refresh thread at a time (`_refresh_in_flight`), no
 # deadlock, and `_refresh_in_flight` reset even when the refresh raises.
 ```

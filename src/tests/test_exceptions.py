@@ -135,6 +135,7 @@ def test_every_exception_is_exported_from_the_package_root():
         "AuthenticationError",
         "ForbiddenError",
         "NotFoundError",
+        "InternalError",
         "ServerError",
         "NetworkError",
         "ParseError",

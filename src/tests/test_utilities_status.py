@@ -8,7 +8,7 @@ import pytz
 
 from marketdata.api_status import API_STATUS_DATA
 from marketdata.client import MarketDataClient
-from marketdata.exceptions import ServerError
+from marketdata.exceptions import InternalError
 from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import NO_TOKEN_VALUE
 from marketdata.output_types.utilities_status import ServiceStatus
@@ -154,7 +154,7 @@ def test_get_utilities_status_response_bad_status_code(respx_mock, client):
         json={"s": "error", "errmsg": "nope"}, status_code=500
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(InternalError) as exc_info:
         client.utilities.status(output_format=OutputFormat.INTERNAL)
     assert exc_info.value.status_code == 500
 

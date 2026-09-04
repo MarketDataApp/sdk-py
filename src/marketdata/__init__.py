@@ -14,6 +14,7 @@ from marketdata.exceptions import (
     NotFoundError,
     ParseError,
     RateLimitError,
+    InternalError,
     ServerError,
 )
 from marketdata.input_types.base import DateFormat, Mode, OutputFormat
@@ -30,6 +31,7 @@ __all__ = [
     "ForbiddenError",
     "NotFoundError",
     "RateLimitError",
+    "InternalError",
     "ServerError",
     "NetworkError",
     "ParseError",

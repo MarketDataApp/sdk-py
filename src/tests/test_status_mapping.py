@@ -14,6 +14,7 @@ from marketdata.exceptions import (
     AuthenticationError,
     BadRequestError,
     ForbiddenError,
+    InternalError,
     MarketdataHttpError,
     NetworkError,
     NotFoundError,
@@ -46,7 +47,7 @@ def _no_sleep(monkeypatch):
         (403, ForbiddenError),
         (404, NotFoundError),
         (429, RateLimitError),
-        (500, ServerError),
+        (500, InternalError),
         (502, ServerError),
         (418, MarketdataHttpError),
     ],
@@ -136,13 +137,21 @@ def test_should_retry_follows_the_spec():
     assert should_retry(NetworkError("timeout", request=request))
     assert should_retry(ServerError("x", request=request, response=httpx.Response(502)))
     assert not should_retry(
-        ServerError("x", request=request, response=httpx.Response(500))
+        InternalError("x", request=request, response=httpx.Response(500))
     )
     assert not should_retry(
         BadRequestError("x", request=request, response=httpx.Response(400))
     )
     assert not should_retry(RateLimitError("x"))
     assert not should_retry(ValueError("x"))
+
+
+def test_a_500_and_a_gateway_error_are_different_exceptions():
+    """A 500 means the API itself failed on the request; 501 and above mean
+    the API was unavailable. Catching one must never catch the other."""
+    assert not issubclass(InternalError, ServerError)
+    assert not issubclass(ServerError, InternalError)
+    assert issubclass(InternalError, MarketdataHttpError)
 
 
 def test_undecodable_body_is_a_parse_error(respx_mock, client):

@@ -241,7 +241,7 @@ Closing this, but reopen if you believe there is still an SDK bug. For usage hel
 ~~~markdown
 Thanks for the report. The SDK is behaving as designed here — this is the error-handling contract rather than a bug.
 
-Resource methods raise on failure, and the class tells you what happened: `ServerError` for server errors (retried first when above 500), `NetworkError` for connection failures, `BadRequestError` / `AuthenticationError` / `ForbiddenError` / `NotFoundError` for the 4xx answers, `RateLimitError` when your credits are exhausted, and the validation classes before any request is made. A 404 without an error message is not an exception: it is the API's "no data" answer and the call returns an empty result. All exceptions derive from `BaseMarketdataException`:
+Resource methods raise on failure, and the class tells you what happened: `InternalError` for a 500 (the API failed on the request, not retried), `ServerError` for 501 and above (retried first), `NetworkError` for connection failures, `BadRequestError` / `AuthenticationError` / `ForbiddenError` / `NotFoundError` for the 4xx answers, `RateLimitError` when your credits are exhausted, and the validation classes before any request is made. A 404 without an error message is not an exception: it is the API's "no data" answer and the call returns an empty result. All exceptions derive from `BaseMarketdataException`:
 
 ```python
 from marketdata import BaseMarketdataException, MarketDataClient

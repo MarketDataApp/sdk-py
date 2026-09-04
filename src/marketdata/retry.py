@@ -43,8 +43,8 @@ def get_retry_adapter(
     before_sleep: Callable = None,
     should_retry: Callable[[BaseException], bool] | None = None,
 ) -> Retrying:
-    """``should_retry`` decides per exception instance (a ``ServerError`` is
-    only retryable above 500); without it, retry by exception type."""
+    """``should_retry`` decides per exception instance; without it, retry by
+    exception type."""
 
     if not exceptions:
         exceptions = [Exception]
