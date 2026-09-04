@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 import pytz
 
-from marketdata.exceptions import BadStatusCodeError, RequestError
+from marketdata.exceptions import BadRequestError, ServerError
 from marketdata.input_types.base import (
     OutputFormat,
 )
@@ -148,7 +148,7 @@ def test_get_options_expirations_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadStatusCodeError) as exc_info:
+    with pytest.raises(BadRequestError) as exc_info:
         client.options.expirations(symbol="AAPL", output_format=OutputFormat.INTERNAL)
 
 
@@ -173,7 +173,7 @@ def test_get_options_expirations_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(RequestError) as exc_info:
+    with pytest.raises(ServerError) as exc_info:
         client.options.expirations(symbol="AAPL", output_format=OutputFormat.INTERNAL)
 
 

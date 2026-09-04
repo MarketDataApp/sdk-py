@@ -71,8 +71,9 @@ Establish which one the reporter used before assuming the decoder is wrong.
 
 **Check which exception they caught.** Every resource method raises on failure, and every
 SDK exception derives from `BaseMarketdataException`. A report of the form "my
-`except RequestError` never fired" is usually a different class being raised (a 400 is a
-`BadStatusCodeError`, a bad parameter value is a Pydantic `ValidationError`). Ask for the
+`except ServerError` never fired" is usually a different class being raised (a 400 is a
+`BadRequestError`, a bad parameter value is a Pydantic `ValidationError`, and a 404 without
+an error message is not an exception but an empty result). Ask for the
 full traceback and the `support_info` block before triaging it as a bug.
 
 ### Decision
@@ -240,7 +241,7 @@ Closing this, but reopen if you believe there is still an SDK bug. For usage hel
 ~~~markdown
 Thanks for the report. The SDK is behaving as designed here — this is the error-handling contract rather than a bug.
 
-Resource methods raise on failure, and the class tells you what happened: `RequestError` for retryable server errors (above 500, raised after the retries), `BadStatusCodeError` for every other non-success status, `RateLimitError` when your credits are exhausted, and the validation classes before any request is made. All of them derive from `BaseMarketdataException`:
+Resource methods raise on failure, and the class tells you what happened: `InternalError` for a 500 (the API failed on the request, not retried), `ServerError` for 501 and above (retried first), `NetworkError` for connection failures, `BadRequestError` / `AuthenticationError` / `ForbiddenError` / `NotFoundError` for the 4xx answers, `RateLimitError` when your credits are exhausted, and the validation classes before any request is made. A 404 without an error message is not an exception: it is the API's "no data" answer and the call returns an empty result. All exceptions derive from `BaseMarketdataException`:
 
 ```python
 from marketdata import BaseMarketdataException, MarketDataClient

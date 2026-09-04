@@ -38,7 +38,7 @@ def user(
 
     return render(
         user_universal_params,
-        response.json(),
+        response,
         output_model=User,
         as_records=False,
     )

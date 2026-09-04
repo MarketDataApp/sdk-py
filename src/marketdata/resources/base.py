@@ -1,3 +1,4 @@
+from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
@@ -7,11 +8,58 @@ from marketdata.input_types.base import (
     UserUniversalAPIParams,
 )
 from marketdata.internal_settings import GLOBAL_EXCLUDED_PARAMS
+from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.settings import settings
 from marketdata.utils import validate_single_param
 
 if TYPE_CHECKING:
     from marketdata.client import MarketDataClient
+
+NO_DATA_BODY = {"s": "no_data"}
+
+
+def _model_columns(output_model: type) -> list[str]:
+    if not is_dataclass(output_model):  # pragma: no cover - every model is one
+        return []
+    return [field.name for field in fields(output_model) if field.name != "s"]
+
+
+def no_data_result(
+    user_universal_params: UserUniversalAPIParams,
+    output_model: type,
+    *,
+    as_records: bool,
+    index_columns: list[str] | None = None,
+    body: dict | None = None,
+):
+    """The empty result for a 404 ``no_data`` answer (SDK requirements §9.1).
+
+    An empty answer to a valid question is not an error, so every output
+    format gets its natural empty value: a DataFrame with the model's columns
+    and no rows, ``[]`` for list-shaped models and ``None`` for single-object
+    models, the API's ``{"s": "no_data"}`` body as JSON, and a header-only CSV.
+    """
+    output_format = user_universal_params.output_format
+
+    if output_format == OutputFormat.DATAFRAME:
+        empty = {column: [] for column in _model_columns(output_model)}
+        handler = get_dataframe_output_handler()
+        return handler(empty, output_model, user_universal_params).get_result(
+            index_columns=index_columns or []
+        )
+
+    if output_format == OutputFormat.INTERNAL:
+        return [] if as_records else None
+
+    if output_format == OutputFormat.JSON:
+        return body if body is not None else dict(NO_DATA_BODY)
+
+    if output_format == OutputFormat.CSV:
+        header = ",".join(_model_columns(output_model))
+        return user_universal_params.write_file(header + "\r\n")
+
+    # Unreachable: the output format was validated by the Pydantic model.
+    raise ValueError(f"Invalid output format: {output_format}")  # pragma: no cover
 
 
 class BaseResource:

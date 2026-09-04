@@ -6,9 +6,10 @@ import pytest
 import pytz
 
 from marketdata.exceptions import (
-    BadStatusCodeError,
+    BadRequestError,
+    MarketdataHttpError,
     MinMaxDateValidationError,
-    RequestError,
+    ServerError,
 )
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.options import OptionsQuotesInput
@@ -220,7 +221,7 @@ def test_options_quotes_no_one_good_status_code(respx_mock, client):
         status_code=205,
     )
 
-    with pytest.raises(BadStatusCodeError) as exc_info:
+    with pytest.raises(MarketdataHttpError) as exc_info:
         client.options.quotes(
             symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
         )
@@ -340,7 +341,7 @@ def test_get_options_quotes_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadStatusCodeError) as exc_info:
+    with pytest.raises(BadRequestError) as exc_info:
         client.options.quotes(
             symbols=["AAPL271217C00255000"], output_format=OutputFormat.INTERNAL
         )
@@ -368,7 +369,7 @@ def test_get_options_quotes_status_offline(respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(RequestError) as exc_info:
+    with pytest.raises(ServerError) as exc_info:
         client.options.quotes(
             symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
         )

@@ -3,6 +3,24 @@
 Every resource method raises on failure (SDK requirements §6.4). Every
 exception carries the support context of §6.2 and renders it through
 ``support_info`` (§6.3), so a caller can paste one block into a support ticket.
+
+The HTTP classes follow the taxonomy of §6.1 and the status mapping of §9.1:
+
+==============  ==========================================================
+status          exception
+==============  ==========================================================
+400             ``BadRequestError``
+401             ``AuthenticationError`` (never retried)
+403             ``ForbiddenError``
+404 + errmsg    ``NotFoundError``
+404 no_data     no exception: the resource returns an empty result
+429             ``RateLimitError`` (never retried, carries ``retry_after``)
+500             ``InternalError`` (the API failed; never retried)
+501 to 599      ``ServerError`` (the API is unavailable; retried with backoff)
+transport       ``NetworkError`` (retried)
+bad JSON body   ``ParseError``
+other 4xx       ``MarketdataHttpError``
+==============  ==========================================================
 """
 
 from datetime import datetime
@@ -25,9 +43,9 @@ NOT_AVAILABLE = "N/A"
 class BaseMarketdataException(Exception):
     """Root of the SDK's exception hierarchy.
 
-    Non-HTTP failures (validation, rate-limit pre-flight, status data) carry
-    ``N/A`` / ``0`` for the request fields; ``MarketdataHttpError`` fills them
-    from the request and response.
+    Failures that never reached the API (validation, the rate-limit pre-flight,
+    status data) carry ``N/A`` / ``0`` for the request fields;
+    ``MarketdataHttpError`` fills them from the request and response.
     """
 
     def __init__(
@@ -78,9 +96,16 @@ class BaseMarketdataException(Exception):
         return "\n".join(lines)
 
 
+def _request_id(response: Response | None) -> str:
+    if response is None:
+        return NOT_AVAILABLE
+    return response.headers.get("cf-ray", NOT_AVAILABLE)
+
+
 class MarketdataHttpError(BaseMarketdataException):
     """A failure with an HTTP request behind it.
 
+    Raised directly only for statuses the taxonomy below does not name;
     ``request`` and ``response`` stay available for callers that need the
     headers (``response`` is ``None`` when the request never got an answer).
     """
@@ -95,11 +120,7 @@ class MarketdataHttpError(BaseMarketdataException):
         super().__init__(
             message,
             timestamp,
-            request_id=(
-                response.headers.get("cf-ray", NOT_AVAILABLE)
-                if response is not None
-                else NOT_AVAILABLE
-            ),
+            request_id=_request_id(response),
             request_url=str(request.url) or NOT_AVAILABLE,
             status_code=response.status_code if response is not None else 0,
         )
@@ -107,16 +128,71 @@ class MarketdataHttpError(BaseMarketdataException):
         self.response = response
 
 
-class BadStatusCodeError(MarketdataHttpError):
-    """A terminal HTTP status: not retried."""
+class BadRequestError(MarketdataHttpError):
+    """400: the API rejected the parameters. Not retried."""
 
 
-class RequestError(MarketdataHttpError):
-    """A retryable HTTP status (server errors above 500)."""
+class AuthenticationError(MarketdataHttpError):
+    """401: missing or invalid token. Fails immediately, never retried."""
+
+
+class ForbiddenError(MarketdataHttpError):
+    """403: the token is valid but not allowed (plan or IP restriction)."""
+
+
+class NotFoundError(MarketdataHttpError):
+    """404 with an ``errmsg``: the question itself was invalid.
+
+    A 404 without ``errmsg`` is an empty answer to a valid question; resource
+    methods return an empty result for it instead of raising.
+    """
+
+
+class InternalError(MarketdataHttpError):
+    """500: the API itself failed on the request. Retrying will not help, so
+    it is terminal. Not a ``ServerError``: catching one never catches the
+    other."""
+
+
+class ServerError(MarketdataHttpError):
+    """501 to 599: the API is unavailable or a gateway answered for it. The
+    request never ran, so it is retried with exponential backoff."""
+
+
+class NetworkError(MarketdataHttpError):
+    """Connection failure or timeout: the request got no answer. Retried."""
+
+
+class ParseError(MarketdataHttpError):
+    """The API answered, but the body could not be decoded."""
 
 
 class RateLimitError(BaseMarketdataException):
-    pass
+    """API credits exhausted.
+
+    Raised by the pre-flight check before a request goes out (no HTTP context)
+    and for a 429 answer from the API (with the response and, when the API sent
+    one, ``retry_after`` in seconds). Never retried.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        timestamp: datetime | str | None = None,
+        *,
+        response: Response | None = None,
+        retry_after: float | None = None,
+    ):
+        request = response.request if response is not None else None
+        super().__init__(
+            message,
+            timestamp,
+            request_id=_request_id(response),
+            request_url=str(request.url) if request is not None else NOT_AVAILABLE,
+            status_code=response.status_code if response is not None else 0,
+        )
+        self.response = response
+        self.retry_after = retry_after
 
 
 class KeywordOnlyArgumentError(BaseMarketdataException):

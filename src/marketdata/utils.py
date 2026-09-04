@@ -6,6 +6,35 @@ from typing import Any
 from urllib.parse import quote
 
 import pytz
+from httpx import Response
+
+from marketdata.exceptions import ParseError
+
+
+def parse_json(response: Response) -> Any:
+    """Decode the response body, or raise ``ParseError`` with support context.
+
+    Every resource decodes through here so an undecodable body is one SDK
+    exception (SDK requirements §6.1) instead of a bare ``JSONDecodeError``.
+    """
+    try:
+        return response.json()
+    except ValueError as exc:  # json.JSONDecodeError is a ValueError
+        raise ParseError(
+            "Response body is not valid JSON: "
+            f"{resume_long_text(response.text, max_length=200)!r}",
+            request=response.request,
+            response=response,
+        ) from exc
+
+
+def is_no_data(response: Response) -> bool:
+    """True for the API's 404 ``no_data`` answer.
+
+    ``MarketDataClient._raise_for_status`` lets exactly one 404 through: the
+    one without an ``errmsg``, which is an empty answer to a valid question.
+    """
+    return response.status_code == 404
 
 
 def format_timestamp(value: str | int | float | None) -> datetime.datetime:

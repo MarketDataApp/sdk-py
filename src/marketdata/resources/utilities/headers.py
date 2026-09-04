@@ -37,7 +37,7 @@ def headers(
 
     return render(
         user_universal_params,
-        response.json(),
+        response,
         output_model=RequestHeaders,
         as_records=False,
     )
