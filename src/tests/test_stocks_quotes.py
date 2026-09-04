@@ -184,7 +184,7 @@ def test_get_stocks_quotes_response_200_internal(load_json, respx_mock, client):
         1765552906, tz=pytz.timezone("US/Eastern")
     )
 
-    respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
+    respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
         json=mock_data,
         status_code=200,
     )
@@ -220,7 +220,7 @@ def test_get_stocks_quotes_response_200_internal(load_json, respx_mock, client):
 
 def test_get_stocks_quotes_response_200_json(load_json, respx_mock, client):
     mock_data = load_json("stocks_quotes_response_200")
-    respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
+    respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
         json=mock_data,
         status_code=200,
     )
@@ -233,7 +233,7 @@ def test_get_stocks_quotes_response_200_json(load_json, respx_mock, client):
 def test_get_stocks_quotes_human_response_200(load_json, respx_mock, client):
     mock_data = load_json("stocks_quotes_human_response_200")
 
-    respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
+    respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
         json=mock_data,
         status_code=200,
     )
@@ -263,7 +263,7 @@ def test_get_stocks_quotes_response_200_dataframe_pandas(load_json, respx_mock, 
         ["pandas"],
     ):
         mock_data = load_json("stocks_quotes_response_200")
-        respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
+        respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
             json=mock_data,
             status_code=200,
         )
@@ -296,7 +296,7 @@ def test_get_stocks_quotes_response_200_dataframe_polars(load_json, respx_mock, 
         ["polars"],
     ):
         mock_data = load_json("stocks_quotes_response_200")
-        respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
+        respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
             json=mock_data,
             status_code=200,
         )
@@ -336,7 +336,7 @@ def test_get_stocks_quotes_response_200_dataframe_pandas_timestamp_dateformat(
             updated_ts, tz=datetime.timezone.utc
         ).isoformat()
         mock_data["updated"] = [updated_iso, updated_iso]
-        respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
+        respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
             json=mock_data,
             status_code=200,
         )
@@ -366,7 +366,7 @@ def test_get_stocks_quotes_response_200_dataframe_polars_timestamp_dateformat(
             updated_ts, tz=datetime.timezone.utc
         ).isoformat()
         mock_data["updated"] = [updated_iso, updated_iso]
-        respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
+        respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
             json=mock_data,
             status_code=200,
         )
@@ -384,7 +384,7 @@ def test_get_stocks_quotes_response_200_dataframe_polars_timestamp_dateformat(
 
 
 def test_get_stocks_quotes_response_bad_status_code(respx_mock, client):
-    respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
+    respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
         json={"errmsg": "Test error message"},
         status_code=501,
     )
@@ -400,7 +400,7 @@ def test_get_stocks_quotes_response_bad_status_code(respx_mock, client):
 def test_get_stocks_quotes_status_offline(load_json, respx_mock, client):
     mock_data = {
         "s": "ok",
-        "service": ["/v1/stocks/bulkquotes/"],
+        "service": ["/v1/stocks/quotes/"],
         "status": ["offline"],
         "online": [False],
         "uptimePct30d": [0],
@@ -412,7 +412,7 @@ def test_get_stocks_quotes_status_offline(load_json, respx_mock, client):
         status_code=200,
     )
 
-    respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
+    respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
         json={},
         status_code=501,
     )
@@ -425,7 +425,7 @@ def test_get_stocks_quotes_status_offline(load_json, respx_mock, client):
 
 
 def test_get_stocks_quotes_response_200_csv(respx_mock, client):
-    respx_mock.get("https://api.marketdata.app/v1/stocks/bulkquotes/").respond(
+    respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
         text="AS RECEIVED FROM API",
         status_code=200,
     )
@@ -433,3 +433,19 @@ def test_get_stocks_quotes_response_200_csv(respx_mock, client):
         symbols=["AAPL", "MSFT"], output_format=OutputFormat.CSV, filename="test.csv"
     )
     assert pathlib.Path(output).read_text() == "AS RECEIVED FROM API"
+
+
+def test_get_stocks_quotes_requests_the_quotes_endpoint(load_json, respx_mock, client):
+    """#74: `stocks/bulkquotes/` is deprecated; `stocks/quotes/` takes
+    `?symbols=A,B,C` at full parity and is what goes on the wire."""
+    mock_data = load_json("stocks_quotes_response_200")
+    route = respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
+        json=mock_data, status_code=200
+    )
+
+    client.stocks.quotes(["AAPL", "META"], output_format=OutputFormat.JSON)
+
+    request = route.calls.last.request
+    assert request.url.path == "/v1/stocks/quotes/"
+    assert request.url.params["symbols"] == "AAPL,META"
+    assert "bulkquotes" not in str(request.url)
