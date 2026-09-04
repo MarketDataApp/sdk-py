@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 import pytz
 
-from marketdata.exceptions import BadStatusCodeError, RequestError
+from marketdata.exceptions import BadRequestError, ServerError
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.options_strikes import (
     OptionsStrikes,
@@ -251,7 +251,7 @@ def test_get_options_strikes_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadStatusCodeError) as exc_info:
+    with pytest.raises(BadRequestError) as exc_info:
         client.options.strikes("AAPL", output_format=OutputFormat.INTERNAL)
 
 
@@ -275,7 +275,7 @@ def test_get_options_strikes_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(RequestError) as exc_info:
+    with pytest.raises(ServerError) as exc_info:
         client.options.strikes("AAPL", output_format=OutputFormat.INTERNAL)
 
 

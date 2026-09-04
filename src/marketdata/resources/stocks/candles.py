@@ -17,11 +17,13 @@ from marketdata.output_types.stocks_candles import (
     StockCandlesHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource
+from marketdata.resources.base import BaseResource, no_data_result
 from marketdata.utils import (
     encode_path_segment,
     get_data_records,
+    is_no_data,
     merge_csv_texts,
+    parse_json,
     split_dates_by_timeframe,
 )
 
@@ -89,6 +91,8 @@ def candles(
             for from_date, to_date in year_ranges
         ]
         responses = [future.result(timeout=HTTP_TIMEOUT) for future in futures]
+    # A chunk with no data (404 no_data) is simply absent from the merge.
+    responses = [response for response in responses if not is_no_data(response)]
 
     output_model = (
         StockCandlesHumanReadable
@@ -96,8 +100,16 @@ def candles(
         else StockCandle
     )
 
+    if not responses:
+        return no_data_result(
+            user_universal_params,
+            output_model,
+            as_records=True,
+            index_columns=["t", "Date"],
+        )
+
     def _get_responses_data(responses: list[httpx.Response]) -> list[dict]:
-        responses_data = [response.json() for response in responses]
+        responses_data = [parse_json(response) for response in responses]
         result = {}
         for field in fields(output_model):
             result[field.name] = list(

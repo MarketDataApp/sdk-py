@@ -84,7 +84,8 @@ Familiarize yourself with the main components:
 - Output models (`output_types/`) and handlers (`output_handlers/pandas.py`,
   `output_handlers/polars.py`).
 - `marketdata.exceptions` — `BaseMarketdataException` → `MarketdataHttpError` →
-  {`BadStatusCodeError`, `RequestError`}; plus `RateLimitError`,
+  {`BadRequestError`, `AuthenticationError`, `ForbiddenError`, `NotFoundError`,
+  `ServerError`, `NetworkError`, `ParseError`}; plus `RateLimitError`,
   `KeywordOnlyArgumentError`, `InvalidStatusDataError`, and `MinMaxValidationError` →
   {`MinMaxValueValidationError`, `MinMaxDateValidationError`}.
 - `settings.py` — a **module-level singleton**, `settings = MarketDataSettings()`,
@@ -128,7 +129,7 @@ client = MarketDataClient(token="obviously-invalid-token-1234")
 try:
     client.stocks.quotes("AAPL")
 except BaseMarketdataException as e:
-    print(e.exception_type)   # expect BadStatusCodeError, status_code 401
+    print(e.exception_type)   # expect AuthenticationError, status_code 401
     print(e.support_info)
 
 # Verify: the token does NOT appear anywhere in the output.
@@ -152,7 +153,7 @@ try:
 except BaseMarketdataException as e:
     print(e.status_code, e.message)   # the API answers 400 "Bad parameters"
 
-# Verify: a BadStatusCodeError with the API's status and message, consistently
+# Verify: a BadRequestError with the API's status and message, consistently
 # across stocks.quotes, stocks.prices, options.chain and markets.status.
 # Bug indicator: a raw KeyError or TypeError from the decoder instead.
 ```
@@ -175,7 +176,7 @@ request_url:    https://api.marketdata.app/v1/stocks/candles/D/AAPL/?format=json
 status_code:    422
 timestamp:      2026-09-02 16:01:49
 message:        countback must be a positive integer
-exception_type: BadStatusCodeError
+exception_type: BadRequestError
 --------------------------------
 ```
 
@@ -192,15 +193,17 @@ the same six lines appear, with `request_id` / `request_url` reading `N/A` and
 ```python
 # Walk the hierarchy and confirm each type is produced by the condition it names.
 from marketdata.exceptions import (
-    BadStatusCodeError, RequestError, RateLimitError,
+    BadRequestError, AuthenticationError, ForbiddenError, NotFoundError,
+    ServerError, NetworkError, ParseError, RateLimitError,
     KeywordOnlyArgumentError, InvalidStatusDataError,
     MinMaxDateValidationError, MinMaxValueValidationError,
 )
 ```
 
-`RequestError` is what the retry loop retries on (any status > 500); `BadStatusCodeError`
-is terminal. Getting these the wrong way round means either an unretried transient
-failure or four pointless retries against a 404.
+`ServerError` above 500 and `NetworkError` are what the retry loop retries on; everything
+else is terminal, and a 404 without `errmsg` is not an exception at all but an empty
+result. Getting these the wrong way round means either an unretried transient failure or
+four pointless retries against a 404.
 
 ### Red flags
 
@@ -214,8 +217,9 @@ failure or four pointless retries against a 404.
 
 | Scenario | Pass | Fail |
 |---|---|---|
-| Bad token | `BadStatusCodeError` raised, token obfuscated | Raw exception, or token leaked |
-| Unknown symbol | `BadStatusCodeError` with the API's status and message | `KeyError` / `TypeError` from the decoder |
+| Bad token | `AuthenticationError` raised, token obfuscated | Raw exception, or token leaked |
+| Unknown symbol | `BadRequestError` with the API's status and message | `KeyError` / `TypeError` from the decoder |
+| No data | An empty result for the output format, no exception | A `NotFoundError`, or a decoder crash on the `no_data` body |
 | support_info | All six fields on every SDK exception | Blank or missing fields |
 | Exception mapping | Retryable vs terminal correctly split | 5xx treated as terminal, or 4xx retried |
 
@@ -690,7 +694,7 @@ Also confirm `client.rate_limits` advances across successive real calls, and tha
 #### 8.4 Status cache under concurrency
 
 ```python
-# Fire 20 concurrent calls that all trigger a RequestError.
+# Fire 20 concurrent calls that all trigger a retryable ServerError (status > 500).
 # Verify: one background refresh thread at a time (`_refresh_in_flight`), no
 # deadlock, and `_refresh_in_flight` reset even when the refresh raises.
 ```

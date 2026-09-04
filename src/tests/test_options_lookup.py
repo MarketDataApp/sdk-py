@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 import pytz
 
-from marketdata.exceptions import BadStatusCodeError, RequestError
+from marketdata.exceptions import BadRequestError, ServerError
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.options import LookupOptionSide
 from marketdata.output_types.options_lookup import (
@@ -132,7 +132,7 @@ def test_get_options_lookup_response_400(respx_mock, client):
         json={"error": "Invalid symbol"},
         status_code=400,
     )
-    with pytest.raises(BadStatusCodeError) as exc_info:
+    with pytest.raises(BadRequestError) as exc_info:
         client.options.lookup("AAPL 28-00-2023 200.0 call")
 
 
@@ -153,7 +153,7 @@ def test_get_options_lookup_status_offline(respx_mock, client):
         "https://api.marketdata.app/v1/options/lookup/AAPL 28-00-2023 200.0 call/"
     ).respond(json={}, status_code=501)
 
-    with pytest.raises(RequestError):
+    with pytest.raises(ServerError):
         client.options.lookup(
             "AAPL 28-00-2023 200.0 call", output_format=OutputFormat.INTERNAL
         )

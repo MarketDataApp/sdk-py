@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 import pytz
 
-from marketdata.exceptions import RequestError
+from marketdata.exceptions import ServerError
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.output_types.stocks_quotes import StockQuote, StockQuotesHumanReadable
 
@@ -390,12 +390,12 @@ def test_get_stocks_quotes_response_bad_status_code(respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(RequestError) as exc_info:
+    with pytest.raises(ServerError) as exc_info:
         client.stocks.quotes(
             symbols=["AAPL", "MSFT"],
             output_format=OutputFormat.INTERNAL,
         )
-    assert exc_info.value.message == "Request failed with: Test error message"
+    assert exc_info.value.message == "Test error message"
 
 
 def test_get_stocks_quotes_status_offline(load_json, respx_mock, client):
@@ -418,7 +418,7 @@ def test_get_stocks_quotes_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(RequestError) as exc_info:
+    with pytest.raises(ServerError) as exc_info:
         client.stocks.quotes(
             symbols=["AAPL", "MSFT"],
             output_format=OutputFormat.INTERNAL,

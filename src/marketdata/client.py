@@ -1,16 +1,23 @@
 from importlib.metadata import version
 from logging import DEBUG, INFO, Logger
-from typing import Callable
 
-from httpx import Client, HTTPStatusError, Response
+from httpx import Client, Request, Response, TransportError
 
-from marketdata.exceptions import BadStatusCodeError, RateLimitError, RequestError
+from marketdata.exceptions import (
+    AuthenticationError,
+    BadRequestError,
+    ForbiddenError,
+    MarketdataHttpError,
+    NetworkError,
+    NotFoundError,
+    RateLimitError,
+    ServerError,
+)
 from marketdata.input_types.base import UserUniversalAPIParams
 from marketdata.internal_settings import (
     HTTP_TIMEOUT,
     MAX_RETRY_ATTEMPTS,
     NO_TOKEN_VALUE,
-    RETRY_STATUS_CODES,
 )
 from marketdata.logger import get_logger
 from marketdata.resources.funds import FundsResource
@@ -18,6 +25,7 @@ from marketdata.resources.markets import MarketsResource
 from marketdata.resources.options import OptionsResource
 from marketdata.resources.stocks import StocksResource
 from marketdata.resources.utilities import UtilitiesResource
+from marketdata.retry import parse_retry_after
 from marketdata.settings import settings
 from marketdata.types import UserRateLimits
 from marketdata.utils import format_duration_log, obfuscate_token, resume_long_text
@@ -95,72 +103,55 @@ class MarketDataClient:
         if raise_error and self.rate_limits.requests_remaining <= 0:
             raise RateLimitError("Rate limit exceeded")
 
-    def _validate_response_status_code(
-        self,
-        response: Response,
-        retry_status_codes: list[int] | int | Callable,
-        raise_for_status: bool,
-    ) -> None:
-        def _get_response_errmsg(response: Response):
-            # Bound the error message so a malformed or hostile response body
-            # cannot balloon exception messages and log output.
-            try:
-                data = response.json()
-                errmsg = data["errmsg"]
-            except Exception:
-                errmsg = response.text
-            return resume_long_text(str(errmsg), max_length=500)
+    @staticmethod
+    def _error_message(response: Response) -> tuple[str, bool]:
+        """The API's ``errmsg`` when the body carries one, else the raw body.
 
-        def _validate_status(response: Response):
-            try:
-                response.raise_for_status()
-            except HTTPStatusError:
-                return False
-            return True
+        Bounded so a malformed or hostile response cannot balloon exception
+        messages and log output. The flag says whether an ``errmsg`` was found,
+        which is what separates "invalid question" from "empty answer" on 404.
+        """
+        try:
+            errmsg = response.json()["errmsg"]
+            has_errmsg = True
+        except Exception:
+            errmsg = response.text
+            has_errmsg = False
+        return resume_long_text(str(errmsg), max_length=500), has_errmsg
 
-        conditions_to_error: list[tuple[bool, str]] = [
-            (
-                retry_status_codes
-                and isinstance(retry_status_codes, int)
-                and retry_status_codes == response.status_code,
-                RequestError(
-                    message=f"Request failed with: {_get_response_errmsg(response)}",
-                    request=response.request,
-                    response=response,
-                ),
-            ),
-            (
-                retry_status_codes
-                and isinstance(retry_status_codes, Callable)
-                and retry_status_codes(response.status_code),
-                RequestError(
-                    message=f"Request failed with: {_get_response_errmsg(response)}",
-                    request=response.request,
-                    response=response,
-                ),
-            ),
-            (
-                retry_status_codes
-                and isinstance(retry_status_codes, list)
-                and response.status_code in retry_status_codes,
-                RequestError(
-                    message=_get_response_errmsg(response),
-                    request=response.request,
-                    response=response,
-                ),
-            ),
-            (
-                raise_for_status and not _validate_status(response),
-                BadStatusCodeError(
-                    message=_get_response_errmsg(response),
-                    request=response.request,
-                    response=response,
-                ),
-            ),
-        ]
-        for condition, exc in conditions_to_error:
-            if condition:
-                raise exc
+    def _raise_for_status(self, response: Response) -> None:
+        """Map the HTTP status to the exception taxonomy (SDK requirements §9.1).
+
+        Returns normally for success and for a 404 without ``errmsg``: that is
+        the API's "no data" answer to a valid question, and the resource
+        renders an empty result for it.
+        """
+        status = response.status_code
+        if status < 400:
+            return
+
+        message, has_errmsg = self._error_message(response)
+        context = dict(request=response.request, response=response)
+
+        if status == 400:
+            raise BadRequestError(message, **context)
+        if status == 401:
+            raise AuthenticationError(message, **context)
+        if status == 403:
+            raise ForbiddenError(message, **context)
+        if status == 404:
+            if has_errmsg:
+                raise NotFoundError(message, **context)
+            return
+        if status == 429:
+            raise RateLimitError(
+                message,
+                response=response,
+                retry_after=parse_retry_after(response.headers.get("Retry-After")),
+            )
+        if status >= 500:
+            raise ServerError(message, **context)
+        raise MarketdataHttpError(message, **context)
 
     def _setup_rate_limits(self):
         if self.token is NO_TOKEN_VALUE:
@@ -192,6 +183,14 @@ class MarketDataClient:
             )
             return None
 
+    def _request_of(self, exc: TransportError, method: str, url: str) -> Request:
+        # httpx attaches the request to the transport error; when it did not,
+        # rebuild it so the support context still names the URL that failed.
+        try:
+            return exc.request
+        except RuntimeError:  # pragma: no cover - httpx always sets it on send
+            return Request(method, self.client.base_url.join(url))
+
     def _pre_request_logs(self, method: str, url: str, **kwargs):
         self.logger.debug(f"Making request to URL: {self.base_url}/{url}")
 
@@ -212,8 +211,6 @@ class MarketDataClient:
         populate_rate_limits: bool = True,
         include_api_version: bool = True,
         timeout: int = HTTP_TIMEOUT,
-        retry_status_codes: list[int] = RETRY_STATUS_CODES,
-        raise_for_status: bool = True,
         response_log_level: int = INFO,
         **kwargs,
     ) -> Response:
@@ -226,12 +223,18 @@ class MarketDataClient:
             url = f"{self.api_version}/{url}"
 
         self._pre_request_logs(method, url, **kwargs)
-        response = self.client.request(method, url, **kwargs, timeout=timeout)
+        try:
+            response = self.client.request(method, url, **kwargs, timeout=timeout)
+        except TransportError as exc:
+            # Connection failures and timeouts never got an answer: NetworkError
+            # (retried by the resource's retry loop).
+            raise NetworkError(
+                f"{type(exc).__name__}: {exc}",
+                request=self._request_of(exc, method, url),
+            ) from exc
         self._post_request_logs(response, response_log_level)
 
-        self._validate_response_status_code(
-            response, retry_status_codes, raise_for_status
-        )
+        self._raise_for_status(response)
 
         if populate_rate_limits:
             rate_limits = self._extract_rate_limits(response)

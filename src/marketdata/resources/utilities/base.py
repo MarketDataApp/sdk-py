@@ -10,10 +10,12 @@ produced client-side from the decoded JSON.
 from pathlib import Path
 from typing import Any
 
+from httpx import Response
+
 from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.output_handlers import get_dataframe_output_handler
-from marketdata.resources.base import BaseResource
-from marketdata.utils import dict_to_csv, get_data_records
+from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.utils import dict_to_csv, get_data_records, is_no_data, parse_json
 
 
 def resolve_output_params(
@@ -36,18 +38,28 @@ def resolve_output_params(
 
 def render(
     user_universal_params: UserUniversalAPIParams,
-    data: dict,
+    response: Response,
     *,
     output_model: type,
     as_records: bool,
     index_columns: list[str] | None = None,
 ):
-    """Turn the decoded JSON into the requested output format.
+    """Turn the response into the requested output format.
 
     ``as_records`` distinguishes column-oriented payloads (one row per entry,
     like ``/status/``) from flat objects (``/headers/``, ``/user/``).
     """
     output_format = user_universal_params.output_format
+
+    if is_no_data(response):
+        return no_data_result(
+            user_universal_params,
+            output_model,
+            as_records=as_records,
+            index_columns=index_columns,
+            body=parse_json(response),
+        )
+    data = parse_json(response)
 
     if output_format == OutputFormat.DATAFRAME:
         handler = get_dataframe_output_handler()

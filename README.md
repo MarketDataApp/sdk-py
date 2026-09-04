@@ -380,7 +380,7 @@ except BaseMarketdataException as e:
     print(e.support_info)   # paste this block into a support ticket
 ```
 
-Errors that are not the SDK's own (a Pydantic `ValidationError` for a bad parameter value, a `FileExistsError` on CSV output, an `httpx` transport error) propagate as they are.
+Connection failures and undecodable bodies are wrapped (`NetworkError`, `ParseError`); errors that are not about the API at all (a Pydantic `ValidationError` for a bad parameter value, a `FileExistsError` on CSV output) propagate as they are.
 
 ### `BaseMarketdataException` and `support_info`
 
@@ -416,13 +416,38 @@ except RateLimitError as e:
     print(f"Rate limit exceeded: {e}")
 ```
 
-### `RequestError`
+### The exception classes
 
-Raised for retryable HTTP failures (status codes above 500). The SDK retries these with exponential backoff first; the exception reaches you only after the retries are exhausted, or immediately when the API status endpoint reports the service offline.
+One class per kind of failure, mapped from the HTTP status the API answered (SDK requirements §6.1 and §9.1):
 
-### `BadStatusCodeError`
+| Status | Exception | Retried |
+|---|---|---|
+| 400 | `BadRequestError` | no |
+| 401 | `AuthenticationError` | no, fails immediately |
+| 403 | `ForbiddenError` | no |
+| 404 with an error message | `NotFoundError` | no |
+| 404 with `s: "no_data"` | none: the call returns an **empty result** (see below) | |
+| 429 | `RateLimitError`, with `retry_after` in seconds when the API sent it | no |
+| 500 | `ServerError` | no |
+| 501 and above | `ServerError` | yes, exponential backoff |
+| connection failure, timeout | `NetworkError` | yes |
+| undecodable body | `ParseError` | no |
+| any other 4xx | `MarketdataHttpError` | no |
 
-Raised for every other non-success HTTP status (400, 401, 404, 500, ...). Not retried. `status_code`, `request_id` and `request_url` tell you what the API answered; the `request` and `response` attributes keep the underlying `httpx` objects.
+All HTTP classes derive from `MarketdataHttpError` and keep the underlying `httpx` objects on `request` and `response`. `RateLimitError` is also raised by the pre-flight credit check, before any request goes out; in that case its request fields read `N/A`.
+
+### No data is not an error
+
+When the API has no data for a valid question (candles over a weekend, news for a quiet day) it answers `404` with `s: "no_data"`. The SDK does **not** raise for that. It returns the natural empty value for the output format you asked for:
+
+| Output format | Empty result |
+|---|---|
+| `DATAFRAME` | a DataFrame with the model's columns and no rows |
+| `INTERNAL` | `[]` for list-shaped resources (`prices`, `quotes`, `candles`, `news`, `markets.status`, `utilities.status`), `None` for single-object ones (`earnings`, `options.chain`, `options.expirations`, `options.lookup`, `options.quotes`, `utilities.headers`, `utilities.user`) |
+| `JSON` | the API's `{"s": "no_data"}` body |
+| `CSV` | a file with the header row only |
+
+For the fan-out calls, a chunk (`stocks.candles`) or a symbol (`options.quotes`) with no data is simply absent from the merged result; the whole call is empty only when every part is.
 
 ### `ValueError`
 
@@ -497,49 +522,53 @@ Catch the specific class when you want to react differently; `BaseMarketdataExce
 ```python
 from marketdata import MarketDataClient
 from marketdata.exceptions import (
-    BadStatusCodeError,
+    AuthenticationError,
+    BadRequestError,
     BaseMarketdataException,
+    NetworkError,
     RateLimitError,
-    RequestError,
+    ServerError,
 )
 
 client = MarketDataClient()
 try:
     prices = client.stocks.prices("AAPL")
+except AuthenticationError:
+    print("Check MARKETDATA_TOKEN")
 except RateLimitError as e:
-    print(f"Out of credits until the window resets: {e}")
-except RequestError as e:
-    print(f"The API kept failing after retries: {e.status_code}")
-except BadStatusCodeError as e:
-    print(f"The API rejected the request: {e.status_code} {e.message}")
+    print(f"Out of credits, retry after {e.retry_after} seconds")
+except BadRequestError as e:
+    print(f"The API rejected the request: {e.message}")
+except (ServerError, NetworkError) as e:
+    print(f"The API kept failing after retries: {e.status_code} {e.message}")
 except BaseMarketdataException as e:
     print(e.support_info)
 ```
 
 ## Retry Mechanism
 
-The SDK includes automatic retry logic for handling transient errors. The retry mechanism is triggered when a `RequestError` exception occurs in methods decorated with `@api_error_handler`.
+The SDK includes automatic retry logic for handling transient errors: server errors above 500 (`ServerError`) and connection failures or timeouts (`NetworkError`). Nothing else is retried: a 4xx, a plain 500 and a rate limit are final answers.
 
 ### Retry Configuration
 
 - **Default retry attempts**: 3
 - **Backoff strategy**: Exponential with multiplier 0.5, minimum wait 0.5 seconds, maximum wait 5 seconds
-- **Retryable status codes**: The SDK retries on any HTTP status code greater than 500 (server errors). This includes common server error codes like 502 (Bad Gateway), 503 (Service Unavailable), 504 (Gateway Timeout), and others.
+- **Retried failures**: any HTTP status code greater than 500 (502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout, ...) and any connection failure or timeout. A plain 500, every 4xx and a 429 are not retried.
 - **Default timeout**: 60 seconds per request
 
 ### How It Works
 
-The retry mechanism only retries on `RequestError` exceptions and only if the API service status is `ONLINE` or `UNKNOWN`. When a retryable status code is encountered, a `RequestError` exception is raised internally, which triggers the retry logic. The retry adapter uses the `tenacity` library and will retry up to the specified number of attempts with exponential backoff between retries.
+The retry mechanism only retries `ServerError` with a status above 500 and `NetworkError`, and only if the API service status is `ONLINE` or `UNKNOWN`. The retry adapter uses the `tenacity` library and will retry up to the specified number of attempts with exponential backoff between retries; a `Retry-After` header from the API overrides the computed wait.
 
 **Important:** Resource methods either return the requested result (DataFrame, list of objects, dict, or the CSV filename) or raise. There is no error return value; see [Error Handling](#error-handling).
 
 ## API Status Checking
 
-The SDK includes automatic API status checking for certain resource methods. When a `RequestError` occurs, the SDK verifies that the API service is online before retrying the request.
+The SDK includes automatic API status checking for certain resource methods. When a retryable failure occurs, the SDK verifies that the API service is online before retrying the request.
 
 ### How It Works
 
-- **Automatic checking**: Methods with API status checking (`@api_error_handler` decorator) verify service availability when a `RequestError` occurs
+- **Automatic checking**: Methods with API status checking (`@api_error_handler` decorator) verify service availability when a retryable failure occurs
 - **Cached status**: API status information is cached and refreshed automatically every 4 minutes and 30 seconds
 - **Service-specific**: Each method checks the status of its specific service endpoint
 - **Retry logic**: The SDK only retries requests if the service status is `ONLINE` or `UNKNOWN`. If the service is `OFFLINE`, the error is raised immediately
@@ -550,16 +579,16 @@ All resource methods include API status checking and automatic retry logic. See 
 
 ### Error Handling
 
-If a service is offline when checked, the method raises the original `RequestError` exception instead of retrying:
+If a service is offline when checked, the method raises the original `ServerError` (or `NetworkError`) instead of retrying:
 
 ```python
 from marketdata import MarketDataClient
-from marketdata.exceptions import RequestError
+from marketdata.exceptions import NetworkError, ServerError
 
 client = MarketDataClient()
 try:
     result = client.stocks.candles("AAPL")
-except RequestError as e:
+except (ServerError, NetworkError) as e:
     print(f"Service unavailable or request failed: {e}")
 ```
 
@@ -567,7 +596,7 @@ except RequestError as e:
 
 The SDK automatically refreshes the API status cache when:
 - The cached status is older than 4 minutes and 30 seconds
-- A `RequestError` occurs in a method with status checking
+- A retryable failure (`ServerError` above 500, `NetworkError`) occurs in a method with status checking
 
 The status refresh request does not count against rate limits (`check_rate_limits=False`) and does not update rate limit tracking (`populate_rate_limits=False`), ensuring that status checking does not interfere with your API usage while providing up-to-date service availability information.
 
@@ -625,7 +654,7 @@ MARKETDATA_MODE=live
 │   └── marketdata/
 │       ├── __init__.py
 │       ├── client.py          # Main MarketDataClient class
-│       ├── exceptions.py      # Custom exceptions (RateLimitError, RequestError, KeywordOnlyArgumentError)
+│       ├── exceptions.py      # The exception taxonomy (BadRequestError, ServerError, RateLimitError, ...)
 │       ├── logger.py          # Logging configuration
 │       ├── params.py          # Parameter decorators and validation (@universal_params)
 │       ├── retry.py           # Retry mechanism using tenacity
@@ -781,7 +810,7 @@ The SDK uses concurrent requests for efficient data fetching in specific scenari
 - **`stocks.candles()`**: For intraday resolutions (minutely/hourly), large date ranges are automatically split into year-long, non-overlapping chunks and fetched concurrently (up to 50 concurrent requests by default)
 - **`options.quotes()`**: Multiple option symbols are fetched concurrently (up to 50 concurrent requests by default)
 
-When concurrent requests are used, responses are automatically merged into a single result. If no valid responses are received, a `BadStatusCodeError` is raised.
+When concurrent requests are used, responses are automatically merged into a single result. A chunk or symbol with no data is left out of the merge; if every part has no data the call returns an empty result, and if the API answered with nothing usable at all a `MarketdataHttpError` is raised.
 
 See the specific resource documentation for details on concurrent request behavior.
 

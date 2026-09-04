@@ -11,7 +11,7 @@ from pytz import timezone
 import marketdata
 from marketdata.exceptions import (
     SUPPORT_CONTEXT_FIELDS,
-    BadStatusCodeError,
+    BadRequestError,
     BaseMarketdataException,
     InvalidStatusDataError,
     KeywordOnlyArgumentError,
@@ -20,7 +20,7 @@ from marketdata.exceptions import (
     MinMaxValidationError,
     MinMaxValueValidationError,
     RateLimitError,
-    RequestError,
+    ServerError,
 )
 from marketdata.input_types.base import OutputFormat
 
@@ -60,10 +60,11 @@ def test_base_exception_accepts_a_datetime_timestamp():
 
 
 def test_support_info_matches_the_spec_layout():
-    error = BadStatusCodeError(
+    error = RateLimitError(
         "Rate limit exceeded",
-        request=REQUEST,
-        response=Response(429, headers={"cf-ray": "8a1b2c3d4e5f6g7h-SJC"}),
+        response=Response(
+            429, headers={"cf-ray": "8a1b2c3d4e5f6g7h-SJC"}, request=REQUEST
+        ),
         timestamp="2025-02-21 12:00:00",
     )
 
@@ -75,7 +76,7 @@ def test_support_info_matches_the_spec_layout():
             "status_code:    429",
             "timestamp:      2025-02-21 12:00:00",
             "message:        Rate limit exceeded",
-            "exception_type: BadStatusCodeError",
+            "exception_type: RateLimitError",
             "--------------------------------",
         ]
     )
@@ -95,7 +96,7 @@ def test_http_error_without_a_response_reports_not_available():
 def test_http_error_keeps_request_and_response():
     response = Response(502, request=REQUEST)
 
-    error = RequestError(
+    error = ServerError(
         "Request failed with: gateway", request=REQUEST, response=response
     )
 
@@ -130,8 +131,13 @@ def test_every_exception_is_exported_from_the_package_root():
     for name in (
         "BaseMarketdataException",
         "MarketdataHttpError",
-        "BadStatusCodeError",
-        "RequestError",
+        "BadRequestError",
+        "AuthenticationError",
+        "ForbiddenError",
+        "NotFoundError",
+        "ServerError",
+        "NetworkError",
+        "ParseError",
         "RateLimitError",
         "KeywordOnlyArgumentError",
         "InvalidStatusDataError",
@@ -155,7 +161,7 @@ def test_resource_methods_raise_instead_of_returning_an_error_result(
         status_code=400,
     )
 
-    with pytest.raises(BadStatusCodeError) as exc_info:
+    with pytest.raises(BadRequestError) as exc_info:
         client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)
 
     error = exc_info.value

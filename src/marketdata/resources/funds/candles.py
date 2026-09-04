@@ -7,8 +7,13 @@ from marketdata.input_types.funds import FundsCandlesInput
 from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.funds_candles import FundsCandle, FundsCandlesHumanReadable
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource
-from marketdata.utils import encode_path_segment, get_data_records
+from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.utils import (
+    encode_path_segment,
+    get_data_records,
+    is_no_data,
+    parse_json,
+)
 
 
 @api_error_handler(service="/v1/funds/candles/")
@@ -46,21 +51,30 @@ def candles(
         else FundsCandle
     )
 
+    if is_no_data(response):
+        return no_data_result(
+            user_universal_params,
+            output_model,
+            as_records=True,
+            index_columns=["t", "Date"],
+            body=parse_json(response),
+        )
+
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
-        data = response.json()
+        data = parse_json(response)
         handler = get_dataframe_output_handler()
         return handler(data, output_model, user_universal_params).get_result(
             index_columns=["t", "Date"]
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = response.json()
+        data = parse_json(response)
         data = get_data_records(data, exclude_keys=["s"])
 
         return [output_model(**row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:
-        return response.json()
+        return parse_json(response)
 
     elif user_universal_params.output_format == OutputFormat.CSV:
         return user_universal_params.write_file(response.text)

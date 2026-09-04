@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from marketdata.exceptions import BadStatusCodeError
+from marketdata.exceptions import AuthenticationError
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.utilities_user import User
 from marketdata.types import UserRateLimits
@@ -136,6 +136,6 @@ def test_get_utilities_user_response_unauthorized(respx_mock, client):
         json={"s": "error", "errmsg": "Invalid token."}, status_code=401
     )
 
-    with pytest.raises(BadStatusCodeError) as exc_info:
+    with pytest.raises(AuthenticationError) as exc_info:
         client.utilities.user(output_format=OutputFormat.INTERNAL)
     assert exc_info.value.status_code == 401

@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from marketdata.client import MarketDataClient
-from marketdata.exceptions import BadStatusCodeError
+from marketdata.exceptions import ServerError
 from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import NO_TOKEN_VALUE
 from marketdata.output_types.utilities_headers import RequestHeaders
@@ -112,9 +112,18 @@ def test_get_utilities_headers_works_in_demo_mode(load_json, respx_mock):
     assert "Authorization" not in route.calls.last.request.headers
 
 
-def test_get_utilities_headers_response_bad_status_code(respx_mock, client):
+def test_get_utilities_headers_no_data_is_an_empty_result(respx_mock, client):
     respx_mock.get(HEADERS_URL).respond(json={"s": "no_data"}, status_code=404)
 
-    with pytest.raises(BadStatusCodeError) as exc_info:
+    assert client.utilities.headers(output_format=OutputFormat.INTERNAL) is None
+    assert client.utilities.headers(output_format=OutputFormat.JSON) == {"s": "no_data"}
+
+
+def test_get_utilities_headers_response_bad_status_code(respx_mock, client):
+    respx_mock.get(HEADERS_URL).respond(
+        json={"s": "error", "errmsg": "nope"}, status_code=500
+    )
+
+    with pytest.raises(ServerError) as exc_info:
         client.utilities.headers(output_format=OutputFormat.INTERNAL)
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == 500

@@ -5,13 +5,21 @@ from typing import TYPE_CHECKING, Callable
 from tenacity import before_sleep_log
 
 from marketdata.api_status import API_STATUS_DATA, APIStatusResult
-from marketdata.exceptions import RequestError
+from marketdata.exceptions import NetworkError, ServerError
 from marketdata.internal_settings import INITIAL_RETRY_DELAY
 from marketdata.resources.base import BaseResource
 from marketdata.retry import get_retry_adapter
 
 if TYPE_CHECKING:
     from marketdata.client import MarketDataClient
+
+
+def should_retry(exc: BaseException) -> bool:
+    """SDK requirements §9.2: retry server errors above 500 and network
+    failures; never 4xx, a plain 500, or a rate limit."""
+    if isinstance(exc, NetworkError):
+        return True
+    return isinstance(exc, ServerError) and exc.status_code > 500
 
 
 def api_error_handler(
@@ -41,7 +49,7 @@ def api_error_handler(
         retry_adapter = get_retry_adapter(
             attempts=client.max_retries + 1,
             initial_delay=INITIAL_RETRY_DELAY,
-            exceptions=[RequestError],
+            should_retry=should_retry,
             logger=logger,
             reraise=True,
             before_sleep=_status_check_before_sleep,

@@ -7,6 +7,7 @@ from typing import Callable
 from tenacity import (
     Retrying,
     before_sleep_log,
+    retry_if_exception,
     retry_if_exception_type,
     stop_after_attempt,
 )
@@ -40,10 +41,18 @@ def get_retry_adapter(
     exceptions: list[Exception] = None,
     reraise: bool = False,
     before_sleep: Callable = None,
+    should_retry: Callable[[BaseException], bool] | None = None,
 ) -> Retrying:
+    """``should_retry`` decides per exception instance (a ``ServerError`` is
+    only retryable above 500); without it, retry by exception type."""
 
     if not exceptions:
         exceptions = [Exception]
+    retry_condition = (
+        retry_if_exception(should_retry)
+        if should_retry is not None
+        else retry_if_exception_type(tuple(exceptions))
+    )
 
     def _compute_wait(retry_state) -> float:
         exc = retry_state.outcome.exception() if retry_state.outcome else None
@@ -58,7 +67,7 @@ def get_retry_adapter(
     return Retrying(
         stop=stop_after_attempt(attempts),
         wait=_compute_wait,
-        retry=retry_if_exception_type(tuple(exceptions)),
+        retry=retry_condition,
         reraise=reraise,
         before_sleep=before_sleep or before_sleep_log(logger, log_level=DEBUG),
     )

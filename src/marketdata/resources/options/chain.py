@@ -10,8 +10,8 @@ from marketdata.output_types.options_chain import (
     OptionsChainHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource
-from marketdata.utils import encode_path_segment
+from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.utils import encode_path_segment, is_no_data, parse_json
 
 
 @api_error_handler(service="/v1/options/chain/")
@@ -50,21 +50,30 @@ def chain(
         else OptionsChain
     )
 
+    if is_no_data(response):
+        return no_data_result(
+            user_universal_params,
+            output_model,
+            as_records=False,
+            index_columns=["optionSymbol", "Symbol"],
+            body=parse_json(response),
+        )
+
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
-        data = response.json()
+        data = parse_json(response)
         handler = get_dataframe_output_handler()
         return handler(data, output_model, user_universal_params).get_result(
             index_columns=["optionSymbol", "Symbol"]
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = response.json()
+        data = parse_json(response)
         if user_universal_params.use_human_readable:
             data = {k.replace(" ", "_"): v for k, v in data.items()}
         return output_model(**data)
 
     elif user_universal_params.output_format == OutputFormat.JSON:
-        return response.json()
+        return parse_json(response)
 
     elif user_universal_params.output_format == OutputFormat.CSV:
         return user_universal_params.write_file(response.text)
