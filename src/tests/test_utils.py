@@ -272,14 +272,14 @@ def test_dict_to_csv_column_oriented_payload():
     }
 
     assert dict_to_csv(data, exclude_keys=["s"]) == (
-        "service,online,updated\n/v1/a/,True,1\n/v1/b/,False,2\n"
+        "service,online,updated\r\n/v1/a/,True,1\r\n/v1/b/,False,2\r\n"
     )
 
 
 def test_dict_to_csv_flat_object_is_a_single_row():
     data = {"user-agent": "sdk/1.0", "cf-ray": "abc"}
 
-    assert dict_to_csv(data) == "user-agent,cf-ray\nsdk/1.0,abc\n"
+    assert dict_to_csv(data) == "user-agent,cf-ray\r\nsdk/1.0,abc\r\n"
 
 
 def test_dict_to_csv_empty_payload():

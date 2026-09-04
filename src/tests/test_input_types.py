@@ -180,9 +180,10 @@ def test_universal_api_params_filename(tmp_path: Path):
 
     params = UserUniversalAPIParams(filename=None)
     assert isinstance(params.filename, Path)
-    assert params.filename.parent.exists()
-    assert params.filename.parent.is_dir()
+    assert params.filename.parent == Path("output")
     assert params.filename.suffix == ".csv"
+    # Validation is pure: the directory is created when a file is written (#43).
+    assert not params.filename.parent.exists()
 
     with pytest.raises(ValueError):
         UserUniversalAPIParams(filename="test.txt")
