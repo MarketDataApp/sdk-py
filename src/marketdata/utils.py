@@ -102,9 +102,9 @@ def dict_to_csv(data: dict, exclude_keys: list[str] | None = None) -> str:
         return ""
     records = get_data_records(data, exclude_keys=exclude_keys)
     output = StringIO()
-    # A bare line feed, so the text-mode file write yields the platform's
-    # newline instead of a doubled carriage return on Windows.
-    writer = csv.writer(output, lineterminator="\n")
+    # RFC 4180 line endings, the same the API uses for its own CSV; the file
+    # writer stores the bytes verbatim on every platform.
+    writer = csv.writer(output)
     if records:
         writer.writerow(list(records[0].keys()))
         writer.writerows(list(row.values()) for row in records)

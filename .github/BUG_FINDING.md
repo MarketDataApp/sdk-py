@@ -378,8 +378,8 @@ lives in a Pydantic `field_validator` rather than in the resource method.
 ### What can go wrong
 
 - Writing outside the intended directory, or overwriting an existing file
-- The `output/` directory created as a side effect of validation, in the current working
-  directory, even when the caller supplied a filename
+- The `output/` directory appearing for non-CSV requests, or when the caller supplied a
+  filename (it must only be created when a default-named CSV is written)
 - The returned path not being the file that was written
 - Multi-part responses (auto-chunked candles) producing a CSV with repeated headers
 
@@ -429,8 +429,10 @@ print(path)          # <cwd>/output/YYYYmmdd_HHMMSS_ffffff.csv, absolute
 print(Path(path).exists(), Path(path).read_text()[:200])
 
 # Verify: the returned absolute path exists and holds the CSV.
-# Note: `output/` is created in the caller's current working directory as a side
-# effect of validation whenever no filename is supplied (see #43).
+# Note: `output/` is created in the caller's current working directory only when a
+# CSV is actually written there; JSON/DataFrame/INTERNAL requests never create it
+# (#43). The write is an exclusive create, so a path that appears between
+# validation and the write fails the call instead of being overwritten.
 ```
 
 #### 4.3 Chunked candles merge

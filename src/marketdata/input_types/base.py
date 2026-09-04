@@ -9,6 +9,10 @@ from marketdata.utils import check_is_date
 
 BaseModelConfig = ConfigDict(populate_by_name=True, frozen=False)
 
+# Where CSV output lands when the caller gives no filename: relative to the
+# working directory, created only when a file is written.
+DEFAULT_CSV_DIR = Path("output")
+
 
 class BaseInputType(BaseModel):
     def _validate_min_max_dates(
@@ -91,10 +95,17 @@ class UserUniversalAPIParams(BaseInputType):
 
     @field_validator("filename")
     def validate_filename(cls, file_path: str | Path | None) -> Path:
+        """Resolve and sanity-check the CSV target without touching the filesystem.
+
+        Validation runs on every request, whatever the output format, so it must
+        stay free of side effects: the ``output/`` directory is created by
+        ``write_file`` when a file is actually written (#43). The checks below
+        are an early courtesy for caller-supplied names; the authoritative
+        "must not exist" guarantee is the exclusive create in ``write_file``.
+        """
         if file_path is None:
-            Path("output").mkdir(parents=True, exist_ok=True)
-            file_path = Path(
-                f"output/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.csv"
+            return DEFAULT_CSV_DIR / (
+                f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.csv"
             )
 
         if isinstance(file_path, str):
@@ -112,5 +123,14 @@ class UserUniversalAPIParams(BaseInputType):
         return file_path
 
     def write_file(self, content: str) -> str:
-        self.filename.write_text(content)
+        """Write ``content`` to ``filename`` and return the absolute path.
+
+        The file is created exclusively (``O_CREAT | O_EXCL``): if the path
+        appeared, or was symlinked, between validation and this write, the call
+        fails with ``FileExistsError`` instead of silently overwriting (#43).
+        ``newline=""`` keeps the CSV bytes exactly as received on every platform.
+        """
+        self.filename.parent.mkdir(parents=True, exist_ok=True)
+        with self.filename.open("x", encoding="utf-8", newline="") as handle:
+            handle.write(content)
         return str(self.filename.absolute())

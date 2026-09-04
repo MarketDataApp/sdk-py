@@ -298,9 +298,9 @@ csv_file = client.options.chain("AAPL", output_format=OutputFormat.CSV)
 
 ### CSV Output Behavior
 
-When using `OutputFormat.CSV`, all resources write CSV data to a file and return the filename as a string. If `filename` is not provided, a timestamped file is automatically created in the `output/` directory (the directory is created if it doesn't exist).
+When using `OutputFormat.CSV`, all resources write CSV data to a file and return the filename as a string. If `filename` is not provided, a timestamped file is automatically created in the `output/` directory (the directory is created when the file is written, never for other output formats).
 
-**Note:** When specifying a custom `filename`, the directory must exist and the file must not already exist. See resource-specific documentation for details on CSV output format.
+**Note:** When specifying a custom `filename`, the directory must exist and the file must not already exist. The file is created exclusively: if the path appears between validation and the write, the call fails instead of overwriting it. CSV bytes are written exactly as the API sent them on every platform. See resource-specific documentation for details on CSV output format.
 
 ## Universal Parameters
 
