@@ -8,11 +8,9 @@ from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.stocks_quotes import StockQuote, StockQuotesHumanReadable
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 from marketdata.utils import get_data_records
 
 
-@handle_exceptions
 @api_error_handler(service="/v1/stocks/quotes/")
 @docs(exclude_params=["user_universal_params", "input_params"])
 @universal_params(resource_input_type=StocksQuotesInput)
@@ -25,13 +23,7 @@ def quotes(
     user_universal_params: UserUniversalAPIParams,
     input_params: StocksQuotesInput,
     **kwargs: dict[str, Any],
-) -> (
-    list[StockQuote]
-    | StockQuotesHumanReadable
-    | dict
-    | str
-    | MarketDataClientErrorResult
-):
+) -> list[StockQuote] | StockQuotesHumanReadable | dict | str:
     """
     Fetches stock quotes for one or more symbols.
     """

@@ -5,12 +5,12 @@ from unittest.mock import patch
 import pytest
 import pytz
 
+from marketdata.exceptions import BadStatusCodeError, RequestError
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.options_strikes import (
     OptionsStrikes,
     OptionsStrikesHumanReadable,
 )
-from marketdata.sdk_error import MarketDataClientErrorResult
 
 
 def test_options_strikes_str():
@@ -251,8 +251,8 @@ def test_get_options_strikes_response_400(respx_mock, client):
         status_code=400,
     )
 
-    result = client.options.strikes("AAPL", output_format=OutputFormat.INTERNAL)
-    assert isinstance(result, MarketDataClientErrorResult)
+    with pytest.raises(BadStatusCodeError) as exc_info:
+        client.options.strikes("AAPL", output_format=OutputFormat.INTERNAL)
 
 
 def test_get_options_strikes_status_offline(load_json, respx_mock, client):
@@ -275,8 +275,8 @@ def test_get_options_strikes_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    strikes = client.options.strikes("AAPL", output_format=OutputFormat.INTERNAL)
-    assert isinstance(strikes, MarketDataClientErrorResult)
+    with pytest.raises(RequestError) as exc_info:
+        client.options.strikes("AAPL", output_format=OutputFormat.INTERNAL)
 
 
 def test_get_options_strikes_response_200_csv(respx_mock, client):

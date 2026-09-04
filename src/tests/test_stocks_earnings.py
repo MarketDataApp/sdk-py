@@ -2,14 +2,15 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytest
 import pytz
 
+from marketdata.exceptions import RequestError
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.stocks_earnings import (
     StockEarnings,
     StockEarningsHumanReadable,
 )
-from marketdata.sdk_error import MarketDataClientErrorResult
 
 
 def test_stock_earnings_str():
@@ -218,9 +219,9 @@ def test_get_stocks_earnings_response_bad_status_code(respx_mock, client):
         json={"errmsg": "Test error message"},
         status_code=501,
     )
-    result = client.stocks.earnings(symbol="AAPL")
-    assert isinstance(result, MarketDataClientErrorResult)
-    assert result.error.message == "Request failed with: Test error message"
+    with pytest.raises(RequestError) as exc_info:
+        client.stocks.earnings(symbol="AAPL")
+    assert exc_info.value.message == "Request failed with: Test error message"
 
 
 def test_get_stocks_earnings_status_offline(respx_mock, client):
@@ -241,8 +242,8 @@ def test_get_stocks_earnings_status_offline(respx_mock, client):
         json={},
         status_code=501,
     )
-    result = client.stocks.earnings(symbol="AAPL")
-    assert isinstance(result, MarketDataClientErrorResult)
+    with pytest.raises(RequestError) as exc_info:
+        client.stocks.earnings(symbol="AAPL")
 
 
 def test_get_stocks_earnings_response_200_csv(respx_mock, client):

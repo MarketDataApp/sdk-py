@@ -48,9 +48,9 @@ Fetches stock prices for one or more symbols. This method includes API status ch
 - If `output_format=OutputFormat.INTERNAL`: A list of `StockPrice` objects (or `StockPricesHumanReadable` if `use_human_readable=True`)
 - If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
-- `MarketDataClientErrorResult`: If an error occurs (rate limits, validation errors, request failures, etc.)
+- Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** Always check for `MarketDataClientErrorResult` return values. The method never returns `None`.
+> **Note:** The method never returns `None`: it returns the requested output or raises.
 
 #### Examples
 
@@ -176,9 +176,9 @@ Fetches stock quotes for one or more symbols. This method includes API status ch
 - If `output_format=OutputFormat.INTERNAL`: A list of `StockQuote` objects (or `StockQuotesHumanReadable` if `use_human_readable=True`)
 - If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
-- `MarketDataClientErrorResult`: If an error occurs (rate limits, validation errors, request failures, etc.)
+- Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** Always check for `MarketDataClientErrorResult` return values. The method never returns `None`.
+> **Note:** The method never returns `None`: it returns the requested output or raises.
 
 #### Examples
 
@@ -356,9 +356,9 @@ Fetches stock candles (OHLCV data) for a symbol with support for various timefra
 - If `output_format=OutputFormat.INTERNAL`: A list of `StockCandle` objects (or `StockCandlesHumanReadable` if `use_human_readable=True`)
 - If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API (merged from multiple concurrent requests if date range spans multiple years for intraday resolutions)
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written (merged from multiple concurrent requests if date range spans multiple years for intraday resolutions)
-- `MarketDataClientErrorResult`: If an error occurs (rate limits, validation errors, request failures, no responses received, etc.)
+- Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, no responses received, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** Always check for `MarketDataClientErrorResult` return values. The method never returns `None`. If no valid responses are received from concurrent requests, a `MarketDataClientErrorResult` is returned.
+> **Note:** The method never returns `None`: it returns the requested output or raises. If none of the concurrent responses is usable, a `BadStatusCodeError` is raised.
 
 #### Date Range Handling
 
@@ -574,9 +574,9 @@ Fetches earnings data for a symbol. This method includes API status checking and
 - If `output_format=OutputFormat.INTERNAL`: A `StockEarnings` object (or `StockEarningsHumanReadable` if `use_human_readable=True`)
 - If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
-- `MarketDataClientErrorResult`: If an error occurs (rate limits, validation errors, request failures, etc.)
+- Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** Always check for `MarketDataClientErrorResult` return values. The method never returns `None`.
+> **Note:** The method never returns `None`: it returns the requested output or raises.
 
 #### Examples
 
@@ -747,9 +747,9 @@ Fetches news articles for a symbol. This method includes API status checking and
 - If `output_format=OutputFormat.INTERNAL`: A list of `StockNews` objects (or `StockNewsHumanReadable` if `use_human_readable=True`)
 - If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
-- `MarketDataClientErrorResult`: If an error occurs (rate limits, validation errors, request failures, etc.)
+- Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** Always check for `MarketDataClientErrorResult` return values. The method never returns `None`.
+> **Note:** The method never returns `None`: it returns the requested output or raises.
 
 #### Examples
 

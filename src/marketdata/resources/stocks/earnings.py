@@ -11,11 +11,9 @@ from marketdata.output_types.stocks_earnings import (
 )
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 from marketdata.utils import encode_path_segment
 
 
-@handle_exceptions
 @api_error_handler(service="/v1/stocks/earnings/")
 @docs(exclude_params=["user_universal_params", "input_params"])
 @universal_params(resource_input_type=StocksEarningsInput)
@@ -26,13 +24,7 @@ def earnings(
     user_universal_params: UserUniversalAPIParams,
     input_params: StocksEarningsInput,
     **kwargs: dict[str, Any],
-) -> (
-    StockEarnings
-    | StockEarningsHumanReadable
-    | dict
-    | str
-    | MarketDataClientErrorResult
-):
+) -> StockEarnings | StockEarningsHumanReadable | dict | str:
     """
     Fetches stock earnings data for a symbol.
     """

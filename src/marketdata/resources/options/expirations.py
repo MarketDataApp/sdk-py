@@ -11,11 +11,9 @@ from marketdata.output_types.options_expirations import (
 )
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 from marketdata.utils import encode_path_segment
 
 
-@handle_exceptions
 @api_error_handler(service="/v1/options/expirations/")
 @docs(exclude_params=["user_universal_params", "input_params"])
 @universal_params(resource_input_type=OptionsExpirationsInput)
@@ -26,13 +24,7 @@ def expirations(
     user_universal_params: UserUniversalAPIParams,
     input_params: OptionsExpirationsInput,
     **kwargs: dict[str, Any],
-) -> (
-    OptionsExpirations
-    | OptionsExpirationsHumanReadable
-    | dict
-    | str
-    | MarketDataClientErrorResult
-):
+) -> OptionsExpirations | OptionsExpirationsHumanReadable | dict | str:
     """
     Fetches available expiration dates for a given symbol.
     """

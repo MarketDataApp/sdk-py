@@ -8,13 +8,13 @@ import pytest
 import pytz
 from freezegun import freeze_time
 
+from marketdata.exceptions import RequestError
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.input_types.stocks import StocksCandlesInput
 from marketdata.output_types.stocks_candles import (
     StockCandle,
     StockCandlesHumanReadable,
 )
-from marketdata.sdk_error import MarketDataClientErrorResult
 
 
 def test_stock_candle_str():
@@ -287,9 +287,9 @@ def test_get_stocks_candles_response_bad_status_code(respx_mock, client):
         status_code=501,
     )
 
-    result = client.stocks.candles(symbol="AAPL", resolution="D")
-    assert isinstance(result, MarketDataClientErrorResult)
-    assert result.error.message == "Request failed with: Test error message"
+    with pytest.raises(RequestError) as exc_info:
+        client.stocks.candles(symbol="AAPL", resolution="D")
+    assert exc_info.value.message == "Request failed with: Test error message"
 
 
 def test_get_stocks_candles_response_200_dataframe_multiple_years_hourly(
@@ -425,12 +425,12 @@ def test_get_stocks_candles_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    candles = client.stocks.candles(
-        symbol="AAPL",
-        resolution="D",
-        output_format=OutputFormat.INTERNAL,
-    )
-    assert isinstance(candles, MarketDataClientErrorResult)
+    with pytest.raises(RequestError) as exc_info:
+        client.stocks.candles(
+            symbol="AAPL",
+            resolution="D",
+            output_format=OutputFormat.INTERNAL,
+        )
 
 
 def test_get_stocks_candles_response_200_csv(respx_mock, client):

@@ -10,7 +10,7 @@ body:
 
         **Note:** This SDK returns data exactly as the API provides it. Before reporting, please confirm the behavior differs from what the [API documentation](https://www.marketdata.app/docs/api) describes (not just something unexpected to you).
 
-        **Most resource methods do not raise.** `client.stocks.*`, `client.options.*`, `client.funds.*` and `client.markets.*` catch their own exceptions and return a `MarketDataClientErrorResult` instead. If your call "returned something strange", print `result.support_info` and paste it below — that block is the single most useful thing in this form.
+        **Resource methods raise on failure.** Every SDK exception derives from `marketdata.BaseMarketdataException` and carries a `support_info` block. If your call raised, catch it, print `e.support_info` and paste it below — that block is the single most useful thing in this form.
 
   - type: checkboxes
     id: api-docs-verified
@@ -33,7 +33,7 @@ body:
         - funds
         - markets
         - MarketDataClient / settings (MARKETDATA_* env vars, .env)
-        - Errors (MarketDataClientErrorResult, marketdata.exceptions)
+        - Errors (marketdata.exceptions, support_info)
         - Output formats (DATAFRAME / INTERNAL / JSON / CSV)
         - pandas / polars DataFrame handling
         - Input validation (Pydantic input models)
@@ -72,21 +72,20 @@ body:
       description: Complete, self-contained Python that demonstrates the bug — including the imports and the client construction, so we can run it as-is.
       render: python
       placeholder: |
-        from marketdata import MarketDataClient, MarketDataClientErrorResult, OutputFormat
+        from marketdata import BaseMarketdataException, MarketDataClient, OutputFormat
 
         client = MarketDataClient(token="...")  # or set MARKETDATA_TOKEN
 
-        result = client.stocks.candles(
-            "AAPL",
-            resolution="D",
-            countback=5,
-            output_format=OutputFormat.INTERNAL,
-        )
-
-        if isinstance(result, MarketDataClientErrorResult):
-            print(result.support_info)
-        else:
+        try:
+            result = client.stocks.candles(
+                "AAPL",
+                resolution="D",
+                countback=5,
+                output_format=OutputFormat.INTERNAL,
+            )
             print(result)
+        except BaseMarketdataException as e:
+            print(e.support_info)
         # Bug: ...
     validations:
       required: true
@@ -105,22 +104,24 @@ body:
       label: Actual behavior
       description: What actually happens? Include exact values, and the full traceback if an exception escaped the SDK.
       placeholder: |
-        Returned MarketDataClientErrorResult(error=BadStatusCodeError(...)) instead of a DataFrame
+        Raised BadStatusCodeError (status 400) instead of returning a DataFrame
     validations:
       required: true
 
   - type: textarea
     id: support-info
     attributes:
-      label: Support info (if the call returned a MarketDataClientErrorResult)
+      label: Support info (if the call raised)
       description: |
-        Error results carry a support block. Print it with:
+        Every SDK exception carries a support block. Print it with:
 
         ```python
-        from marketdata import MarketDataClientErrorResult
+        from marketdata import BaseMarketdataException
 
-        if isinstance(result, MarketDataClientErrorResult):
-            print(result.support_info)
+        try:
+            result = client.stocks.quotes("AAPL")
+        except BaseMarketdataException as e:
+            print(e.support_info)
         ```
 
         It contains the request id, URL, status code and timestamp we need for triage. Your API token is never included.

@@ -368,7 +368,36 @@ csv_file = client.stocks.prices(
 
 ## Error Handling
 
-The SDK uses a combination of exceptions and return values for error handling:
+Resource methods **raise** on failure; they never return an error object and never return `None`. Every exception the SDK raises derives from `BaseMarketdataException`, so one `except` clause is enough, and every one of them carries the support context described below.
+
+```python
+from marketdata import BaseMarketdataException, MarketDataClient
+
+client = MarketDataClient()
+try:
+    quotes = client.stocks.quotes("AAPL")
+except BaseMarketdataException as e:
+    print(e.support_info)   # paste this block into a support ticket
+```
+
+Errors that are not the SDK's own (a Pydantic `ValidationError` for a bad parameter value, a `FileExistsError` on CSV output, an `httpx` transport error) propagate as they are.
+
+### `BaseMarketdataException` and `support_info`
+
+Every SDK exception exposes the same six attributes, `request_id` (the `cf-ray` header), `request_url`, `status_code`, `timestamp` (US/Eastern), `message` and `exception_type`, as plain attributes, as a `support_context` dict and as the formatted `support_info` block. Failures that never reached the API (validation, the rate-limit pre-flight) report `N/A` and `0` for the request fields.
+
+```
+--- MARKET DATA SUPPORT INFO ---
+request_id:     8a1b2c3d4e5f6g7h-SJC
+request_url:    https://api.marketdata.app/v1/stocks/quotes/
+status_code:    429
+timestamp:      2025-02-21 12:00:00
+message:        Rate limit exceeded
+exception_type: RateLimitError
+--------------------------------
+```
+
+All exception classes are importable from `marketdata` as well as from `marketdata.exceptions`.
 
 ### `RateLimitError`
 
@@ -389,9 +418,11 @@ except RateLimitError as e:
 
 ### `RequestError`
 
-Raised for HTTP errors and retryable status codes. This exception is used internally by the retry mechanism. When a retryable status code (status code > 500 by default) is encountered, a `RequestError` is raised, which triggers the retry logic. After retries are exhausted or if the service is offline, the exception is caught by `@handle_exceptions` and converted to `MarketDataClientErrorResult`.
+Raised for retryable HTTP failures (status codes above 500). The SDK retries these with exponential backoff first; the exception reaches you only after the retries are exhausted, or immediately when the API status endpoint reports the service offline.
 
-**Note:** This exception is typically caught internally by the `@handle_exceptions` decorator and converted to `MarketDataClientErrorResult`. You generally won't need to catch it directly unless you're working with the low-level `make_request` method.
+### `BadStatusCodeError`
+
+Raised for every other non-success HTTP status (400, 401, 404, 500, ...). Not retried. `status_code`, `request_id` and `request_url` tell you what the API answered; the `request` and `response` attributes keep the underlying `httpx` objects.
 
 ### `ValueError`
 
@@ -420,26 +451,22 @@ except ValueError as e:
 
 ### `MinMaxDateValidationError`
 
-Raised when date range validation fails (e.g., `from_date` is greater than `to_date`). This exception is typically caught internally by the `@handle_exceptions` decorator and converted to `MarketDataClientErrorResult`. You generally won't need to catch it directly unless you're working with low-level validation.
+Raised when date range validation fails (e.g., `from_date` is greater than `to_date`), before any request is made:
 
 ```python
-from marketdata import MarketDataClient, MarketDataClientErrorResult
+from marketdata import MarketDataClient
 from marketdata.exceptions import MinMaxDateValidationError
 import datetime
 
+client = MarketDataClient()
 try:
-    client = MarketDataClient()
-    # Invalid date range (from_date > to_date)
-    result = client.stocks.candles(
+    candles = client.stocks.candles(
         "AAPL",
         from_date=datetime.date(2024, 12, 31),
-        to_date=datetime.date(2024, 1, 1)
+        to_date=datetime.date(2024, 1, 1),
     )
-    if isinstance(result, MarketDataClientErrorResult):
-        if isinstance(result.error, MinMaxDateValidationError):
-            print(f"Date range validation error: {result.error}")
 except MinMaxDateValidationError as e:
-    print(f"Validation error: {e}")
+    print(f"Date range validation error: {e}")
 ```
 
 ### `KeywordOnlyArgumentError`
@@ -463,31 +490,31 @@ except KeywordOnlyArgumentError as e:
     print(f"Invalid argument usage: {e}")
 ```
 
-### `MarketDataClientErrorResult`
+### Catching specific errors
 
-This is a special result type returned by resource methods when errors occur. It wraps the original exception and allows you to check for errors without exception handling. **All resource methods return either the expected result or `MarketDataClientErrorResult` - they never return `None`.**
+Catch the specific class when you want to react differently; `BaseMarketdataException` catches them all:
 
 ```python
-from marketdata import MarketDataClient, MarketDataClientErrorResult
+from marketdata import MarketDataClient
+from marketdata.exceptions import (
+    BadStatusCodeError,
+    BaseMarketdataException,
+    RateLimitError,
+    RequestError,
+)
 
 client = MarketDataClient()
-result = client.stocks.prices("AAPL")
-
-# Check if the result is an error
-if isinstance(result, MarketDataClientErrorResult):
-    print(f"Error occurred: {result.error}")
-    print(f"Error type: {type(result.error).__name__}")
-else:
-    print(result)
+try:
+    prices = client.stocks.prices("AAPL")
+except RateLimitError as e:
+    print(f"Out of credits until the window resets: {e}")
+except RequestError as e:
+    print(f"The API kept failing after retries: {e.status_code}")
+except BadStatusCodeError as e:
+    print(f"The API rejected the request: {e.status_code} {e.message}")
+except BaseMarketdataException as e:
+    print(e.support_info)
 ```
-
-The `MarketDataClientErrorResult` object contains the original exception in its `error` attribute, which can be:
-- `RateLimitError`: When rate limits are exceeded
-- `MinMaxDateValidationError`: When date range validation fails (e.g., `from_date` > `to_date`)
-- `ValueError`: When input validation fails (invalid formats, filenames, etc.)
-- `RequestError`: When HTTP requests fail
-- `BadStatusCodeError`: When HTTP requests return non-retryable error status codes
-- Any other exception that occurs during request processing
 
 ## Retry Mechanism
 
@@ -504,31 +531,7 @@ The SDK includes automatic retry logic for handling transient errors. The retry 
 
 The retry mechanism only retries on `RequestError` exceptions and only if the API service status is `ONLINE` or `UNKNOWN`. When a retryable status code is encountered, a `RequestError` exception is raised internally, which triggers the retry logic. The retry adapter uses the `tenacity` library and will retry up to the specified number of attempts with exponential backoff between retries.
 
-**Important:** Resource methods always return a value. They may return:
-- The expected result (DataFrame, list of objects, dict, or str for CSV)
-- `MarketDataClientErrorResult` if an error occurs (rate limits, validation errors, request failures, etc.)
-
-Exceptions are caught internally by the `@handle_exceptions` decorator and converted to `MarketDataClientErrorResult`. However, some exceptions may still be raised before reaching the decorator (e.g., `RateLimitError` when rate limits cannot be checked).
-
-Always check for `MarketDataClientErrorResult` return values and handle exceptions when calling resource methods:
-
-```python
-from marketdata import MarketDataClient, MarketDataClientErrorResult
-from marketdata.exceptions import RateLimitError, RequestError
-
-client = MarketDataClient()
-try:
-    result = client.stocks.prices("AAPL")
-    # Check if the result is an error
-    if isinstance(result, MarketDataClientErrorResult):
-        print(f"Request failed: {result.error}")
-        print(f"Error type: {type(result.error).__name__}")
-    else:
-        print(result)
-except (RateLimitError, RequestError) as e:
-    # These exceptions may be raised before reaching the decorator
-    print(f"Request failed: {e}")
-```
+**Important:** Resource methods either return the requested result (DataFrame, list of objects, dict, or the CSV filename) or raise. There is no error return value; see [Error Handling](#error-handling).
 
 ## API Status Checking
 
@@ -778,7 +781,7 @@ The SDK uses concurrent requests for efficient data fetching in specific scenari
 - **`stocks.candles()`**: For intraday resolutions (minutely/hourly), large date ranges are automatically split into year-long, non-overlapping chunks and fetched concurrently (up to 50 concurrent requests by default)
 - **`options.quotes()`**: Multiple option symbols are fetched concurrently (up to 50 concurrent requests by default)
 
-When concurrent requests are used, responses are automatically merged into a single result. If no valid responses are received, a `MarketDataClientErrorResult` is returned.
+When concurrent requests are used, responses are automatically merged into a single result. If no valid responses are received, a `BadStatusCodeError` is raised.
 
 See the specific resource documentation for details on concurrent request behavior.
 

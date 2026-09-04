@@ -6,10 +6,8 @@ from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.utilities_status import ServiceStatus
 from marketdata.resources.base import BaseResource
 from marketdata.resources.utilities.base import render, resolve_output_params
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 
 
-@handle_exceptions
 @api_error_handler(check_status=False)
 @docs
 def status(
@@ -17,7 +15,7 @@ def status(
     *,
     output_format: OutputFormat | None = None,
     filename: str | Path | None = None,
-) -> list[ServiceStatus] | dict | str | MarketDataClientErrorResult:
+) -> list[ServiceStatus] | dict | str:
     """
     Fetches the live status of every API service: whether it is online, its
     30 and 90 day uptime and when the status was last updated.

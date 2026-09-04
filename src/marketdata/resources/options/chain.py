@@ -11,11 +11,9 @@ from marketdata.output_types.options_chain import (
 )
 from marketdata.params import universal_params
 from marketdata.resources.base import BaseResource
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 from marketdata.utils import encode_path_segment
 
 
-@handle_exceptions
 @api_error_handler(service="/v1/options/chain/")
 @docs(exclude_params=["user_universal_params", "input_params"])
 @universal_params(resource_input_type=OptionsChainInput)
@@ -26,9 +24,7 @@ def chain(
     user_universal_params: UserUniversalAPIParams,
     input_params: OptionsChainInput,
     **kwargs: dict[str, Any],
-) -> (
-    OptionsChain | OptionsChainHumanReadable | dict | str | MarketDataClientErrorResult
-):
+) -> OptionsChain | OptionsChainHumanReadable | dict | str:
     """
     Fetches the options chain for a given symbol with extensive filtering options.
     """

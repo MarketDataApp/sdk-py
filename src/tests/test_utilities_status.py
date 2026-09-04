@@ -3,14 +3,15 @@ import pathlib
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 import pytz
 
 from marketdata.api_status import API_STATUS_DATA
 from marketdata.client import MarketDataClient
+from marketdata.exceptions import BadStatusCodeError
 from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import NO_TOKEN_VALUE
 from marketdata.output_types.utilities_status import ServiceStatus
-from marketdata.sdk_error import MarketDataClientErrorResult
 from marketdata.types import UserRateLimits
 
 STATUS_URL = "https://api.marketdata.app/status/"
@@ -144,10 +145,9 @@ def test_get_utilities_status_works_in_demo_mode(load_json, respx_mock):
 def test_get_utilities_status_response_bad_status_code(respx_mock, client):
     respx_mock.get(STATUS_URL).respond(json={"s": "no_data"}, status_code=404)
 
-    result = client.utilities.status(output_format=OutputFormat.INTERNAL)
-
-    assert isinstance(result, MarketDataClientErrorResult)
-    assert result.error.status_code == 404
+    with pytest.raises(BadStatusCodeError) as exc_info:
+        client.utilities.status(output_format=OutputFormat.INTERNAL)
+    assert exc_info.value.status_code == 404
 
 
 def test_get_utilities_status_retries_without_consulting_the_status_cache(

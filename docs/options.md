@@ -53,9 +53,9 @@ Fetches available expiration dates for a given symbol. This method includes API 
 - If `output_format=OutputFormat.INTERNAL`: An `OptionsExpirations` object (or `OptionsExpirationsHumanReadable` if `use_human_readable=True`) (single object, not a list)
 - If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
-- `MarketDataClientErrorResult`: If an error occurs (rate limits, validation errors, request failures, etc.)
+- Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** Always check for `MarketDataClientErrorResult` return values. The method never returns `None`.
+> **Note:** The method never returns `None`: it returns the requested output or raises.
 
 #### Examples
 
@@ -228,9 +228,9 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 - If `output_format=OutputFormat.INTERNAL`: An `OptionsChain` object (or `OptionsChainHumanReadable` if `use_human_readable=True`) (single object, not a list)
 - If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
-- `MarketDataClientErrorResult`: If an error occurs (rate limits, validation errors, request failures, etc.)
+- Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** Always check for `MarketDataClientErrorResult` return values. The method never returns `None`.
+> **Note:** The method never returns `None`: it returns the requested output or raises.
 
 #### Examples
 
@@ -450,9 +450,9 @@ Fetches the option symbol for a given lookup string. The lookup string should co
 - If `output_format=OutputFormat.INTERNAL`: An `OptionsLookup` object (or `OptionsLookupHumanReadable` if `use_human_readable=True`) (single object, not a list)
 - If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
-- `MarketDataClientErrorResult`: If an error occurs (rate limits, validation errors, request failures, etc.)
+- Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** Always check for `MarketDataClientErrorResult` return values. The method never returns `None`.
+> **Note:** The method never returns `None`: it returns the requested output or raises.
 
 #### Examples
 
@@ -581,9 +581,9 @@ Fetches options quotes for one or more option symbols. This method includes API 
 - If `output_format=OutputFormat.INTERNAL`: An `OptionsQuotes` object (or `OptionsQuotesHumanReadable` if `use_human_readable=True`) (single object, not a list) containing merged data from all requested symbols. All properties are lists where each index represents a single option contract.
 - If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API (merged from all requested symbols)
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written (merged from all requested symbols)
-- `MarketDataClientErrorResult`: If an error occurs (rate limits, validation errors, request failures, no valid responses received, etc.)
+- Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, no valid responses received, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** Always check for `MarketDataClientErrorResult` return values. The method never returns `None`. The method uses concurrent requests (up to 50 concurrent requests by default) to fetch quotes for multiple symbols efficiently.
+> **Note:** The method never returns `None`: it returns the requested output or raises. The method uses concurrent requests (up to 50 concurrent requests by default) to fetch quotes for multiple symbols efficiently.
 
 #### Examples
 
@@ -736,9 +736,9 @@ Fetches available strike prices for a given symbol. This method includes API sta
   - Dynamic fields correspond to expiration dates, each containing a list of strike prices (floats)
 - If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
-- `MarketDataClientErrorResult`: If an error occurs (rate limits, validation errors, request failures, etc.)
+- Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** Always check for `MarketDataClientErrorResult` return values. The method never returns `None`.
+> **Note:** The method never returns `None`: it returns the requested output or raises.
 
 #### Examples
 

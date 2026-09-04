@@ -46,6 +46,12 @@ def api_error_handler(
             reraise=True,
             before_sleep=_status_check_before_sleep,
         )
-        return retry_adapter(func, *args, **kwargs)
+        try:
+            return retry_adapter(func, *args, **kwargs)
+        except Exception as exc:
+            # Terminal failure, retries included: one ERROR line (SDK
+            # requirements §7), then the caller gets the exception itself.
+            logger.error(f"{func.__name__} failed: {exc}")
+            raise
 
     return wrapper

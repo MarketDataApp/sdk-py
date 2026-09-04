@@ -8,14 +8,9 @@ import pytz
 from httpx import Request, Response
 
 from marketdata.client import MarketDataClient
-from marketdata.exceptions import (
-    BadStatusCodeError,
-    RateLimitError,
-    RequestError,
-)
+from marketdata.exceptions import BadStatusCodeError, RateLimitError, RequestError
 from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import NO_TOKEN_VALUE
-from marketdata.sdk_error import MarketDataClientErrorResult
 from marketdata.settings import MarketDataSettings, settings
 from marketdata.types import UserRateLimits
 from marketdata.utils import format_duration_log
@@ -70,8 +65,8 @@ def test_client_make_request_retry(client, respx_mock, monkeypatch):
         status_code=502,
     )
 
-    result = client.stocks.prices(symbols="AAPL")
-    assert isinstance(result, MarketDataClientErrorResult)
+    with pytest.raises(RequestError) as exc_info:
+        client.stocks.prices(symbols="AAPL")
 
     prices_calls = [
         c for c in respx_mock.calls if c.request.url.path == "/v1/stocks/prices/"
@@ -88,8 +83,8 @@ def test_client_make_request_bad_status_not_retry(client, respx_mock):
         status_code=400,
     )
 
-    result = client.stocks.prices(symbols="AAPL")
-    assert isinstance(result, MarketDataClientErrorResult)
+    with pytest.raises(BadStatusCodeError) as exc_info:
+        client.stocks.prices(symbols="AAPL")
 
     assert respx_mock.calls.call_count == 2
 
@@ -166,11 +161,17 @@ def test_client_check_rate_limits(client):
 
 def test_client_no_token_not_check_rate_limits(respx_mock):
     client = MarketDataClient(token=NO_TOKEN_VALUE)
-    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+    route = respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
         json={},
         status_code=200,
     )
-    client.stocks.prices()
+
+    client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    # Demo mode skips the pre-flight rate-limit check (no /user/ call either),
+    # so the request goes straight out.
+    assert route.called
+    assert not [c for c in respx_mock.calls if c.request.url.path == "/user/"]
 
 
 def test_client_check_rate_limits_no_rate_limits(client):
@@ -352,8 +353,8 @@ def test_client_max_retries_zero_no_retry(respx_mock, monkeypatch):
         ),
     )
 
-    result = c.stocks.prices(symbols="AAPL")
-    assert isinstance(result, MarketDataClientErrorResult)
+    with pytest.raises(RequestError) as exc_info:
+        c.stocks.prices(symbols="AAPL")
     assert respx_mock.calls.call_count == 2
 
 
@@ -399,8 +400,8 @@ def test_client_max_retries_one(respx_mock, monkeypatch):
         ),
     )
 
-    result = c.stocks.prices(symbols="AAPL")
-    assert isinstance(result, MarketDataClientErrorResult)
+    with pytest.raises(RequestError) as exc_info:
+        c.stocks.prices(symbols="AAPL")
     prices_calls = [
         c for c in respx_mock.calls if c.request.url.path == "/v1/stocks/prices/"
     ]

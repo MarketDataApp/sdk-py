@@ -6,10 +6,8 @@ from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.utilities_headers import RequestHeaders
 from marketdata.resources.base import BaseResource
 from marketdata.resources.utilities.base import render, resolve_output_params
-from marketdata.sdk_error import MarketDataClientErrorResult, handle_exceptions
 
 
-@handle_exceptions
 @api_error_handler(check_status=False)
 @docs
 def headers(
@@ -17,7 +15,7 @@ def headers(
     *,
     output_format: OutputFormat | None = None,
     filename: str | Path | None = None,
-) -> RequestHeaders | dict | str | MarketDataClientErrorResult:
+) -> RequestHeaders | dict | str:
     """
     Echoes the request headers as the API received them, including the IP
     the API detected. Useful to debug proxies and IP allow-lists. The token in

@@ -2,15 +2,16 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytest
 import pytz
 
+from marketdata.exceptions import BadStatusCodeError, RequestError
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.options import LookupOptionSide
 from marketdata.output_types.options_lookup import (
     OptionsLookup,
     OptionsLookupHumanReadable,
 )
-from marketdata.sdk_error import MarketDataClientErrorResult
 
 
 def test_options_lookup_str():
@@ -131,24 +132,31 @@ def test_get_options_lookup_response_400(respx_mock, client):
         json={"error": "Invalid symbol"},
         status_code=400,
     )
-    lookup = client.options.lookup("AAPL 28-00-2023 200.0 call")
-    assert isinstance(lookup, MarketDataClientErrorResult)
+    with pytest.raises(BadStatusCodeError) as exc_info:
+        client.options.lookup("AAPL 28-00-2023 200.0 call")
 
 
 def test_get_options_lookup_status_offline(respx_mock, client):
+    respx_mock.get("https://api.marketdata.app/status/").respond(
+        json={
+            "s": "ok",
+            "service": ["/v1/options/lookup/"],
+            "status": ["offline"],
+            "online": [False],
+            "uptimePct30d": [0],
+            "uptimePct90d": [0],
+            "updated": [0],
+        },
+        status_code=200,
+    )
     respx_mock.get(
         "https://api.marketdata.app/v1/options/lookup/AAPL 28-00-2023 200.0 call/"
-    ).respond(
-        status_code=500,
-    )
-    lookup = client.options.lookup(
-        symbol="AAPL",
-        expiration_date=datetime.date(2023, 7, 28),
-        strike_price=200.00,
-        option_side=LookupOptionSide.CALL,
-        output_format=OutputFormat.INTERNAL,
-    )
-    assert isinstance(lookup, MarketDataClientErrorResult)
+    ).respond(json={}, status_code=501)
+
+    with pytest.raises(RequestError):
+        client.options.lookup(
+            "AAPL 28-00-2023 200.0 call", output_format=OutputFormat.INTERNAL
+        )
 
 
 def test_get_options_lookup_response_200_csv(respx_mock, client):

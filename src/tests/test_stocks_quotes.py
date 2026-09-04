@@ -3,11 +3,12 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import pytest
 import pytz
 
+from marketdata.exceptions import RequestError
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.output_types.stocks_quotes import StockQuote, StockQuotesHumanReadable
-from marketdata.sdk_error import MarketDataClientErrorResult
 
 
 def test_stock_quote_str():
@@ -389,12 +390,12 @@ def test_get_stocks_quotes_response_bad_status_code(respx_mock, client):
         status_code=501,
     )
 
-    result = client.stocks.quotes(
-        symbols=["AAPL", "MSFT"],
-        output_format=OutputFormat.INTERNAL,
-    )
-    assert isinstance(result, MarketDataClientErrorResult)
-    assert result.error.message == "Request failed with: Test error message"
+    with pytest.raises(RequestError) as exc_info:
+        client.stocks.quotes(
+            symbols=["AAPL", "MSFT"],
+            output_format=OutputFormat.INTERNAL,
+        )
+    assert exc_info.value.message == "Request failed with: Test error message"
 
 
 def test_get_stocks_quotes_status_offline(load_json, respx_mock, client):
@@ -417,11 +418,11 @@ def test_get_stocks_quotes_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    quotes = client.stocks.quotes(
-        symbols=["AAPL", "MSFT"],
-        output_format=OutputFormat.INTERNAL,
-    )
-    assert isinstance(quotes, MarketDataClientErrorResult)
+    with pytest.raises(RequestError) as exc_info:
+        client.stocks.quotes(
+            symbols=["AAPL", "MSFT"],
+            output_format=OutputFormat.INTERNAL,
+        )
 
 
 def test_get_stocks_quotes_response_200_csv(respx_mock, client):

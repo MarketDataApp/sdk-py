@@ -56,12 +56,12 @@ Run this checklist against every new report. The fields map directly to
 | 7 | **Describes expected behavior** | "Expected behavior" | A clear statement | Empty or unclear |
 | 8 | **Describes actual behavior** | "Actual behavior" | A clear statement, ideally with the traceback or the returned object | Empty or unclear |
 
-**Bonus signal, not required:** the "Support info" field. When a call returned a
-`MarketDataClientErrorResult`, `result.support_info` carries `request_id`, `request_url`,
-`status_code` and `timestamp` for HTTP failures, and `timestamp` / `message` /
-`exception_type` for everything else. That identifies the exact upstream request and
-usually settles whether the fault is in the SDK or the API. Ask for it whenever an error
-result is involved and the block is missing.
+**Bonus signal, not required:** the "Support info" field. When a call raised, the
+exception's `support_info` carries `request_id`, `request_url`, `status_code`,
+`timestamp`, `message` and `exception_type` (the request fields read `N/A` / `0` for
+failures that never reached the API). That identifies the exact upstream request and
+usually settles whether the fault is in the SDK or the API. Ask for it whenever an
+exception is involved and the block is missing.
 
 **Check the output format first.** A large share of "wrong data" reports are really "wrong
 output format". The default is `OutputFormat.DATAFRAME`, and it behaves differently from
@@ -69,12 +69,11 @@ output format". The default is `OutputFormat.DATAFRAME`, and it behaves differen
 converts timestamp columns, while INTERNAL returns dataclass-style output objects.
 Establish which one the reporter used before assuming the decoder is wrong.
 
-**Check whether they expected an exception.** Every resource method is wrapped in
-`@handle_exceptions`, so it returns a `MarketDataClientErrorResult` instead of raising —
-including for `KeywordOnlyArgumentError` and `MinMaxDateValidationError`, which the README
-describes as "raised". A report of the form "no exception was raised" is usually the SDK
-working as designed; the `try`/`except` in the reporter's code simply never fires. Confirm
-what the method actually returned before triaging it as a bug.
+**Check which exception they caught.** Every resource method raises on failure, and every
+SDK exception derives from `BaseMarketdataException`. A report of the form "my
+`except RequestError` never fired" is usually a different class being raised (a 400 is a
+`BadStatusCodeError`, a bad parameter value is a Pydantic `ValidationError`). Ask for the
+full traceback and the `support_info` block before triaging it as a bug.
 
 ### Decision
 
@@ -169,7 +168,7 @@ I wasn't able to reproduce this with the information provided.
 [What actually happened — worked correctly, different output, etc.]
 
 Could you provide:
-- [ ] The `support_info` block: `print(result.support_info)` when the call returned a `MarketDataClientErrorResult` — it contains the request id and URL we need, and never includes your API token
+- [ ] The `support_info` block: catch the exception and `print(e.support_info)` — it contains the request id and URL we need, and never includes your API token
 - [ ] Any `MARKETDATA_*` environment variables or `.env` file in play (`env | grep MARKETDATA_`), and any arguments you pass to `MarketDataClient(...)`
 - [ ] The complete traceback, if an exception escaped the SDK
 - [ ] The output of `pip show marketdata-sdk-py httpx pydantic pandas polars-lts-cpu` and `python --version`
@@ -236,29 +235,25 @@ Thanks for the report. Reviewing the reproduction code, this looks like an issue
 Closing this, but reopen if you believe there is still an SDK bug. For usage help, the [Discord](https://discord.com/invite/GmdeAVRtnT) is the fastest place to ask.
 ~~~
 
-### Errors are returned, not raised
+### A different exception class than expected
 
 ~~~markdown
 Thanks for the report. The SDK is behaving as designed here — this is the error-handling contract rather than a bug.
 
-Resource methods are wrapped in `@handle_exceptions`, so they **return** a `MarketDataClientErrorResult` instead of raising. A `try`/`except` around the call will not fire:
+Resource methods raise on failure, and the class tells you what happened: `RequestError` for retryable server errors (above 500, raised after the retries), `BadStatusCodeError` for every other non-success status, `RateLimitError` when your credits are exhausted, and the validation classes before any request is made. All of them derive from `BaseMarketdataException`:
 
 ```python
-from marketdata import MarketDataClient, MarketDataClientErrorResult
+from marketdata import BaseMarketdataException, MarketDataClient
 
 client = MarketDataClient()
-result = client.stocks.prices("AAPL")
-
-if isinstance(result, MarketDataClientErrorResult):
-    print(result.error)          # the original exception
-    print(result.support_info)   # request id, URL, status code, timestamp
-else:
-    print(result)
+try:
+    result = client.stocks.prices("AAPL")
+except BaseMarketdataException as e:
+    print(e.exception_type)   # the class that was raised
+    print(e.support_info)     # request id, URL, status code, timestamp
 ```
 
-The original exception is available on `result.error`, so you can still branch on the type in `marketdata.exceptions`.
-
-Closing, but please reopen if the returned error result is itself wrong (missing support context, wrong exception type, and so on) — that would be a real bug.
+Closing, but please reopen if the exception itself is wrong (missing support context, a class that does not describe what happened, and so on) — that would be a real bug.
 ~~~
 
 ---
@@ -274,7 +269,7 @@ Thanks for the report. To investigate I need some additional information:
 
 - [ ] **API documentation verification**: Please confirm you've checked the [API documentation](https://www.marketdata.app/docs/api) and that the behavior differs from what it describes
 - [ ] **Complete reproduction code**: A self-contained Python snippet including the imports and `MarketDataClient(...)` construction
-- [ ] **Support info**: If the call returned a `MarketDataClientErrorResult`, paste `result.support_info` — it carries the request id, URL, status code and timestamp, and never includes your API token
+- [ ] **Support info**: If the call raised, catch the exception and paste `e.support_info` — it carries the request id, URL, status code and timestamp, and never includes your API token
 - [ ] **SDK version**: The output of `pip show marketdata-sdk-py`
 - [ ] **Python version**: The output of `python --version`
 - [ ] **Output format**: The `output_format` you passed (the default is `OutputFormat.DATAFRAME`)
@@ -472,17 +467,16 @@ SDK passes the response through unchanged.
 
 ---
 
-### Example E: "no exception was raised"
+### Example E: "the wrong exception was raised"
 
 **Issue #46** — `stocks` / `stocks.candles` with `from_date` after `to_date`. The reporter
 wrapped the call in `try: ... except MinMaxDateValidationError:` and the handler never
 fired.
 
-**Investigation:** `@handle_exceptions` caught the validation error and returned
-`MarketDataClientErrorResult(error=MinMaxDateValidationError(...))`. That is the SDK's
-contract.
+**Investigation:** the call raised `MinMaxDateValidationError` before any request; the
+reporter's handler was written for `ValueError`, which that class does not extend.
 
-**Action:** close with the "Errors are returned, not raised" template in Step 3C.
+**Action:** close with the "A different exception class than expected" template in Step 3C.
 
 ---
 

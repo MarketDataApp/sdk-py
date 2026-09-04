@@ -12,7 +12,6 @@ import httpx
 import pytest
 
 from marketdata.input_types.base import OutputFormat
-from marketdata.sdk_error import MarketDataClientErrorResult
 
 PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 # RFC 4180 line endings, exactly as the API sends them.
@@ -118,12 +117,9 @@ def test_a_file_that_appears_before_the_write_is_not_overwritten(
 
     respx_mock.get(PRICES_URL).mock(side_effect=_create_target_meanwhile)
 
-    result = client.stocks.prices(
-        "AAPL", output_format=OutputFormat.CSV, filename=target
-    )
-
-    assert isinstance(result, MarketDataClientErrorResult), result
-    assert "mine.csv" in result.error.message
+    with pytest.raises(FileExistsError) as exc_info:
+        client.stocks.prices("AAPL", output_format=OutputFormat.CSV, filename=target)
+    assert "mine.csv" in str(exc_info.value)
     assert target.read_text() == "someone else's data"
 
 
