@@ -13,7 +13,7 @@ from marketdata.utils import get_data_records
 
 
 @handle_exceptions
-@api_error_handler(service="/v1/stocks/bulkquotes/")
+@api_error_handler(service="/v1/stocks/quotes/")
 @docs(exclude_params=["user_universal_params", "input_params"])
 @universal_params(resource_input_type=StocksQuotesInput)
 def quotes(
@@ -40,7 +40,7 @@ def quotes(
     )
 
     url = self._build_url(
-        path="stocks/bulkquotes/",
+        path="stocks/quotes/",
         user_universal_params=user_universal_params,
         input_params=input_params,
         extra_params=kwargs,
