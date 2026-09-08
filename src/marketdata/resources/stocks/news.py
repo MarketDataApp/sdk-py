@@ -7,8 +7,13 @@ from marketdata.input_types.stocks import StocksNewsInput
 from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.stocks_news import StockNews, StockNewsHumanReadable
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource
-from marketdata.utils import encode_path_segment, get_data_records
+from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.utils import (
+    encode_path_segment,
+    get_data_records,
+    is_no_data,
+    parse_json,
+)
 
 
 @api_error_handler(service="/v1/stocks/news/")
@@ -46,19 +51,28 @@ def news(
         else StockNews
     )
 
+    if is_no_data(response):
+        return no_data_result(
+            user_universal_params,
+            output_model,
+            as_records=True,
+            index_columns=["symbol", "Symbol"],
+            body=parse_json(response),
+        )
+
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
-        data = response.json()
+        data = parse_json(response)
         handler = get_dataframe_output_handler()
         return handler(data, output_model, user_universal_params).get_result(
             index_columns=["symbol", "Symbol"]
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = get_data_records(response.json(), exclude_keys=["s"])
+        data = get_data_records(parse_json(response), exclude_keys=["s"])
         return [output_model(**row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:
-        return response.json()
+        return parse_json(response)
 
     elif user_universal_params.output_format == OutputFormat.CSV:
         return user_universal_params.write_file(response.text)

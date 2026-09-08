@@ -84,7 +84,7 @@ Same as `status()`: `output_format` and `filename`.
 
 - `User`: `credit_limit` (int), `credits_remaining` (int, can be negative after an oversized request), `options_data_permissions` (str, empty when the plan has none) and the `has_options_data` property. The API body still names these fields `x-ratelimit-requests-*`; the SDK exposes them in API-credits terms.
 - With `OutputFormat.JSON`, `OutputFormat.DATAFRAME` and `OutputFormat.CSV` the API's own field names are kept.
-- Raises `BadStatusCodeError` on failure, including `401` without a valid token; see the [README](../README.md#error-handling).
+- Raises `AuthenticationError` without a valid token (`401`), and the usual taxonomy otherwise; see the [README](../README.md#error-handling).
 
 #### Example
 

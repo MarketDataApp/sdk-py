@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 import pytz
 
-from marketdata.exceptions import BadStatusCodeError, RequestError
+from marketdata.exceptions import BadRequestError, ServerError
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.funds import FundsCandlesInput
 from marketdata.output_types.funds_candles import FundsCandle, FundsCandlesHumanReadable
@@ -214,7 +214,7 @@ def test_get_funds_candles_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadStatusCodeError) as exc_info:
+    with pytest.raises(BadRequestError) as exc_info:
         client.funds.candles(
             symbol="VFINX",
             resolution="D",
@@ -242,7 +242,7 @@ def test_get_funds_candles_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(RequestError) as exc_info:
+    with pytest.raises(ServerError) as exc_info:
         client.funds.candles(
             symbol="VFINX",
             resolution="D",

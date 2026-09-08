@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from httpx import Headers, Request, Response
 
-from marketdata.exceptions import RequestError
+from marketdata.exceptions import ServerError
 from marketdata.retry import get_retry_adapter, parse_retry_after
 
 
@@ -91,10 +91,10 @@ def test_compute_wait_retry_after_overrides_exponential(client):
     retry_adapter = get_retry_adapter(
         attempts=4,
         initial_delay=1.0,
-        exceptions=[RequestError],
+        exceptions=[ServerError],
         logger=client.logger,
     )
-    exc = RequestError(
+    exc = ServerError(
         "boom",
         request=Request(method="GET", url="https://example.com"),
         response=_retry_after_response("7"),
@@ -107,11 +107,11 @@ def test_compute_wait_no_retry_after_falls_back_to_exponential(client):
     retry_adapter = get_retry_adapter(
         attempts=4,
         initial_delay=1.0,
-        exceptions=[RequestError],
+        exceptions=[ServerError],
         logger=client.logger,
     )
     request = Request(method="GET", url="https://example.com")
-    exc = RequestError(
+    exc = ServerError(
         "boom",
         request=request,
         response=Response(status_code=503, request=request),
@@ -124,10 +124,10 @@ def test_compute_wait_invalid_retry_after_falls_back(client):
     retry_adapter = get_retry_adapter(
         attempts=4,
         initial_delay=1.0,
-        exceptions=[RequestError],
+        exceptions=[ServerError],
         logger=client.logger,
     )
-    exc = RequestError(
+    exc = ServerError(
         "boom",
         request=Request(method="GET", url="https://example.com"),
         response=_retry_after_response("garbage"),

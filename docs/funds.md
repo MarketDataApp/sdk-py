@@ -58,7 +58,7 @@ Fetches funds candles (OHLC data) for a symbol with support for various timefram
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** The method never returns `None`: it returns the requested output or raises.
+> **Note:** The method returns the requested output, an empty result when the API has no data for the query (`404` with `s: "no_data"`, see the [README](../README.md#no-data-is-not-an-error)), or raises.
 
 #### Examples
 

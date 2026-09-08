@@ -4,11 +4,12 @@ import threading
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from marketdata.exceptions import BadStatusCodeError, InvalidStatusDataError
+from marketdata.exceptions import InvalidStatusDataError, MarketdataHttpError
 from marketdata.internal_settings import (
     CACHE_VALIDITY_INTERVAL,
     REFRESH_API_STATUS_INTERVAL,
 )
+from marketdata.utils import parse_json
 
 if TYPE_CHECKING:
     from marketdata.client import MarketDataClient
@@ -96,10 +97,10 @@ class APIStatusData:
                 populate_rate_limits=False,
                 response_log_level=logging.DEBUG,
             )
-            data = response.json()
+            data = parse_json(response)
             self.update(data)
             return True
-        except (BadStatusCodeError, InvalidStatusDataError) as e:
+        except (MarketdataHttpError, InvalidStatusDataError) as e:
             client.logger.error(f"Failed to refresh API status: {e}")
             return False
 

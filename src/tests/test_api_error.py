@@ -5,7 +5,7 @@ from httpx import Request, Response
 
 from marketdata.api_error import api_error_handler
 from marketdata.api_status import APIStatusResult
-from marketdata.exceptions import RequestError
+from marketdata.exceptions import ServerError
 from marketdata.resources.base import BaseResource
 
 
@@ -16,8 +16,8 @@ class DummyResource(BaseResource):
     def test_function_fails(self):
         DummyResource.call_count += 1
         request = Request(method="GET", url="https://example.com")
-        response = Response(status_code=500)
-        raise RequestError("test exception", request=request, response=response)
+        response = Response(status_code=502)
+        raise ServerError("test exception", request=request, response=response)
 
 
 @pytest.fixture(autouse=True)
@@ -38,7 +38,7 @@ def _no_sleep(monkeypatch):
 )
 def test_api_error_handler_offline_aborts_after_first_failure(_, client):
     resource = DummyResource(client=client)
-    with pytest.raises(RequestError):
+    with pytest.raises(ServerError):
         resource.test_function_fails()
     assert DummyResource.call_count == 1
 
@@ -49,7 +49,7 @@ def test_api_error_handler_offline_aborts_after_first_failure(_, client):
 )
 def test_api_error_handler_online_retries_max_attempts(_, client):
     resource = DummyResource(client=client)
-    with pytest.raises(RequestError):
+    with pytest.raises(ServerError):
         resource.test_function_fails()
     assert DummyResource.call_count == 4
 
@@ -60,7 +60,7 @@ def test_api_error_handler_online_retries_max_attempts(_, client):
 )
 def test_api_error_handler_unknown_retries_max_attempts(_, client):
     resource = DummyResource(client=client)
-    with pytest.raises(RequestError):
+    with pytest.raises(ServerError):
         resource.test_function_fails()
     assert DummyResource.call_count == 4
 
@@ -72,6 +72,6 @@ def test_api_error_handler_unknown_retries_max_attempts(_, client):
 def test_api_error_handler_respects_max_retries_zero(_, client):
     client.max_retries = 0
     resource = DummyResource(client=client)
-    with pytest.raises(RequestError):
+    with pytest.raises(ServerError):
         resource.test_function_fails()
     assert DummyResource.call_count == 1

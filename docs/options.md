@@ -55,7 +55,7 @@ Fetches available expiration dates for a given symbol. This method includes API 
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** The method never returns `None`: it returns the requested output or raises.
+> **Note:** The method returns the requested output, an empty result when the API has no data for the query (`404` with `s: "no_data"`, see the [README](../README.md#no-data-is-not-an-error)), or raises.
 
 #### Examples
 
@@ -230,7 +230,7 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** The method never returns `None`: it returns the requested output or raises.
+> **Note:** The method returns the requested output, an empty result when the API has no data for the query (`404` with `s: "no_data"`, see the [README](../README.md#no-data-is-not-an-error)), or raises.
 
 #### Examples
 
@@ -452,7 +452,7 @@ Fetches the option symbol for a given lookup string. The lookup string should co
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** The method never returns `None`: it returns the requested output or raises.
+> **Note:** The method returns the requested output, an empty result when the API has no data for the query (`404` with `s: "no_data"`, see the [README](../README.md#no-data-is-not-an-error)), or raises.
 
 #### Examples
 
@@ -583,7 +583,7 @@ Fetches options quotes for one or more option symbols. This method includes API 
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written (merged from all requested symbols)
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, no valid responses received, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** The method never returns `None`: it returns the requested output or raises. The method uses concurrent requests (up to 50 concurrent requests by default) to fetch quotes for multiple symbols efficiently.
+> **Note:** The method returns the requested output, an empty result when the API has no data for every symbol (`404` with `s: "no_data"`, see the [README](../README.md#no-data-is-not-an-error)), or raises. The method uses concurrent requests (up to 50 concurrent requests by default) to fetch quotes for multiple symbols efficiently.
 
 #### Examples
 
@@ -738,7 +738,7 @@ Fetches available strike prices for a given symbol. This method includes API sta
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** The method never returns `None`: it returns the requested output or raises.
+> **Note:** The method returns the requested output, an empty result when the API has no data for the query (`404` with `s: "no_data"`, see the [README](../README.md#no-data-is-not-an-error)), or raises.
 
 #### Examples
 
