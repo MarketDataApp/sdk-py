@@ -144,6 +144,48 @@ def test_should_retry_follows_the_spec():
     )
     assert not should_retry(RateLimitError("x"))
     assert not should_retry(ValueError("x"))
+    caused_by_the_client = NetworkError("x", request=request)
+    caused_by_the_client.__cause__ = httpx.UnsupportedProtocol("no scheme")
+    assert not should_retry(caused_by_the_client)
+
+
+@pytest.mark.parametrize(
+    "transport_error",
+    [
+        httpx.UnsupportedProtocol("Request URL is missing an 'http://' protocol."),
+        httpx.LocalProtocolError("Illegal header value b'Token abc\\n'"),
+        httpx.ProxyError("403 Forbidden"),
+    ],
+)
+def test_client_side_transport_errors_are_not_retried(
+    respx_mock, client, transport_error
+):
+    """A base URL without a scheme, a malformed request or a proxy refusal fail
+    the same way on every attempt: one NetworkError, one call, no backoff."""
+    route = respx_mock.get(PRICES_URL).mock(side_effect=transport_error)
+
+    with pytest.raises(NetworkError) as exc_info:
+        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    error = exc_info.value
+    assert error.__cause__ is transport_error
+    assert error.request_url.startswith(PRICES_URL)
+    assert route.call_count == 1
+
+
+def test_undecodable_content_encoding_is_a_parse_error(respx_mock, client):
+    """A 200 whose body does not match its Content-Encoding (an intercepting
+    proxy) is a ParseError with support context, not a raw httpx exception."""
+    route = respx_mock.get(PRICES_URL).mock(side_effect=httpx.DecodingError("bad gzip"))
+
+    with pytest.raises(ParseError) as exc_info:
+        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    error = exc_info.value
+    assert error.message == "DecodingError: bad gzip"
+    assert error.request_url.startswith(PRICES_URL)
+    assert error.response is None
+    assert route.call_count == 1
 
 
 def test_a_500_and_a_gateway_error_are_different_exceptions():

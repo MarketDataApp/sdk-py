@@ -42,7 +42,7 @@ class KeywordOnlyArgumentError(BaseMarketdataException): ...
 
 **Rationale**:
 - **Transient errors** (`ServerError`, 501 and above, and `NetworkError`): retried with exponential backoff (SDK requirements §9.2)
-- **Terminal errors** (every 4xx, `InternalError` (500), `RateLimitError`, `ParseError`, the validation classes): never retried
+- **Terminal errors** (every 4xx, `InternalError` (500), `RateLimitError`, `ParseError`, the validation classes, and a `NetworkError` the client itself caused: unsupported URL scheme, malformed request, proxy refusal): never retried
 - **Mapping in one place**: `MarketDataClient._raise_for_status` is the only status-to-exception table (#62)
 - **Exceptions propagate**: resource methods raise (SDK requirements §6.4); `api_error_handler` logs the terminal failure at ERROR and re-raises. The v1 `handle_exceptions` decorator and its `MarketDataClientErrorResult` return value were removed in v2.0 (#20)
 - **Support context**: every exception carries `request_id`, `request_url`, `status_code`, `timestamp`, `message` and `exception_type`, rendered by `support_info`

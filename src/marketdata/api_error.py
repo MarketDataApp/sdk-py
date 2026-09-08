@@ -2,6 +2,7 @@ from functools import wraps
 from logging import DEBUG
 from typing import TYPE_CHECKING, Callable
 
+from httpx import LocalProtocolError, ProxyError, UnsupportedProtocol
 from tenacity import before_sleep_log
 
 from marketdata.api_status import API_STATUS_DATA, APIStatusResult
@@ -14,10 +15,19 @@ if TYPE_CHECKING:
     from marketdata.client import MarketDataClient
 
 
+# Transport failures the client itself caused: a base URL without a scheme, a
+# malformed request (a token with a trailing newline), a proxy that refuses the
+# connection. They fail the same way on every attempt, so they are not retried.
+NON_RETRYABLE_TRANSPORT_ERRORS = (LocalProtocolError, ProxyError, UnsupportedProtocol)
+
+
 def should_retry(exc: BaseException) -> bool:
     """SDK requirements §9.2: retry ``ServerError`` (501 and above) and
-    ``NetworkError``; never a 4xx, an ``InternalError`` (500) or a rate limit."""
-    return isinstance(exc, (NetworkError, ServerError))
+    ``NetworkError`` unless the client caused it; never a 4xx, an
+    ``InternalError`` (500) or a rate limit."""
+    if isinstance(exc, NetworkError):
+        return not isinstance(exc.__cause__, NON_RETRYABLE_TRANSPORT_ERRORS)
+    return isinstance(exc, ServerError)
 
 
 def api_error_handler(

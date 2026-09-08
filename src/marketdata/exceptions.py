@@ -17,8 +17,9 @@ status          exception
 429             ``RateLimitError`` (never retried, carries ``retry_after``)
 500             ``InternalError`` (the API failed; never retried)
 501 to 599      ``ServerError`` (the API is unavailable; retried with backoff)
-transport       ``NetworkError`` (retried)
-bad JSON body   ``ParseError``
+transport       ``NetworkError`` (retried unless the client caused it)
+undecodable     ``ParseError`` (bad JSON or a body that does not match its
+                Content-Encoding)
 other 4xx       ``MarketdataHttpError``
 ==============  ==========================================================
 """

@@ -430,8 +430,8 @@ One class per kind of failure, mapped from the HTTP status the API answered (SDK
 | 429 | `RateLimitError`, with `retry_after` in seconds when the API sent it | no |
 | 500 | `InternalError` | no |
 | 501 and above | `ServerError` | yes, exponential backoff |
-| connection failure, timeout | `NetworkError` | yes |
-| undecodable body | `ParseError` | no |
+| connection failure, timeout, protocol or proxy error | `NetworkError` | yes, unless the client caused it: a base URL without a scheme, a malformed request, a proxy that refuses the connection |
+| undecodable body, or a body that does not match its `Content-Encoding` | `ParseError` | no |
 | any other 4xx | `MarketdataHttpError` | no |
 
 A `500` means the API itself failed on your request, so retrying would not help; `501` and above mean the API was unavailable or a gateway answered for it, which is why only those are retried. The two are separate classes: catching one never catches the other.

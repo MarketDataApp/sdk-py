@@ -1,7 +1,7 @@
 from importlib.metadata import version
 from logging import DEBUG, INFO, Logger
 
-from httpx import Client, Request, Response, TransportError
+from httpx import Client, DecodingError, RequestError, Response
 
 from marketdata.exceptions import (
     AuthenticationError,
@@ -11,6 +11,7 @@ from marketdata.exceptions import (
     MarketdataHttpError,
     NetworkError,
     NotFoundError,
+    ParseError,
     RateLimitError,
     ServerError,
 )
@@ -186,14 +187,6 @@ class MarketDataClient:
             )
             return None
 
-    def _request_of(self, exc: TransportError, method: str, url: str) -> Request:
-        # httpx attaches the request to the transport error; when it did not,
-        # rebuild it so the support context still names the URL that failed.
-        try:
-            return exc.request
-        except RuntimeError:  # pragma: no cover - httpx always sets it on send
-            return Request(method, self.client.base_url.join(url))
-
     def _pre_request_logs(self, method: str, url: str, **kwargs):
         self.logger.debug(f"Making request to URL: {self.base_url}/{url}")
 
@@ -228,12 +221,18 @@ class MarketDataClient:
         self._pre_request_logs(method, url, **kwargs)
         try:
             response = self.client.request(method, url, **kwargs, timeout=timeout)
-        except TransportError as exc:
-            # Connection failures and timeouts never got an answer: NetworkError
-            # (retried by the resource's retry loop).
+        except DecodingError as exc:
+            # The API answered but the body does not match its Content-Encoding
+            # (an intercepting proxy): the answer is unusable, not missing.
+            raise ParseError(
+                f"{type(exc).__name__}: {exc}", request=exc.request
+            ) from exc
+        except RequestError as exc:
+            # No usable answer (connection failure, timeout, protocol or proxy
+            # error). httpx attaches the request on every send; the retry loop
+            # decides from the cause whether another attempt can help.
             raise NetworkError(
-                f"{type(exc).__name__}: {exc}",
-                request=self._request_of(exc, method, url),
+                f"{type(exc).__name__}: {exc}", request=exc.request
             ) from exc
         self._post_request_logs(response, response_log_level)
 
