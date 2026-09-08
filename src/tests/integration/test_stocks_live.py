@@ -4,7 +4,8 @@ import datetime
 
 import pytest
 
-from marketdata import BadStatusCodeError, MarketDataClient, OutputFormat
+from marketdata import BadRequestError, MarketDataClient, OutputFormat
+from marketdata.exceptions import BadRequestError
 from marketdata.output_types.stocks_candles import StockCandle
 from marketdata.output_types.stocks_earnings import StockEarnings
 from marketdata.output_types.stocks_news import StockNews
@@ -149,20 +150,28 @@ def test_news_return_expected_shape(live_client: MarketDataClient):
     assert isinstance(item.updated, datetime.datetime)
 
 
-def test_no_data_answer_is_a_404_no_data_result(live_client: MarketDataClient):
+def test_no_data_answer_is_an_empty_result(live_client: MarketDataClient):
     """A valid question with an empty answer (daily candles over a weekend)
-    comes back as HTTP 404 with `s: "no_data"`. Today that raises a
-    `BadStatusCodeError` carrying the status; #62 turns it into an empty result."""
+    comes back as HTTP 404 with `s: "no_data"`. That is not an error (SDK
+    requirements section 9.1): the call returns an empty result."""
     saturday, sunday = _last_weekend()
 
-    with pytest.raises(BadStatusCodeError) as exc_info:
-        live_client.stocks.candles(
-            SYMBOL,
-            resolution="D",
-            from_date=saturday,
-            to_date=sunday,
-            output_format=OutputFormat.INTERNAL,
-        )
+    candles = live_client.stocks.candles(
+        SYMBOL,
+        resolution="D",
+        from_date=saturday,
+        to_date=sunday,
+        output_format=OutputFormat.INTERNAL,
+    )
 
-    assert exc_info.value.status_code == 404
-    assert "no_data" in exc_info.value.message
+    assert candles == []
+
+
+def test_unknown_symbol_is_a_bad_request(live_client: MarketDataClient):
+    """The API answers an unknown symbol with 400, not 404: a BadRequestError
+    carrying the API's own message."""
+    with pytest.raises(BadRequestError) as exc_info:
+        live_client.stocks.quotes("ZZZZNOTASYMBOL", output_format=OutputFormat.INTERNAL)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.message

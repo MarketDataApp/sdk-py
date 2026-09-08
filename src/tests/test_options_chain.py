@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 import pytz
 
-from marketdata.exceptions import BadStatusCodeError, RequestError
+from marketdata.exceptions import BadRequestError, ServerError
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.options import OptionsChainInput
 from marketdata.output_types.options_chain import (
@@ -251,7 +251,7 @@ def test_get_options_chain_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadStatusCodeError) as exc_info:
+    with pytest.raises(BadRequestError) as exc_info:
         client.options.chain(symbol="AAPL", output_format=OutputFormat.INTERNAL)
 
 
@@ -276,7 +276,7 @@ def test_get_options_chain_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(RequestError) as exc_info:
+    with pytest.raises(ServerError) as exc_info:
         client.options.chain("AAPL", output_format=OutputFormat.INTERNAL)
 
 

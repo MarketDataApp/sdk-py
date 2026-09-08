@@ -36,7 +36,7 @@ def status(
 
     return render(
         user_universal_params,
-        response.json(),
+        response,
         output_model=ServiceStatus,
         as_records=True,
         index_columns=["service"],

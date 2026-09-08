@@ -6,7 +6,7 @@ from httpx import Response
 
 from marketdata.api_error import api_error_handler
 from marketdata.docs import docs
-from marketdata.exceptions import BadStatusCodeError
+from marketdata.exceptions import MarketdataHttpError, ParseError
 from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.input_types.options import OptionsQuotesInput
 from marketdata.internal_settings import MAX_CONCURRENT_REQUESTS, VALID_STATUS_CODES
@@ -16,8 +16,13 @@ from marketdata.output_types.options_quotes import (
     OptionsQuotesHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource
-from marketdata.utils import encode_path_segment, merge_csv_texts
+from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.utils import (
+    encode_path_segment,
+    is_no_data,
+    merge_csv_texts,
+    parse_json,
+)
 
 
 @api_error_handler(service="/v1/options/quotes/")
@@ -64,6 +69,28 @@ def quotes(
         else OptionsQuotes
     )
 
+    # Per-symbol answers: a symbol with no data (404 no_data) contributes no
+    # rows; only when every symbol is empty is the whole call empty.
+    usable = [
+        response for response in responses if response.status_code in VALID_STATUS_CODES
+    ]
+    if not usable:
+        if all(is_no_data(response) for response in responses):
+            return no_data_result(
+                user_universal_params,
+                output_model,
+                as_records=False,
+                index_columns=["optionSymbol", "Symbol"],
+                body=parse_json(responses[0]),
+            )
+        # The API answered, just not with anything usable. Terminal on purpose:
+        # raising a retryable class here would re-run the whole fan-out.
+        raise MarketdataHttpError(
+            message="No responses from API",
+            request=responses[0].request,
+            response=responses[0],
+        )
+
     if user_universal_params.output_format in [
         OutputFormat.DATAFRAME,
         OutputFormat.INTERNAL,
@@ -72,27 +99,11 @@ def quotes(
 
         def _parse_data(response: Response) -> dict:
             try:
-                return response.json()
-            except (JSONDecodeError, AttributeError):
+                return parse_json(response)
+            except ParseError:
                 return OptionsQuotes.get_null_dict()
 
-        has_results = any(
-            [
-                response.status_code in VALID_STATUS_CODES
-                for response in responses
-                if response is not None
-            ]
-        )
-        if not has_results:
-            # Terminal: the API answered, just not with anything usable, so
-            # this must not trigger the retry loop the way RequestError does.
-            raise BadStatusCodeError(
-                message="No responses from API",
-                request=responses[0].request,
-                response=responses[0],
-            )
-
-        data = [_parse_data(response) for response in responses]
+        data = [_parse_data(response) for response in usable]
         data = output_model.join_dicts(data)
 
         if user_universal_params.output_format == OutputFormat.DATAFRAME:
@@ -108,7 +119,7 @@ def quotes(
 
     if user_universal_params.output_format == OutputFormat.CSV:
         headers = list(output_model.__dataclass_fields__.keys())[1:]
-        csv_text = merge_csv_texts([response.text for response in responses], headers)
+        csv_text = merge_csv_texts([response.text for response in usable], headers)
         return user_universal_params.write_file(csv_text)
 
     # This line should never be reached due to the universal_params decorator validating the output format

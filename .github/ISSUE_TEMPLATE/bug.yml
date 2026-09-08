@@ -104,7 +104,7 @@ body:
       label: Actual behavior
       description: What actually happens? Include exact values, and the full traceback if an exception escaped the SDK.
       placeholder: |
-        Raised BadStatusCodeError (status 400) instead of returning a DataFrame
+        Raised BadRequestError (status 400) instead of returning a DataFrame
     validations:
       required: true
 
@@ -133,7 +133,7 @@ body:
         status_code:		422
         timestamp:		2026-09-02 16:01:49
         message:		countback must be a positive integer
-        exception_type:		BadStatusCodeError
+        exception_type:		BadRequestError
         --------------------------------
     validations:
       required: false

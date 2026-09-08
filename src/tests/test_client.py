@@ -8,7 +8,7 @@ import pytz
 from httpx import Request, Response
 
 from marketdata.client import MarketDataClient
-from marketdata.exceptions import BadStatusCodeError, RateLimitError, RequestError
+from marketdata.exceptions import BadRequestError, RateLimitError, ServerError
 from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import NO_TOKEN_VALUE
 from marketdata.settings import MarketDataSettings, settings
@@ -65,7 +65,7 @@ def test_client_make_request_retry(client, respx_mock, monkeypatch):
         status_code=502,
     )
 
-    with pytest.raises(RequestError) as exc_info:
+    with pytest.raises(ServerError) as exc_info:
         client.stocks.prices(symbols="AAPL")
 
     prices_calls = [
@@ -83,7 +83,7 @@ def test_client_make_request_bad_status_not_retry(client, respx_mock):
         status_code=400,
     )
 
-    with pytest.raises(BadStatusCodeError) as exc_info:
+    with pytest.raises(BadRequestError) as exc_info:
         client.stocks.prices(symbols="AAPL")
 
     assert respx_mock.calls.call_count == 2
@@ -194,27 +194,20 @@ def test_client_check_rate_limits_rate_limit_exceeded(client):
 def test_client_raise_for_status_fails(client):
     request = Request(method="GET", url="https://api.marketdata.app/v1/stocks/prices/")
     response = Response(status_code=501, request=request)
-    with pytest.raises(BadStatusCodeError):
-        client._validate_response_status_code(
-            response, retry_status_codes=[], raise_for_status=True
-        )
+    with pytest.raises(ServerError):
+        client._raise_for_status(response)
 
 
 def test_client_raise_for_status_passes(client):
     request = Request(method="GET", url="https://api.marketdata.app/v1/stocks/prices/")
-    response = Response(status_code=200, request=request)
-    client._validate_response_status_code(
-        response, retry_status_codes=[], raise_for_status=True
-    )
+    for status in (200, 203):
+        client._raise_for_status(Response(status_code=status, request=request))
 
 
-def test_raise_retry_status_codes_fails(client):
+def test_client_raise_for_status_lets_the_no_data_answer_through(client):
     request = Request(method="GET", url="https://api.marketdata.app/v1/stocks/prices/")
-    response = Response(status_code=203, request=request)
-    with pytest.raises(RequestError):
-        client._validate_response_status_code(
-            response, retry_status_codes=[203], raise_for_status=False
-        )
+    response = Response(status_code=404, json={"s": "no_data"}, request=request)
+    client._raise_for_status(response)
 
 
 def test_client_setup_rate_limits(respx_mock):
@@ -353,7 +346,7 @@ def test_client_max_retries_zero_no_retry(respx_mock, monkeypatch):
         ),
     )
 
-    with pytest.raises(RequestError) as exc_info:
+    with pytest.raises(ServerError) as exc_info:
         c.stocks.prices(symbols="AAPL")
     assert respx_mock.calls.call_count == 2
 
@@ -400,7 +393,7 @@ def test_client_max_retries_one(respx_mock, monkeypatch):
         ),
     )
 
-    with pytest.raises(RequestError) as exc_info:
+    with pytest.raises(ServerError) as exc_info:
         c.stocks.prices(symbols="AAPL")
     prices_calls = [
         c for c in respx_mock.calls if c.request.url.path == "/v1/stocks/prices/"
@@ -463,10 +456,8 @@ def test_response_errmsg_is_bounded(client):
     request = Request("GET", "https://api.marketdata.app/v1/stocks/quotes/AAPL/")
     response = Response(502, text="x" * 100_000, request=request)
 
-    with pytest.raises(RequestError) as exc_info:
-        client._validate_response_status_code(
-            response, retry_status_codes=lambda x: x > 500, raise_for_status=True
-        )
+    with pytest.raises(ServerError) as exc_info:
+        client._raise_for_status(response)
     assert len(str(exc_info.value)) < 1_000
 
 
