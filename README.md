@@ -446,12 +446,14 @@ When the API has no data for a valid question (candles over a weekend, news for 
 
 | Output format | Empty result |
 |---|---|
-| `DATAFRAME` | a DataFrame with the model's columns and no rows |
+| `DATAFRAME` | a DataFrame with the model's columns and no rows; under `columns=`, the requested ones (names of the model, or API names under `use_human_readable=True`; the API's aliases such as `open` or `price` are not translated) |
 | `INTERNAL` | `[]` for list-shaped resources (`prices`, `quotes`, `candles`, `news`, `markets.status`, `utilities.status`), `None` for single-object ones (`earnings`, `options.chain`, `options.expirations`, `options.lookup`, `options.quotes`, `utilities.headers`, `utilities.user`) |
 | `JSON` | the API's `{"s": "no_data"}` body |
-| `CSV` | a file with the header row only |
+| `CSV` | a file with the header row only (the requested columns under `columns=`; an empty file under `add_headers=False`) |
 
-For the fan-out calls, a chunk (`stocks.candles`) or a symbol (`options.quotes`) with no data is simply absent from the merged result; the whole call is empty only when every part is.
+For the fan-out calls, a chunk (`stocks.candles`) or a symbol (`options.quotes`) with no data is simply absent from the merged result; the whole call is empty only when every part is. In CSV output the merged file keeps the header the API sent (the requested columns, the human-readable names) and every row of every part; a part whose body is not a CSV of that resource raises `ParseError`.
+
+The API renders the CSV empty answer as a `200` with a placeholder body instead of a `404` (MarketData-App/api#422); the SDK recognises it, so CSV output behaves as above.
 
 ### `ValueError`
 

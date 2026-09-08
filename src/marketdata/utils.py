@@ -9,6 +9,7 @@ import pytz
 from httpx import Response
 
 from marketdata.exceptions import ParseError
+from marketdata.internal_settings import VALID_STATUS_CODES
 
 
 def parse_json(response: Response) -> Any:
@@ -28,13 +29,47 @@ def parse_json(response: Response) -> Any:
         ) from exc
 
 
+# The API's CSV rendering of the empty answer (MarketData-App/api#422): a
+# one-column table named "0" with one empty cell, the cell alone under
+# ``add_headers=False``. Compared on the non-blank lines of the body. The
+# second shape is also what a one-column, one-row answer with a null value
+# renders as under ``add_headers=False``; the API itself reports an all-null
+# answer as ``no_data`` on the JSON path, so reading it as empty agrees.
+_CSV_NO_DATA_BODIES = (["0", '""'], ['""'])
+
+
 def is_no_data(response: Response) -> bool:
-    """True for the API's 404 ``no_data`` answer.
+    """True for the API's empty answer to a valid question.
 
     ``MarketDataClient._raise_for_status`` lets exactly one 404 through: the
-    one without an ``errmsg``, which is an empty answer to a valid question.
+    one without an ``errmsg``. In CSV format the same answer arrives as a
+    ``200`` whose body is a placeholder table, because the API drops the
+    status when it renders it (MarketData-App/api#422, #89); that rule can go
+    once the API answers ``404`` for CSV too.
     """
-    return response.status_code == 404
+    if response.status_code == 404:
+        return True
+    if response.status_code not in VALID_STATUS_CODES or len(response.content) > 16:
+        return False
+    return [line for line in response.text.splitlines() if line] in _CSV_NO_DATA_BODIES
+
+
+def column_key(name: str) -> str:
+    """A column name the way the API matches it: case-insensitive and without
+    spaces, so the human-readable ``Expiration Date`` equals the model's
+    ``Expiration_Date``. The API's aliases (``open`` for ``o``, ``price``,
+    ``date``) are endpoint-dependent and are not mirrored here."""
+    return name.strip().lower().replace(" ", "").replace("_", "")
+
+
+def parse_error(response: Response, reason: str) -> ParseError:
+    """A ``ParseError`` for a body the API answered but the SDK cannot use."""
+    return ParseError(
+        f"Response body is not a valid answer of this resource ({reason}): "
+        f"{resume_long_text(response.text, max_length=200)!r}",
+        request=response.request,
+        response=response,
+    )
 
 
 def format_timestamp(
@@ -90,30 +125,53 @@ def validate_single_param(param: str, value: Any) -> Any:
     return value
 
 
-def merge_csv_texts(csv_texts: list[str], headers: list[str]) -> str:
-    rows_out = []
+def merge_csv_responses(
+    responses: list[Response], known_columns: list[str], *, with_header: bool = True
+) -> str:
+    """Merge the CSV bodies of a fan-out into one CSV text (#86).
 
-    def _validate(rows: list[list[str]]) -> bool:
-        return all(len(row) == len(headers) for row in rows)
+    The header comes from the answers, never from the model: under
+    ``columns=`` the API sends the requested columns only, and under
+    ``use_human_readable`` their human-readable names. Every body must carry
+    the same header, made of this resource's column names, and every row must
+    be as wide as it; anything else (an HTML error page, a truncated body,
+    two symbols answering with different columns) raises ``ParseError``
+    naming the offending response. With ``with_header=False``
+    (``add_headers=False``) the bodies carry no header, so only the row width
+    is checked, against the first row seen.
+    """
+    known = {column_key(name) for name in known_columns}
+    header: list[str] | None = None
+    width: int | None = None
+    rows_out: list[list[str]] = []
 
-    for text in csv_texts:
-        reader = csv.reader(StringIO(text))
-
-        try:
-            incoming_header = next(reader)
-        except StopIteration:
-            continue
-
-        if incoming_header != headers:
-            continue
-
-        rows = list(reader)
-        if _validate(rows):
-            rows_out.extend(rows)
+    for response in responses:
+        rows = [row for row in csv.reader(StringIO(response.text)) if row]
+        if with_header:
+            if not rows:
+                raise parse_error(response, "no header row")
+            incoming, rows = rows[0], rows[1:]
+            incoming[0] = incoming[0].lstrip("\ufeff")  # a BOM is not a column
+            unknown = [name for name in incoming if column_key(name) not in known]
+            if unknown:
+                raise parse_error(response, f"unknown columns {unknown!r}")
+            if header is None:
+                header, width = incoming, len(incoming)
+            elif incoming != header:
+                raise parse_error(
+                    response, f"header {incoming!r} differs from {header!r}"
+                )
+        for row in rows:
+            if width is None:
+                width = len(row)
+            if len(row) != width:
+                raise parse_error(response, f"row {row!r} does not have {width} values")
+        rows_out.extend(rows)
 
     output = StringIO()
     writer = csv.writer(output)
-    writer.writerow(headers)
+    if header is not None:
+        writer.writerow(header)
     writer.writerows(rows_out)
     return output.getvalue()
 

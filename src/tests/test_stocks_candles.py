@@ -8,7 +8,7 @@ import pytest
 import pytz
 from freezegun import freeze_time
 
-from marketdata.exceptions import ServerError
+from marketdata.exceptions import ParseError, ServerError
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.input_types.stocks import StocksCandlesInput
 from marketdata.output_types.stocks_candles import (
@@ -433,18 +433,174 @@ def test_get_stocks_candles_status_offline(load_json, respx_mock, client):
         )
 
 
-def test_get_stocks_candles_response_200_csv(respx_mock, client):
-    respx_mock.get("https://api.marketdata.app/v1/stocks/candles/D/AAPL/").respond(
-        text="AS RECEIVED FROM API",
-        status_code=200,
-    )
+# ------------------------------------------------------------------- CSV
+
+DAILY_URL = "https://api.marketdata.app/v1/stocks/candles/D/AAPL/"
+HOURLY_URL = "https://api.marketdata.app/v1/stocks/candles/H/AAPL/"
+CSV_BODY = (
+    "t,o,h,l,c,v\r\n"
+    "1704171600,185.6,186.88,182.36,184.1,82488674\r\n"
+    "1704258000,182.69,184.34,181.91,182.72,58414460\r\n"
+)
+CSV_PLACEHOLDER = '0\r\n""\r\n'
+TWO_CHUNKS = dict(from_date="2023-01-01", to_date="2024-06-01")
+CHUNK_STARTS = ["2023-01-01", "2024-01-01"]
+
+
+def test_get_stocks_candles_response_200_csv(respx_mock, client, tmp_path):
+    """The file is the API's CSV as received: its header, its rows."""
+    respx_mock.get(DAILY_URL).respond(text=CSV_BODY, status_code=200)
+
     output = client.stocks.candles(
         symbol="AAPL",
         resolution="D",
         output_format=OutputFormat.CSV,
-        filename="test.csv",
+        filename=tmp_path / "test.csv",
     )
-    assert pathlib.Path(output).read_text() is not ""
+
+    assert pathlib.Path(output).read_bytes() == CSV_BODY.encode()
+
+
+def test_stocks_candles_csv_merges_every_chunk_under_the_api_header(
+    respx_mock, client, tmp_path
+):
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=[
+            httpx.Response(200, text="t,c\r\n1,2\r\n"),
+            httpx.Response(200, text="t,c\r\n3,4\r\n"),
+        ]
+    )
+
+    output = client.stocks.candles(
+        symbol="AAPL",
+        resolution="H",
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+        columns=["t", "c"],
+        **TWO_CHUNKS,
+    )
+
+    assert pathlib.Path(output).read_bytes() == b"t,c\r\n1,2\r\n3,4\r\n"
+
+
+def test_stocks_candles_csv_undecodable_chunk_body_is_a_parse_error(
+    respx_mock, client, tmp_path
+):
+    """Issue #86: an HTML page from one chunk fails the call instead of
+    leaving a hole in the file."""
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=[
+            httpx.Response(200, text=CSV_BODY),
+            httpx.Response(200, text="<html>error page</html>"),
+        ]
+    )
+
+    with pytest.raises(ParseError):
+        client.stocks.candles(
+            symbol="AAPL",
+            resolution="H",
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+            **TWO_CHUNKS,
+        )
+
+    assert not (tmp_path / "test.csv").exists()
+
+
+def test_stocks_candles_csv_leaves_out_a_chunk_with_no_data(
+    respx_mock, client, tmp_path
+):
+    """Issue #89: the API's CSV placeholder for an empty chunk is a 200."""
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=[
+            httpx.Response(200, text=CSV_PLACEHOLDER),
+            httpx.Response(200, text=CSV_BODY),
+        ]
+    )
+
+    output = client.stocks.candles(
+        symbol="AAPL",
+        resolution="H",
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+        **TWO_CHUNKS,
+    )
+
+    assert pathlib.Path(output).read_bytes() == CSV_BODY.encode()
+
+
+def test_stocks_candles_csv_with_every_chunk_empty_is_a_header_only_file(
+    respx_mock, client, tmp_path
+):
+    respx_mock.get(HOURLY_URL).respond(text=CSV_PLACEHOLDER, status_code=200)
+
+    output = client.stocks.candles(
+        symbol="AAPL",
+        resolution="H",
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+        columns=["t", "c"],
+        **TWO_CHUNKS,
+    )
+
+    assert pathlib.Path(output).read_bytes() == b"t,c\r\n"
+
+
+@pytest.mark.parametrize(
+    ("bodies", "bad_index"),
+    [
+        ([{"error": "upstream timeout"}, {"s": "ok", "t": [1], "c": [1.0]}], 0),
+        ([{"s": "ok", "t": [1], "c": [1.0]}, {"s": "ok", "t": [2]}], 1),
+    ],
+    ids=["no-fields-at-all", "a-later-chunk-lacks-a-column"],
+)
+def test_stocks_candles_json_chunk_without_the_columns_is_a_parse_error(
+    respx_mock, client, bodies, bad_index
+):
+    """A JSON body without the resource's fields (a proxy's JSON error page)
+    fails the call instead of leaving a silent hole in the merge."""
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=[httpx.Response(200, json=body) for body in bodies]
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.stocks.candles(
+            symbol="AAPL", resolution="H", output_format=OutputFormat.JSON, **TWO_CHUNKS
+        )
+
+    assert f"from={CHUNK_STARTS[bad_index]}" in exc_info.value.request_url
+
+
+# ------------------------------------------------------------- columns=
+
+
+@pytest.mark.parametrize("output_format", [OutputFormat.DATAFRAME, OutputFormat.JSON])
+def test_stocks_candles_honours_the_column_filter_across_chunks(
+    respx_mock, client, output_format
+):
+    """Issue #90: the API answers with the requested keys only; the merge used
+    to raise KeyError on the first missing model field."""
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=[
+            httpx.Response(200, json={"s": "ok", "c": [1.0, 2.0], "v": [10, 20]}),
+            httpx.Response(200, json={"s": "ok", "c": [3.0], "v": [30]}),
+        ]
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        result = client.stocks.candles(
+            symbol="AAPL",
+            resolution="H",
+            output_format=output_format,
+            columns=["c", "v"],
+            **TWO_CHUNKS,
+        )
+
+    if output_format == OutputFormat.JSON:
+        assert result == {"c": [1.0, 2.0, 3.0], "v": [10, 20, 30]}
+    else:
+        assert list(result.columns) == ["c", "v"]
+        assert result["c"].tolist() == [1.0, 2.0, 3.0]
 
 
 def test_stocks_candles_intraday_string_dates(load_json, respx_mock, client):

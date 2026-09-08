@@ -18,12 +18,13 @@ from marketdata.output_types.stocks_candles import (
     StockCandlesHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.resources.base import BaseResource, model_columns, no_data_result
 from marketdata.utils import (
     encode_path_segment,
     get_data_records,
     is_no_data,
-    merge_csv_texts,
+    merge_csv_responses,
+    parse_error,
     parse_json,
     split_dates_by_timeframe,
 )
@@ -111,7 +112,8 @@ def candles(
         # one timeout, and the executor's exit joins every worker anyway, so a
         # future timeout could only ever surface after they had all finished.
         responses = [future.result() for future in futures]
-    # A chunk with no data (404 no_data) is simply absent from the merge.
+    # A chunk with no data (a 404 no_data, or its CSV placeholder, #89) is
+    # simply absent from the merge.
     responses = [response for response in responses if not is_no_data(response)]
 
     output_model = (
@@ -128,16 +130,30 @@ def candles(
             index_columns=["t", "Date"],
         )
 
-    def _get_responses_data(responses: list[httpx.Response]) -> list[dict]:
+    def _get_responses_data(responses: list[httpx.Response]) -> dict:
         responses_data = [parse_json(response) for response in responses]
-        result = {}
-        for field in fields(output_model):
-            result[field.name] = list(
-                itertools.chain.from_iterable(
-                    [responses_data[i][field.name] for i in range(len(responses_data))]
-                )
+        # Under `columns=` the API sends the requested keys only (#90), so the
+        # merge covers the model fields the first chunk carries, in model order.
+        present = [
+            field.name
+            for field in fields(output_model)
+            if field.name in responses_data[0]
+        ]
+        # A JSON body with none of the fields (a proxy's JSON error page) or a
+        # chunk missing a column the first one carries is not a candle answer;
+        # a silent hole in the merge would read as "no candles" (#82).
+        if not present:
+            raise parse_error(responses[0], "none of this resource's fields")
+        for data, response in zip(responses_data, responses):
+            missing = [name for name in present if name not in data]
+            if missing:
+                raise parse_error(response, f"missing columns {missing!r}")
+        return {
+            name: list(
+                itertools.chain.from_iterable(data[name] for data in responses_data)
             )
-        return result
+            for name in present
+        }
 
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
         data = _get_responses_data(responses)
@@ -156,9 +172,15 @@ def candles(
         return data
 
     elif user_universal_params.output_format == OutputFormat.CSV:
-        field_names = [field.name for field in fields(output_model)]
-        data = merge_csv_texts([response.text for response in responses], field_names)
-        return user_universal_params.write_file(data)
+        # The header comes from the answers (#86): under `columns=` or
+        # `use_human_readable` it is not the model's field list, and a body
+        # that is not a CSV of this resource fails the call.
+        csv_text = merge_csv_responses(
+            responses,
+            model_columns(output_model),
+            with_header=user_universal_params.add_headers is not False,
+        )
+        return user_universal_params.write_file(csv_text)
 
     # This line should never be reached due to the universal_params decorator validating the output format
     # but we add it to satisfy the type checker and avoid coverage errors.

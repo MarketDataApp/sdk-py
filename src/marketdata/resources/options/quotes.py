@@ -16,11 +16,11 @@ from marketdata.output_types.options_quotes import (
     OptionsQuotesHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.resources.base import BaseResource, model_columns, no_data_result
 from marketdata.utils import (
     encode_path_segment,
     is_no_data,
-    merge_csv_texts,
+    merge_csv_responses,
     parse_json,
 )
 
@@ -78,10 +78,13 @@ def quotes(
         else OptionsQuotes
     )
 
-    # Per-symbol answers: a symbol with no data (404 no_data) contributes no
-    # rows; only when every symbol is empty is the whole call empty.
+    # Per-symbol answers: a symbol with no data (a 404 no_data, or its CSV
+    # placeholder, #89) contributes no rows; only when every symbol is empty
+    # is the whole call empty.
     usable = [
-        response for response in responses if response.status_code in VALID_STATUS_CODES
+        response
+        for response in responses
+        if response.status_code in VALID_STATUS_CODES and not is_no_data(response)
     ]
     if not usable:
         if all(is_no_data(response) for response in responses):
@@ -90,7 +93,7 @@ def quotes(
                 output_model,
                 as_records=False,
                 index_columns=["optionSymbol", "Symbol"],
-                body=parse_json(responses[0]),
+                response=responses[0],
             )
         # The API answered, just not with anything usable. Terminal on purpose:
         # raising a retryable class here would re-run the whole fan-out.
@@ -124,8 +127,14 @@ def quotes(
             return data
 
     if user_universal_params.output_format == OutputFormat.CSV:
-        headers = list(output_model.__dataclass_fields__.keys())[1:]
-        csv_text = merge_csv_texts([response.text for response in usable], headers)
+        # The header comes from the answers (#86): under `columns=` or
+        # `use_human_readable` it is not the model's field list, and a body
+        # that is not a CSV of this resource fails the call.
+        csv_text = merge_csv_responses(
+            usable,
+            model_columns(output_model),
+            with_header=user_universal_params.add_headers is not False,
+        )
         return user_universal_params.write_file(csv_text)
 
     # This line should never be reached due to the universal_params decorator validating the output format

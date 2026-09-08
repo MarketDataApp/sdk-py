@@ -25,6 +25,7 @@ from marketdata.exceptions import (
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.options_expirations import OptionsExpirations
 from marketdata.output_types.stocks_candles import StockCandle
+from marketdata.utils import is_no_data
 
 PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 EXPIRATIONS_URL = "https://api.marketdata.app/v1/options/expirations/AAPL/"
@@ -363,9 +364,13 @@ def test_expirations_no_data_dataframe_has_the_shape_of_a_populated_one(
         assert list(populated.columns) == ["updated"]
 
 
-@pytest.mark.parametrize(
-    ("call", "url_pattern", "fixture"),
-    [
+# Every resource that renders an empty answer, with a populated fixture.
+# `options.strikes` is left out on purpose: its columns are the expiration
+# dates of the answer itself, so no empty frame can match a populated one; the
+# resource is deprecated and goes away in #73.
+RESOURCES = [
+    pytest.param(call, url_pattern, fixture, id=fixture.replace("_response_200", ""))
+    for call, url_pattern, fixture in [
         (
             lambda c: c.funds.candles("VFINX"),
             r".*/funds/candles/.*",
@@ -421,20 +426,17 @@ def test_expirations_no_data_dataframe_has_the_shape_of_a_populated_one(
             r".*/options/quotes/.*",
             "options_quotes_response_200",
         ),
-    ],
-)
+    ]
+]
+
+
+@pytest.mark.parametrize(("call", "url_pattern", "fixture"), RESOURCES)
 def test_every_resource_no_data_dataframe_has_the_shape_of_a_populated_one(
     load_json, respx_mock, client, call, url_pattern, fixture
 ):
-    """Issue #84 for every resource: without a column filter, an empty
-    DataFrame must be usable in place of a populated one (same index name,
-    same columns), whatever the resource. `options.expirations` was the one
-    that differed. Under `columns=` the empty frame still carries every model
-    column (#87).
-
-    `options.strikes` is left out on purpose: its columns are the expiration
-    dates of the answer itself, so no empty frame can match a populated one;
-    the resource is deprecated and goes away in #73."""
+    """Issue #84 for every resource: an empty DataFrame must be usable in
+    place of a populated one (same index name, same columns), whatever the
+    resource. `options.expirations` was the one that differed."""
     respx_mock.get(url__regex=url_pattern).mock(
         side_effect=[
             httpx.Response(200, json=load_json(fixture)),
@@ -449,6 +451,122 @@ def test_every_resource_no_data_dataframe_has_the_shape_of_a_populated_one(
 
     assert list(empty.index.names) == list(populated.index.names)
     assert list(empty.columns) == list(populated.columns)
+
+
+@pytest.mark.parametrize(("call", "url_pattern", "fixture"), RESOURCES)
+def test_every_resource_no_data_dataframe_honours_the_column_filter(
+    load_json, respx_mock, client, call, url_pattern, fixture
+):
+    """Issue #87 for every resource: under `columns=` the API answers with the
+    requested keys only, so the empty frame must carry the requested columns
+    too, in request order. `stocks.candles` used to fail on the populated
+    side as well (#90)."""
+    body = load_json(fixture)
+    requested = [key for key in body if key != "s"][-2:]
+    filtered = {key: body[key] for key in ["s", *requested] if key in body}
+    respx_mock.get(url__regex=url_pattern).mock(
+        side_effect=[
+            httpx.Response(200, json=filtered),
+            httpx.Response(404, json=NO_DATA),
+        ]
+    )
+    client.default_params.output_format = OutputFormat.DATAFRAME
+    client.default_params.columns = requested
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        populated = call(client)
+        empty = call(client)
+
+    assert list(empty.index.names) == list(populated.index.names)
+    assert list(empty.columns) == list(populated.columns)
+    names = [name for name in empty.index.names if name is not None]
+    assert all(name in requested for name in [*names, *empty.columns])
+
+
+CSV_PLACEHOLDER = '0\r\n""\r\n'
+
+
+@pytest.mark.parametrize(("call", "url_pattern", "fixture"), RESOURCES)
+def test_every_resource_renders_the_csv_no_data_placeholder_as_a_header_only_file(
+    respx_mock, client, call, url_pattern, fixture, tmp_path
+):
+    """Issue #89: in CSV format the empty answer arrives as a 200 whose body is
+    a placeholder table (MarketData-App/api#422); it must be the same header-only
+    file as a JSON 404 no_data, on every resource."""
+    respx_mock.get(url__regex=url_pattern).respond(
+        text=CSV_PLACEHOLDER,
+        status_code=200,
+        headers={"content-type": "text/csv; charset=utf-8"},
+    )
+    client.default_params.output_format = OutputFormat.CSV
+    client.default_params.filename = tmp_path / "empty.csv"
+
+    path = call(client)
+
+    lines = pathlib.Path(path).read_bytes().split(b"\r\n")
+    assert lines[1:] == [b""]
+    assert lines[0] not in (b"", b"0")
+
+
+def test_no_data_csv_carries_the_requested_columns_in_request_order(
+    respx_mock, client, tmp_path
+):
+    """Issue #87 on the CSV path: the header lists the requested columns."""
+    respx_mock.get(PRICES_URL).respond(json=NO_DATA, status_code=404)
+
+    path = client.stocks.prices(
+        "AAPL",
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "empty.csv",
+        columns=["updated", "MID", "no_such_column"],
+    )
+
+    assert pathlib.Path(path).read_bytes() == b"updated,mid\r\n"
+
+
+@pytest.mark.parametrize(
+    ("columns", "index_name", "expected"),
+    [
+        (["t", "c"], "Date", ["Close"]),
+        (["close", "Date", "CLOSE"], "Date", ["Close"]),
+        (["price", "mark"], "Date", ["Open", "High", "Low", "Close", "Volume"]),
+    ],
+    ids=["api-names", "human-names-and-duplicates", "aliases-not-mirrored"],
+)
+def test_no_data_column_filter_on_a_human_readable_model(
+    respx_mock, client, columns, index_name, expected
+):
+    """The API filters on its own names and renames afterwards, so a filter
+    written in API names under `use_human_readable=True` selects the
+    human-readable twins by position (#87). Its endpoint-dependent aliases
+    (`price`, `mark`) are not mirrored: a filter made of them keeps the full
+    set rather than producing a frame with no columns."""
+    respx_mock.get(CANDLES_URL).respond(json=NO_DATA, status_code=404)
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        empty = client.stocks.candles(
+            "AAPL",
+            resolution="H",
+            output_format=OutputFormat.DATAFRAME,
+            use_human_readable=True,
+            columns=columns,
+        )
+
+    assert empty.index.name == index_name
+    assert list(empty.columns) == expected
+
+
+def test_no_data_csv_without_headers_is_an_empty_file(respx_mock, client, tmp_path):
+    respx_mock.get(PRICES_URL).respond(json=NO_DATA, status_code=404)
+
+    path = client.stocks.prices(
+        "AAPL",
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "empty.csv",
+        add_headers=False,
+    )
+
+    assert pathlib.Path(path).read_bytes() == b""
 
 
 def test_single_object_no_data_model_is_not_built(respx_mock, client):

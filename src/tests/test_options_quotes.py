@@ -2,6 +2,7 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import httpx
 import pytest
 import pytz
 
@@ -419,19 +420,199 @@ def test_get_options_quotes_status_offline(respx_mock, client):
         )
 
 
-def test_get_options_quotes_response_200_csv(respx_mock, client):
-    respx_mock.get(
-        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
-    ).respond(
-        text="AS RECEIVED FROM API",
-        status_code=200,
+# ------------------------------------------------------------------- CSV
+
+CALL_URL = "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
+PUT_URL = "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+CSV_HEADER = (
+    "optionSymbol,underlying,expiration,side,strike,firstTraded,dte,updated,bid,"
+    "bidSize,mid,ask,askSize,last,openInterest,volume,inTheMoney,intrinsicValue,"
+    "extrinsicValue,underlyingPrice,iv,delta,gamma,theta,vega"
+)
+CALL_ROW = (
+    "AAPL271217C00255000,AAPL,1828818000,call,255,1686663000,822,1765396196,65.1,"
+    "29,65.75,66.4,84,64.97,588,0,true,23.7344,42.0156,278.7344,0.2975,0.7188,"
+    "0.0029,-0.0403,1.3368"
+)
+PUT_ROW = CALL_ROW.replace("AAPL271217C00255000", "AAPL271217P00255000").replace(
+    ",call,", ",put,"
+)
+CSV_PLACEHOLDER = '0\r\n""\r\n'
+
+
+def _csv_quotes(*, symbols, **kwargs):
+    return client_quotes_csv(symbols, **kwargs)
+
+
+def test_get_options_quotes_response_200_csv(respx_mock, client, tmp_path):
+    """The file is the API's CSV as received: its header, its rows."""
+    respx_mock.get(CALL_URL).respond(
+        text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n", status_code=200
     )
+
     output = client.options.quotes(
         symbols="AAPL271217C00255000",
         output_format=OutputFormat.CSV,
-        filename="test.csv",
+        filename=tmp_path / "test.csv",
     )
-    assert pathlib.Path(output).read_text() is not ""
+
+    assert pathlib.Path(output).read_bytes() == (
+        f"{CSV_HEADER}\r\n{CALL_ROW}\r\n".encode()
+    )
+
+
+def test_options_quotes_csv_merges_every_symbol_under_the_api_header(
+    respx_mock, client, tmp_path
+):
+    respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\n{CALL_ROW}\n")
+    respx_mock.get(PUT_URL).respond(text=f"{CSV_HEADER}\n{PUT_ROW}\n")
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+    )
+
+    assert pathlib.Path(output).read_bytes() == (
+        f"{CSV_HEADER}\r\n{CALL_ROW}\r\n{PUT_ROW}\r\n".encode()
+    )
+
+
+def test_options_quotes_csv_keeps_the_requested_columns(respx_mock, client, tmp_path):
+    """Issue #86: under `columns=` the API answers with the requested columns
+    only; the merge used to drop every row because the header did not match
+    the model's field list."""
+    respx_mock.get(CALL_URL).respond(
+        text="optionSymbol,bid,ask\r\nAAPL271217C00255000,85.25,87.95\r\n"
+    )
+    respx_mock.get(PUT_URL).respond(
+        text="optionSymbol,bid,ask\r\nAAPL271217P00255000,1.1,1.2\r\n"
+    )
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+        columns=["optionSymbol", "bid", "ask"],
+    )
+
+    assert pathlib.Path(output).read_bytes() == (
+        b"optionSymbol,bid,ask\r\n"
+        b"AAPL271217C00255000,85.25,87.95\r\n"
+        b"AAPL271217P00255000,1.1,1.2\r\n"
+    )
+
+
+def test_options_quotes_csv_keeps_the_human_readable_rows(respx_mock, client, tmp_path):
+    """Issue #86: the human-readable header (`Symbol`, names with spaces)
+    never matched the model's field list, so the file was header-only."""
+    body = "Symbol,Underlying,Expiration Date,Bid,Ask\r\nAAPL271217C00255000,AAPL,1829077200,85.25,87.95\r\n"
+    respx_mock.get(CALL_URL).respond(text=body)
+
+    output = client.options.quotes(
+        symbols="AAPL271217C00255000",
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+        use_human_readable=True,
+    )
+
+    assert pathlib.Path(output).read_bytes() == body.encode()
+
+
+@pytest.mark.parametrize("use_human_readable", [False, True])
+def test_options_quotes_csv_undecodable_symbol_body_is_a_parse_error(
+    respx_mock, client, tmp_path, use_human_readable
+):
+    """Issue #86 (the CSV half of #82): an HTML page from one symbol fails the
+    call instead of vanishing from the file."""
+    good_body = (
+        "Symbol,Bid,Ask\r\nAAPL271217C00255000,85.25,87.95\r\n"
+        if use_human_readable
+        else f"{CSV_HEADER}\r\n{CALL_ROW}\r\n"
+    )
+    respx_mock.get(CALL_URL).respond(text=good_body)
+    respx_mock.get(PUT_URL).respond(text="<html>error page</html>")
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+            use_human_readable=use_human_readable,
+        )
+
+    assert exc_info.value.request_url.startswith(PUT_URL)
+    assert not (tmp_path / "test.csv").exists()
+
+
+def test_options_quotes_csv_leaves_out_a_symbol_with_no_data(
+    respx_mock, client, tmp_path
+):
+    """Issue #89: the API's CSV placeholder for an empty symbol is a 200; it
+    must be skipped like a JSON 404 no_data, not merged, not an error."""
+    respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
+    respx_mock.get(PUT_URL).respond(text=CSV_PLACEHOLDER)
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+    )
+
+    assert pathlib.Path(output).read_bytes() == (
+        f"{CSV_HEADER}\r\n{CALL_ROW}\r\n".encode()
+    )
+
+
+def test_options_quotes_csv_with_every_symbol_empty_is_a_header_only_file(
+    respx_mock, client, tmp_path
+):
+    respx_mock.get(CALL_URL).respond(text=CSV_PLACEHOLDER)
+    respx_mock.get(PUT_URL).respond(text=CSV_PLACEHOLDER)
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+    )
+
+    assert pathlib.Path(output).read_bytes() == f"{CSV_HEADER}\r\n".encode()
+
+
+def test_options_quotes_csv_without_headers_and_every_symbol_empty_is_an_empty_file(
+    respx_mock, client, tmp_path
+):
+    """Under `add_headers=False` the API's placeholder is the lone empty cell,
+    and the empty file must not gain a header the caller declined."""
+    respx_mock.get(CALL_URL).respond(text='""\r\n')
+    respx_mock.get(PUT_URL).respond(text='""\r\n')
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+        add_headers=False,
+    )
+
+    assert pathlib.Path(output).read_bytes() == b""
+
+
+def test_options_quotes_csv_without_headers_concatenates_the_rows(
+    respx_mock, client, tmp_path
+):
+    respx_mock.get(CALL_URL).respond(text=f"{CALL_ROW}\r\n")
+    respx_mock.get(PUT_URL).respond(text=f"{PUT_ROW}\r\n")
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+        add_headers=False,
+    )
+
+    assert pathlib.Path(output).read_bytes() == (
+        f"{CALL_ROW}\r\n{PUT_ROW}\r\n".encode()
+    )
 
 
 def test_options_quotes_join_dicts():

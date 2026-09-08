@@ -57,7 +57,7 @@ def news(
             output_model,
             as_records=True,
             index_columns=["symbol", "Symbol"],
-            body=parse_json(response),
+            response=response,
         )
 
     if user_universal_params.output_format == OutputFormat.DATAFRAME:

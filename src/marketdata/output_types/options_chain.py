@@ -108,3 +108,10 @@ class OptionsChainHumanReadable:
 
     def __str__(self) -> str:
         return self.__repr__()
+
+
+# The API-named twin of the human-readable model, same fields in the same
+# order: a `columns=` filter written in API names is translated to the
+# human-readable columns by position (#87). Set outside the class so it is
+# not a dataclass field.
+OptionsChainHumanReadable.api_model = OptionsChain

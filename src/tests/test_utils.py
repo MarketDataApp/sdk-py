@@ -1,17 +1,21 @@
 import datetime
 
+import httpx
 import pytest
 import pytz
 
+from marketdata.exceptions import ParseError
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.utils import (
     check_is_date,
+    column_key,
     dict_to_csv,
     encode_path,
     encode_path_segment,
     format_duration_log,
     format_timestamp,
-    merge_csv_texts,
+    is_no_data,
+    merge_csv_responses,
     obfuscate_token,
     resume_long_text,
     split_dates_by_timeframe,
@@ -79,31 +83,99 @@ def test_validate_single_param():
     assert validate_single_param("a", None) is None
 
 
-def test_merge_csv_texts():
-    texts = [
-        "a,b,c\n1,2,3\n4,5,6",
-        "a,b,c\n7,8,9\n10,11,12",
-    ]
-    result = merge_csv_texts(texts, ["a", "b", "c"])
-    assert result == "a,b,c\r\n1,2,3\r\n4,5,6\r\n7,8,9\r\n10,11,12\r\n"
+# ----------------------------------------------------- merge_csv_responses
 
-    texts = [
-        "a,b,c\n1,2,3\n4,5,6",
-        "a,b,c\n7,8,9\n10,11,12",
-        "",
-    ]
-    result = merge_csv_texts(texts, ["a", "b", "c"])
-    expected = "a,b,c\r\n1,2,3\r\n4,5,6\r\n7,8,9\r\n10,11,12\r\n"
-    assert result == expected
+COLUMNS = ["t", "o", "h", "l", "c", "v"]
 
-    texts = [
-        "a,b,c\n1,2,3\n4,5,6",
-        "a,b,c\n7,8,9\n10,11,12",
-        "a,b,d\n13,14,15\n16,17,18",
+
+def _csv_response(text: str, status: int = 200) -> httpx.Response:
+    return httpx.Response(
+        status,
+        text=text,
+        request=httpx.Request("GET", "https://api.marketdata.app/v1/x/"),
+    )
+
+
+def test_merge_csv_responses_takes_the_header_from_the_answers():
+    """Issue #86: the merged header is the one the API sent, so `columns=`
+    and the human-readable names survive the merge, with every row."""
+    responses = [
+        _csv_response("t,c\n1,2\n3,4\n"),
+        _csv_response("t,c\r\n5,6\r\n"),
+        _csv_response("t,c\n"),
     ]
-    result = merge_csv_texts(texts, ["a", "b", "c"])
-    expected = "a,b,c\r\n1,2,3\r\n4,5,6\r\n7,8,9\r\n10,11,12\r\n"
-    assert result == expected
+
+    assert merge_csv_responses(responses, COLUMNS) == "t,c\r\n1,2\r\n3,4\r\n5,6\r\n"
+
+
+def test_merge_csv_responses_accepts_human_readable_names_for_the_model_fields():
+    responses = [_csv_response("\ufeffExpiration Date,Strike\n1,2\n")]
+
+    result = merge_csv_responses(responses, ["Expiration_Date", "Strike"])
+
+    assert result == "Expiration Date,Strike\r\n1,2\r\n"
+
+
+@pytest.mark.parametrize(
+    ("bodies", "reason"),
+    [
+        (["<html>error page</html>\n"], "unknown columns"),
+        ([""], "no header row"),
+        (["t,c\n1,2\n", "t,o\n1,2\n"], "differs from"),
+        (["t,c\n1,2\n", "t,c\n1\n"], "does not have 2 values"),
+    ],
+)
+def test_merge_csv_responses_rejects_a_body_that_is_not_this_resource(bodies, reason):
+    responses = [_csv_response(body) for body in bodies]
+
+    with pytest.raises(ParseError) as exc_info:
+        merge_csv_responses(responses, COLUMNS)
+
+    assert reason in exc_info.value.message
+    assert exc_info.value.response is responses[-1]
+
+
+def test_merge_csv_responses_without_headers_concatenates_rows_of_one_width():
+    responses = [_csv_response("1,2\n3,4\n"), _csv_response("5,6\n")]
+
+    result = merge_csv_responses(responses, COLUMNS, with_header=False)
+
+    assert result == "1,2\r\n3,4\r\n5,6\r\n"
+    with pytest.raises(ParseError):
+        merge_csv_responses(
+            responses + [_csv_response("7\n")], COLUMNS, with_header=False
+        )
+
+
+def test_column_key_matches_names_the_way_the_api_does():
+    assert column_key("Expiration Date") == column_key("Expiration_Date")
+    assert column_key("optionSymbol") == column_key("OPTIONSYMBOL")
+    assert column_key("t") != column_key("c")
+
+
+# ----------------------------------------------------------- is_no_data
+
+CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (404, '{"s": "no_data"}', True),
+        (200, '0\r\n""\r\n', True),
+        (203, '0\r\n""\r\n', True),
+        (200, '""\r\n', True),
+        (200, '0\n""\n', True),
+        (200, "t,c\r\n1,2\r\n", False),
+        (200, "0\r\n", False),
+        (200, "", False),
+        (500, '0\r\n""\r\n', False),
+    ],
+)
+def test_is_no_data_recognises_the_404_and_the_csv_placeholder(status, body, expected):
+    """Issue #89: in CSV format the API renders the empty answer as a 200 with
+    a placeholder table (MarketData-App/api#422)."""
+    assert is_no_data(_csv_response(body, status)) is expected
 
 
 ET = pytz.timezone("US/Eastern")
