@@ -1,7 +1,7 @@
 # ADR-004: Rate Limiting Strategy
 
 ## Status
-Accepted
+Accepted. Amended for v2.0 by #48 (API-credits field names) and #49 (request-scoped metadata, no public client snapshot).
 
 ## Context
 
@@ -59,8 +59,8 @@ Rate limits are fetched during client initialization:
 class MarketDataClient:
     def __init__(self, token: str = None, logger: Logger = None):
         # ... other initialization ...
-        self.rate_limits = None
-        self._setup_rate_limits()  # Fetch initial rate limits
+        self._rate_limits = RateLimitTracker()  # private, thread-safe
+        self._setup_rate_limits()  # seed it from /user/
         
     def _setup_rate_limits(self):
         self.logger.debug("Setting up rate limits")
@@ -69,7 +69,6 @@ class MarketDataClient:
             url="/user/",
             check_rate_limits=False,    # Don't check limits on first request
             include_api_version=False,  # Use base path
-            populate_rate_limits=True   # Extract rate limit headers
         )
 ```
 
@@ -94,9 +93,9 @@ def _extract_rate_limits(self, response: Response) -> UserRateLimits:
 ```
 
 **Headers Used**:
-- `x-api-ratelimit-limit`: Total requests allowed in current window
-- `x-api-ratelimit-remaining`: Requests remaining
-- `x-api-ratelimit-consumed`: Total requests consumed
+- `x-api-ratelimit-limit`: API credits in the current window
+- `x-api-ratelimit-remaining`: API credits remaining
+- `x-api-ratelimit-consumed`: API credits consumed by this response
 - `x-api-ratelimit-reset`: Unix timestamp of next reset
 
 **Rationale**:
@@ -110,11 +109,13 @@ Before making requests, rate limits are checked:
 
 ```python
 def _check_rate_limits(self, raise_error: bool = True):
-    if raise_error and self.rate_limits is None:
+    if not raise_error:
+        return
+    state = self._rate_limits.state   # RateLimitTracker, thread-safe
+    if state is None:
         self.logger.error("Rate limits cant be checked")
         raise RateLimitError("Rate limits cant be checked")
-
-    if raise_error and self.rate_limits.credits_remaining <= 0:
+    if state.credits_remaining <= 0:
         raise RateLimitError("Rate limit exceeded")
 ```
 
@@ -123,31 +124,30 @@ def _check_rate_limits(self, raise_error: bool = True):
 - **Configurable**: `raise_error` flag allows skipping checks for specific requests (e.g., status checks)
 - **Logging**: Errors are logged for debugging
 
-### 5. User Access to Rate Limits
+### 5. Request-scoped metadata, no public snapshot (v2.0, #49)
 
-Users can access current rate limit information:
+`client.rate_limits` was removed. Under concurrent calls (the candle chunks, the option symbols, or the caller's own threads) a client-level snapshot is last-response-wins, so `credits_consumed` read from it could belong to any request. The numbers now travel with each result:
 
 ```python
-client = MarketDataClient()
+import marketdata
 
-# Access rate limits object
-rate_limits = client.rate_limits
-
-# Access individual fields
-print(f"Limit: {rate_limits.credit_limit}")
-print(f"Remaining: {rate_limits.credits_remaining}")
-print(f"Consumed: {rate_limits.credits_consumed}")
-print(f"Reset at: {rate_limits.reset_time}")
-
-# Or use formatted string
-print(rate_limits)  
-# Output: "Credits used X/Y, remaining: Z, reset at: ISO timestamp"
+prices = client.stocks.prices("AAPL")
+meta = marketdata.get_meta(prices)      # ResponseMeta
+meta.rate_limits.credits_consumed       # what this call cost
+meta.rate_limits.credits_remaining      # the balance after it
+meta.request_id                         # cf-ray, for support
+meta.responses                          # HTTP responses behind the result
 ```
 
+- **One attach point, one read point**: `api_error_handler` opens a `ContextVar` scope for the call, `_make_request` records every response into it (the fan-out resources hand the scope to their worker threads with `contextvars.copy_context().run`), and the merged `ResponseMeta` is attached to the result; `get_meta()` reads it back. Lists, dicts and CSV paths become thin subclasses (`isinstance` against `list`, `dict`, `str` still holds), pandas frames use `DataFrame.attrs["marketdata"]`, polars frames and single-object models get a `meta` attribute. `None` (a single-object endpoint with no data) carries nothing.
+- **Aggregation**: `credits_consumed` adds up over the responses, `credits_remaining` is the lowest seen, `credit_limit` and `reset_time` come from the newest window, `status_code` and `request_id` from the last response. The status cache refresh is bookkeeping and is never part of a result.
+- **The tracker stays private**: `RateLimitTracker` (thread-safe; discards out-of-order responses, meaning an older reset window or a higher remaining within the same window, sdk-go's rule) exists only for the pre-flight check and is fed by every response that carries credit headers, error answers included. The balance is one free call away: `client.utilities.user()`.
+- **sdk-go v2 keeps `Client.RateLimits()` as a documented snapshot; sdk-py does not**, because issue #49 asks for its removal explicitly and SDK requirements §8.4 already warn that the snapshot is non-deterministic under concurrency.
+
 **Benefits**:
-- **Transparency**: Users can see their quota and plan requests accordingly
-- **Predictability**: Users know when limits will reset
-- **Debugging**: Useful for troubleshooting rate limit issues
+- **Correct attribution**: consumed credits belong to the call that paid them
+- **No shared mutable public state**: nothing to race on
+- **Debugging**: the request id sits next to the data it produced
 
 ## Consequences
 
@@ -155,7 +155,7 @@ print(rate_limits)
 - **Proactive protection**: Prevents rate limit errors before they happen
 - **User visibility**: Clear understanding of rate limit usage
 - **Automatic updates**: Rate limits tracked automatically without user intervention
-- **Centralized tracking**: Single source of truth for rate limit state
+- **Request-scoped truth**: each result carries the state its own response reported
 - **Early failure**: Detect rate limit exhaustion immediately, not after server error
 - **Standard headers**: Follows REST API conventions for rate limiting
 
@@ -163,13 +163,13 @@ print(rate_limits)
 - **Additional HTTP calls**: Initialization requires an extra request to `/user/` endpoint
 - **Assumes header presence**: Will fail if API doesn't include rate limit headers
 - **Conservative approach**: May prevent valid requests if rate limit info is stale
-- **Complex state**: Need to maintain rate_limits object in client
+- **No client-level snapshot**: callers keep the result (or call `utilities.user()`) to know the balance
 
 ### Mitigations
 - The `/user/` request is lightweight and only happens once at initialization
 - Error handling for missing headers with fallback behavior
 - Rate limit checking is optional per request (configurable with `check_rate_limits` flag)
-- Rate limits are updated after every successful response
+- The tracker is updated from every response that carries credit headers, error answers included
 
 ## Alternatives Considered
 
@@ -233,4 +233,6 @@ thread.start()
 - Relevant files:
   - `src/marketdata/types.py` - `UserRateLimits` dataclass
   - `src/marketdata/client.py` - Rate limit methods (`_check_rate_limits`, `_extract_rate_limits`, `_setup_rate_limits`)
+  - `src/marketdata/meta.py` - `ResponseMeta`, `get_meta`, the per-call collection scope
+  - `src/marketdata/rate_limit_tracker.py` - `RateLimitTracker`
   - `src/marketdata/exceptions.py` - `RateLimitError` exception

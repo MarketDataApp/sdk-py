@@ -94,7 +94,7 @@ class APIStatusData:
                 url=url,
                 check_rate_limits=False,
                 include_api_version=False,
-                populate_rate_limits=False,
+                part_of_result=False,
                 response_log_level=logging.DEBUG,
             )
             data = parse_json(response)

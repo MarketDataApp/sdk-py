@@ -131,33 +131,33 @@ client = MarketDataClient(token="your_token_here", logger=custom_logger)
 
 **Client Initialization Details:**
 
-- The client automatically fetches rate limits by making a request to `/user/` endpoint during initialization
+- The client makes a request to `/user/` during initialization to seed the pre-flight credit check
 - The client includes a User-Agent header with the format `marketdata-sdk-py/{version}` (e.g., `marketdata-sdk-py/1.1.0`) in RFC 7231 compliant format
 - The library version is automatically detected from the installed package
 - All requests include an `Authorization: Bearer {token}` header
 - The client uses `httpx.Client` for HTTP requests with automatic connection pooling
 
-### Accessing Rate Limits
+### Credits and Response Metadata
 
-The client automatically fetches and tracks rate limits from the API. Rate limits are initialized when the client is created by making a request to `/user/` endpoint, and are updated after each API request based on response headers.
-
-You can access current rate limits:
+Every call returns the data you asked for. The metadata of the HTTP exchange behind it (the credits it cost, the balance after it, the request id) travels with that result, so under concurrent calls each result speaks for its own request:
 
 ```python
-client = MarketDataClient()
+import marketdata
 
-# Access current rate limits
-rate_limits = client.rate_limits
+client = marketdata.MarketDataClient()
+prices = client.stocks.prices("AAPL")
 
-# Access individual fields
-print(f"Limit: {rate_limits.credit_limit}")
-print(f"Remaining: {rate_limits.credits_remaining}")
-print(f"Consumed: {rate_limits.credits_consumed}")
-print(f"Reset at: {rate_limits.reset_time}")
-
-# Or use the formatted string representation
-print(rate_limits)  # Shows: "Credits used X/Y, remaining: Z, reset at: ISO timestamp"
+meta = marketdata.get_meta(prices)          # ResponseMeta
+print(meta.rate_limits.credits_consumed)    # what this call cost
+print(meta.rate_limits.credits_remaining)   # the balance after it
+print(meta.rate_limits.reset_time)          # datetime of the next reset
+print(meta.request_id)                      # the cf-ray id, for support
+print(meta.rate_limits)                     # "Credits used X/Y, remaining: Z, reset at: ISO timestamp"
 ```
+
+`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest seen, and `meta.responses` says how many responses are behind the result. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data).
+
+There is no client-level snapshot: `client.rate_limits` was removed in 2.0 because with concurrent calls it reflected whichever request finished last. The SDK still tracks the latest known balance privately for the pre-flight check, and `client.utilities.user()` returns the account's balance at any time, for free.
 
 **Note:** Rate limits are tracked via the following response headers:
 - `x-api-ratelimit-limit`: API credits available in the current window (`credit_limit`)
@@ -605,7 +605,7 @@ The SDK automatically refreshes the API status cache when:
 - The cached status is older than 4 minutes and 30 seconds
 - A retryable failure (`ServerError`, `NetworkError`) occurs in a method with status checking
 
-The status refresh request does not count against rate limits (`check_rate_limits=False`) and does not update rate limit tracking (`populate_rate_limits=False`), ensuring that status checking does not interfere with your API usage while providing up-to-date service availability information.
+The status refresh request does not count against rate limits (`check_rate_limits=False`) and is not part of any result's metadata (`part_of_result=False`), ensuring that status checking does not interfere with your API usage while providing up-to-date service availability information.
 
 ## Advanced Configuration
 

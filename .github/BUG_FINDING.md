@@ -65,9 +65,9 @@ first.
 Familiarize yourself with the main components:
 
 - `MarketDataClient` (`client.py`) — entry point. `MarketDataClient(token=..., logger=...,
-  max_retries=3)`. It exposes `stocks`, `options`, `funds` and `markets`. **There is no
-  `utilities` resource**; `/user/` and `/status/` are called internally only. Construction
-  issues a real `GET /user/` request to seed `client.rate_limits`, unless no token is set
+  max_retries=3)`. It exposes `stocks`, `options`, `funds`, `markets` and `utilities`.
+  Construction issues a real `GET /user/` request to seed the private credit tracker
+  behind the pre-flight check (`client._rate_limits`), unless no token is set
   — then the client logs `"No token provided, starting in demo mode"` and skips it.
 - Resources (`resources/`) — each method is a plain function attached to a resource class:
   `stocks` (`prices`, `quotes`, `candles`, `earnings`, `news`), `options` (`chain`,
@@ -681,16 +681,18 @@ their setting ignored with no error.
 
 ```python
 client = MarketDataClient(token="...")
-client.rate_limits.credits_remaining = 0
+client._rate_limits.reset(
+    UserRateLimits(credit_limit=100, credits_remaining=0, reset_time=60, credits_consumed=1)
+)
 result = client.stocks.prices("AAPL")
 
 # Verify: a RateLimitError inside an error result, and NO HTTP request made.
 # Bug indicator: the request going out anyway, or an unhandled raise.
 ```
 
-Also confirm `client.rate_limits` advances across successive real calls, and that the
-`/status/` and `/user/` requests do **not** move it — they are issued with
-`populate_rate_limits=False` and `check_rate_limits=False` on purpose.
+Also confirm the credits reported by `marketdata.get_meta(result)` change across
+successive real calls, and that the `/status/` refresh never shows up in a result's
+metadata: it is issued with `part_of_result=False` and `check_rate_limits=False` on purpose.
 
 #### 8.4 Status cache under concurrency
 

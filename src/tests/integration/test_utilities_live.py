@@ -4,6 +4,7 @@ import datetime
 import ipaddress
 
 from marketdata import MarketDataClient, OutputFormat
+from marketdata.meta import get_meta
 from marketdata.output_types.utilities_headers import RequestHeaders
 from marketdata.output_types.utilities_status import ServiceStatus
 from marketdata.output_types.utilities_user import User
@@ -46,5 +47,8 @@ def test_user_returns_plan_counters(live_client: MarketDataClient):
     # upper bound is a contract.
     assert user.credits_remaining <= user.credit_limit
     assert isinstance(user.options_data_permissions, str)
-    # The call also refreshes the client's rate-limit snapshot.
-    assert live_client.rate_limits.credit_limit == user.credit_limit
+    # The credit headers travel with the result and agree with the body.
+    meta = get_meta(user)
+    assert meta is not None and meta.rate_limits is not None
+    assert meta.rate_limits.credit_limit == user.credit_limit
+    assert meta.request_id

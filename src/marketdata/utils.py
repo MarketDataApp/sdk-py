@@ -37,8 +37,13 @@ def is_no_data(response: Response) -> bool:
     return response.status_code == 404
 
 
-def format_timestamp(value: str | int | float | None) -> datetime.datetime:
+def format_timestamp(
+    value: str | int | float | datetime.datetime | None,
+) -> datetime.datetime:
     default_tz = pytz.timezone("US/Eastern")
+
+    if isinstance(value, datetime.datetime):
+        return value
 
     if isinstance(value, str):
         if value.endswith("Z"):

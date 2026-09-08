@@ -1,3 +1,4 @@
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from json import JSONDecodeError
 from typing import Annotated, Any
@@ -58,8 +59,11 @@ def quotes(
 
     self.logger.debug("Fetching options quotes...")
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS) as executor:
+        # Each worker runs in a copy of the caller's context so its response
+        # lands in the call's metadata scope (#49).
         futures = [
-            executor.submit(_get_response, symbol) for symbol in input_params.symbols
+            executor.submit(contextvars.copy_context().run, _get_response, symbol)
+            for symbol in input_params.symbols
         ]
         responses = [future.result() for future in futures]
 

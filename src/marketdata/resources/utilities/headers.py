@@ -32,7 +32,6 @@ def headers(
         url="headers/",
         include_api_version=False,
         check_rate_limits=False,
-        populate_rate_limits=False,
     )
 
     return render(

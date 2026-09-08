@@ -74,7 +74,7 @@ print(headers.user_agent)    # marketdata-sdk-py/1.3.0
 
 ### `user()`
 
-Fetches the authenticated account's credit limit, remaining credits and options data permissions. Requires a token. The call is never blocked by the pre-flight rate-limit check and refreshes the client's rate-limit state from the response headers, so it is the way to recover an up-to-date balance.
+Fetches the authenticated account's credit limit, remaining credits and options data permissions. Requires a token. The call is never blocked by the pre-flight rate-limit check and feeds that check with the balance the API reports, so it is the way to read the account's balance at any time.
 
 #### Parameters
 

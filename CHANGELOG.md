@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `BadStatusCodeError` and `RequestError`, replaced by the exception taxonomy below (#62). Migration: `except RequestError` becomes `except ServerError` (or `except (ServerError, NetworkError)`), `except BadStatusCodeError` becomes the specific class (`BadRequestError`, `AuthenticationError`, `ForbiddenError`, `NotFoundError`, `InternalError`) or `MarketdataHttpError` to catch every HTTP failure. Error messages no longer carry the `Request failed with:` prefix.
 - `MarketDataClientErrorResult` and the `@handle_exceptions` decorator. Resource methods now **raise** on failure instead of returning an error object (#20). Migration: replace `if isinstance(result, MarketDataClientErrorResult)` checks with `try` / `except BaseMarketdataException as e`; what used to be `result.error` is now the exception itself, and `result.support_info` is `e.support_info`. Errors that are not the SDK's own (Pydantic `ValidationError`, `FileExistsError`, `httpx` transport errors) propagate unwrapped.
+- `client.rate_limits`. The client-level snapshot was last-response-wins under concurrent calls, so `credits_consumed` read from it could belong to any request (#49). Migration: read `marketdata.get_meta(result).rate_limits` on the result of the call you care about, or call `client.utilities.user()` for the account balance.
 
 ### Changed
 
@@ -20,12 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `options.quotes()` raises `BadStatusCodeError` instead of returning an error object when none of the per-symbol responses is usable (#20)
 - `stocks.quotes()` now requests `stocks/quotes/?symbols=...` instead of the deprecated `stocks/bulkquotes/`; the method, its parameters and its output are unchanged (#74)
 - **BREAKING**: `UserRateLimits` speaks in API credits, as the product does (SDK requirements §8.1): `requests_limit` → `credit_limit`, `requests_remaining` → `credits_remaining`, `requests_consumed` → `credits_consumed`, `requests_reset` → `reset_time`. The old names are gone, with no aliases; its string form now reads `Credits used X/Y, remaining: Z, reset at: <ISO timestamp>` (#48)
+- The pre-flight credit check reads a private, thread-safe tracker fed by every response that carries credit headers, error answers included; out-of-order responses (an older reset window, a higher remaining in the same window) are ignored, and every response logs its credits at DEBUG (#49)
 
 ### Added
 
 - `client.utilities` resource with `status()`, `headers()` and `user()` for the `/status/`, `/headers/` and `/user/` endpoints, in every output format (#63)
 - One exception class per failure, mapped from the HTTP status in a single place (SDK requirements §6.1 and §9.1): `BadRequestError` (400), `AuthenticationError` (401, never retried), `ForbiddenError` (403), `NotFoundError` (404 with an error message), `InternalError` (500: the API itself failed, never retried), `ServerError` (501 and above: the API is unavailable, retried), `NetworkError` (every `httpx` request error: connection failures, timeouts, protocol and proxy errors, wrapped with the request attached), `ParseError` (a body that is not JSON or does not match its `Content-Encoding`); `RateLimitError` now carries `retry_after` and the response on a 429 (#62)
 - **404 `no_data` is no longer an error.** A valid question with an empty answer returns the empty value for the output format: a DataFrame with the model's columns and no rows, `[]` or `None` for `INTERNAL`, the `{"s": "no_data"}` body for `JSON`, a header-only file for `CSV`. In the fan-out calls a chunk or symbol with no data is left out of the merge (#62)
+- Request-scoped response metadata: `marketdata.get_meta(result)` returns a `ResponseMeta` (`status_code`, `request_id`, `rate_limits`, `responses`) on every output format; for a call made of several requests (candle chunks, option symbols, retried attempts) the credits add up. `ResponseMeta`, `get_meta` and `UserRateLimits` are exported from the package root (#49)
 
 ### Fixed
 

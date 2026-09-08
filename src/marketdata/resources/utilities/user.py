@@ -19,8 +19,8 @@ def user(
     """
     Fetches the authenticated account's credit limit, remaining credits and
     options data permissions. The call is free, is never blocked by the
-    pre-flight rate-limit check, and refreshes the client's rate-limit state
-    from the response headers.
+    pre-flight rate-limit check, and feeds that check with the balance the
+    API reports.
 
     The endpoint requires a token and only `output_format` and `filename`
     apply.
@@ -33,7 +33,6 @@ def user(
         url="user/",
         include_api_version=False,
         check_rate_limits=False,
-        populate_rate_limits=True,
     )
 
     return render(

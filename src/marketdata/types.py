@@ -17,6 +17,15 @@ class UserRateLimits:
     def __post_init__(self):
         self.reset_time = format_timestamp(self.reset_time)
 
+    @property
+    def reset_timestamp(self) -> float:
+        """``reset_time`` as a POSIX timestamp (a naive value reads as UTC), so
+        two states can be ordered whatever their timezone awareness."""
+        reset = self.reset_time
+        if reset.tzinfo is None:
+            reset = reset.replace(tzinfo=datetime.timezone.utc)
+        return reset.timestamp()
+
     def __repr__(self) -> str:
         return (
             f"Credits used {self.credits_consumed}/{self.credit_limit}, "

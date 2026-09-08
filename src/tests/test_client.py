@@ -157,7 +157,7 @@ def test_client_get_client(client):
 
 def test_client_check_rate_limits(client):
     client._check_rate_limits(raise_error=True)
-    assert client.rate_limits is not None
+    assert client._rate_limits.state is not None
 
 
 def test_client_no_token_not_check_rate_limits(respx_mock):
@@ -176,17 +176,19 @@ def test_client_no_token_not_check_rate_limits(respx_mock):
 
 
 def test_client_check_rate_limits_no_rate_limits(client):
-    client.rate_limits = None
+    client._rate_limits.reset()
     with pytest.raises(RateLimitError):
         client._check_rate_limits(raise_error=True)
 
 
 def test_client_check_rate_limits_rate_limit_exceeded(client):
-    client.rate_limits = UserRateLimits(
-        credit_limit=100,
-        credits_remaining=0,
-        reset_time=1734567890,
-        credits_consumed=100,
+    client._rate_limits.reset(
+        UserRateLimits(
+            credit_limit=100,
+            credits_remaining=0,
+            reset_time=1734567890,
+            credits_consumed=100,
+        )
     )
     with pytest.raises(RateLimitError):
         client._check_rate_limits(raise_error=True)
@@ -226,24 +228,24 @@ def test_client_setup_rate_limits(respx_mock):
 
     client = MarketDataClient(token="test")
     client._setup_rate_limits()
-    assert client.rate_limits.credit_limit == 60
-    assert client.rate_limits.credits_remaining == 59
+    assert client._rate_limits.state.credit_limit == 60
+    assert client._rate_limits.state.credits_remaining == 59
     # API returns UTC, convert to US/Eastern for comparison
     expected_utc = datetime.datetime(
         2024, 12, 19, 0, 24, 50, tzinfo=datetime.timezone.utc
     )
     expected_eastern = expected_utc.astimezone(pytz.timezone("US/Eastern"))
     assert (
-        client.rate_limits.reset_time.astimezone(pytz.timezone("US/Eastern"))
+        client._rate_limits.state.reset_time.astimezone(pytz.timezone("US/Eastern"))
         == expected_eastern
     )
-    assert client.rate_limits.credits_consumed == 1
+    assert client._rate_limits.state.credits_consumed == 1
     # fromtimestamp with US/Eastern converts UTC timestamp to US/Eastern local time
     expected_from_ts = datetime.datetime.fromtimestamp(
         1734567890, tz=pytz.timezone("US/Eastern")
     )
     assert (
-        client.rate_limits.reset_time.astimezone(pytz.timezone("US/Eastern"))
+        client._rate_limits.state.reset_time.astimezone(pytz.timezone("US/Eastern"))
         == expected_from_ts
     )
 
@@ -494,14 +496,14 @@ def test_make_request_keeps_rate_limits_on_malformed_response(client, respx_mock
     respx_mock.get("https://api.marketdata.app/v1/markets/status/").respond(
         json={}, status_code=200
     )
-    previous = client.rate_limits
+    previous = client._rate_limits.state
     # Remove the conftest instance-level patch so the real extraction runs
     if "_extract_rate_limits" in client.__dict__:
         del client.__dict__["_extract_rate_limits"]
 
     response = client._make_request(method="GET", url="markets/status/")
     assert response.status_code == 200
-    assert client.rate_limits == previous
+    assert client._rate_limits.state == previous
 
 
 RENAMED_FIELDS = (
