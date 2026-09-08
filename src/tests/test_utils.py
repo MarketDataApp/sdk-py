@@ -17,6 +17,7 @@ from marketdata.utils import (
     is_no_data,
     merge_csv_responses,
     obfuscate_token,
+    parse_csv_errmsg,
     resume_long_text,
     split_dates_by_timeframe,
     validate_single_param,
@@ -151,6 +152,51 @@ def test_column_key_matches_names_the_way_the_api_does():
     assert column_key("Expiration Date") == column_key("Expiration_Date")
     assert column_key("optionSymbol") == column_key("OPTIONSYMBOL")
     assert column_key("t") != column_key("c")
+
+
+# -------------------------------------------------------- parse_csv_errmsg
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("s,errmsg\r\nno_data,Symbol not found.\r\n", "Symbol not found."),
+        (
+            's,errmsg\r\nerror,"Bad parameters, see the docs."\r\n',
+            "Bad parameters, see the docs.",
+        ),
+        ("s,errmsg\nerror,Invalid date\n", "Invalid date"),
+        ("S,ERRMSG\r\nerror,Invalid date\r\n", "Invalid date"),
+        ("s,errmsg\r\nerror,\r\n", ""),
+        ("\ufeffs,errmsg\r\nerror,Invalid date\r\n", "Invalid date"),
+        # `add_headers=False` drops the header row (verified live), so the
+        # values arrive alone and the `s` value is what marks them as an error.
+        ("no_data,Symbol not found.\r\n", "Symbol not found."),
+        ("error,Invalid date\r\n", "Invalid date"),
+        # The reader is lenient with an unterminated quote, and reading the
+        # message it does recover beats reporting the raw body.
+        ('s,errmsg\r\nerror,"Invalid date', "Invalid date"),
+        # Not the error envelope: a data answer, an HTML page, an empty body,
+        # the no_data placeholder, a header with no row, more than one row.
+        ("t,c\r\n1,2\r\n", None),
+        ("<html>error page</html>", None),
+        ("", None),
+        ('0\r\n""\r\n', None),
+        ("s,errmsg\r\n", None),
+        ("s,errmsg\r\nerror,one\r\nerror,two\r\n", None),
+        ("s,errmsg,extra\r\nerror,one,two\r\n", None),
+        # A headerless data row is not an error, whatever its width.
+        ("1704171600,184.1\r\n", None),
+        ("no_data\r\n", None),
+        # Not a CSV at all: the reader raises on a NUL byte, and an error
+        # envelope is never this big.
+        ("oops\x00page", None),
+        ("s,errmsg\r\nerror," + "a" * 5000 + "\r\n", None),
+    ],
+)
+def test_parse_csv_errmsg_reads_only_the_api_error_table(body, expected):
+    """Issue #91: `format=csv` renders an error as `s,errmsg` and one row."""
+    assert parse_csv_errmsg(body) == expected
 
 
 # ----------------------------------------------------------- is_no_data

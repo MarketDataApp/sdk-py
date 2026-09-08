@@ -62,6 +62,53 @@ def column_key(name: str) -> str:
     return name.strip().lower().replace(" ", "").replace("_", "")
 
 
+# The API renders an error in CSV as a two-line table with these columns, the
+# same envelope the JSON path sends as ``{"s": ..., "errmsg": ...}``. Under
+# ``add_headers=False`` it drops the header row and sends the values alone, so
+# that shape is recognised by its ``s`` value instead (both verified live).
+_CSV_ERROR_HEADER = ["s", "errmsg"]
+_CSV_ERROR_STATUSES = ("error", "no_data")
+# An error envelope is a short table. A body larger than this is a page, not a
+# message, and is reported as the raw body it is.
+_CSV_ERROR_MAX_LENGTH = 4096
+
+
+def parse_csv_errmsg(text: str) -> str | None:
+    """The ``errmsg`` of the API's CSV error table, or ``None`` for any other
+    body (#91).
+
+    ``format=csv`` renders an error as ``s,errmsg`` and one row, so a client
+    that only decodes JSON reads an error as a body it cannot understand. On
+    a 404 that is the difference between "the symbol does not exist" and "no
+    data for a valid question".
+
+    Never raises: a body that is not a CSV at all (a NUL byte, an unterminated
+    quote, a field past the reader's limit) is simply not an error table, and
+    the caller reports it as the raw body. Letting ``csv.Error`` out here would
+    replace the SDK's exception for that request, and a retryable status would
+    stop being retried.
+    """
+    if len(text) > _CSV_ERROR_MAX_LENGTH:
+        return None
+    try:
+        rows = [row for row in csv.reader(StringIO(text)) if row]
+    except csv.Error:
+        return None
+    if not rows:
+        return None
+    rows[0][0] = rows[0][0].lstrip("\ufeff")  # a BOM is not a column
+
+    if len(rows) == 2:
+        if [column_key(name) for name in rows[0]] != _CSV_ERROR_HEADER:
+            return None
+        row = rows[1]
+    elif len(rows) == 1 and rows[0][0] in _CSV_ERROR_STATUSES:
+        row = rows[0]
+    else:
+        return None
+    return row[1] if len(row) == len(_CSV_ERROR_HEADER) else None
+
+
 def parse_error(response: Response, reason: str) -> ParseError:
     """A ``ParseError`` for a body the API answered but the SDK cannot use."""
     return ParseError(

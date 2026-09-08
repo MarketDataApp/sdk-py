@@ -438,6 +438,8 @@ One class per kind of failure, mapped from the HTTP status the API answered (SDK
 
 A `500` means the API itself failed on your request, so retrying would not help; `501` and above mean the API was unavailable or a gateway answered for it, which is why only those are retried. The two are separate classes: catching one never catches the other.
 
+The output format you asked for never changes which exception a request raises, nor its message: the API sends the error as `{"s": ..., "errmsg": ...}` for JSON and as an `s,errmsg` table for CSV, and the SDK reads both.
+
 All HTTP classes derive from `MarketdataHttpError` and keep the underlying `httpx` objects on `request` and `response`. `RateLimitError` is also raised by the pre-flight credit check, before any request goes out; in that case its request fields read `N/A`.
 
 ### No data is not an error

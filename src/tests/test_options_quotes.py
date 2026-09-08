@@ -10,6 +10,7 @@ from marketdata.exceptions import (
     BadRequestError,
     MarketdataHttpError,
     MinMaxDateValidationError,
+    NotFoundError,
     ParseError,
     ServerError,
 )
@@ -577,6 +578,37 @@ def test_options_quotes_csv_with_every_symbol_empty_is_a_header_only_file(
     )
 
     assert pathlib.Path(output).read_bytes() == f"{CSV_HEADER}\r\n".encode()
+
+
+@pytest.mark.parametrize(
+    ("output_format", "answer"),
+    [
+        (
+            OutputFormat.JSON,
+            {"json": {"s": "error", "errmsg": "No option found."}},
+        ),
+        (OutputFormat.CSV, {"text": "s,errmsg\r\nerror,No option found.\r\n"}),
+    ],
+    ids=["json", "csv"],
+)
+def test_options_quotes_one_unknown_symbol_fails_the_call_on_every_format(
+    respx_mock, client, tmp_path, output_format, answer
+):
+    """A symbol the API answers with a message (an expired or misspelled
+    contract) fails the whole call, as it already did on JSON output: it is a
+    404 with an `errmsg`, not the empty answer (#91). Only a symbol with no
+    message contributes no rows and lets the others through."""
+    respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
+    respx_mock.get(PUT_URL).respond(status_code=404, **answer)
+
+    with pytest.raises(NotFoundError):
+        client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=output_format,
+            filename=tmp_path / "test.csv",
+        )
+
+    assert not (tmp_path / "test.csv").exists()
 
 
 def test_options_quotes_csv_without_headers_and_every_symbol_empty_is_an_empty_file(

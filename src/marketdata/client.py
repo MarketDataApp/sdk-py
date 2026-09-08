@@ -32,7 +32,12 @@ from marketdata.resources.utilities import UtilitiesResource
 from marketdata.retry import parse_retry_after
 from marketdata.settings import settings
 from marketdata.types import UserRateLimits
-from marketdata.utils import format_duration_log, obfuscate_token, resume_long_text
+from marketdata.utils import (
+    format_duration_log,
+    obfuscate_token,
+    parse_csv_errmsg,
+    resume_long_text,
+)
 
 
 class MarketDataClient:
@@ -115,6 +120,11 @@ class MarketDataClient:
     def _error_message(response: Response) -> tuple[str, bool]:
         """The API's ``errmsg`` when the body carries one, else the raw body.
 
+        The message is read from the JSON envelope and, failing that, from the
+        CSV one (``s,errmsg`` and one row), because the output format the
+        caller asked for must not change which exception a request raises or
+        what it says (#91).
+
         Bounded so a malformed or hostile response cannot balloon exception
         messages and log output. The flag says whether an ``errmsg`` was found,
         which is what separates "invalid question" from "empty answer" on 404.
@@ -123,8 +133,10 @@ class MarketDataClient:
             errmsg = response.json()["errmsg"]
             has_errmsg = True
         except Exception:
-            errmsg = response.text
-            has_errmsg = False
+            errmsg = parse_csv_errmsg(response.text)
+            has_errmsg = errmsg is not None
+            if not has_errmsg:
+                errmsg = response.text
         return resume_long_text(str(errmsg), max_length=500), has_errmsg
 
     def _raise_for_status(self, response: Response) -> None:
