@@ -275,8 +275,7 @@ def test_client_extract_rate_limits(respx_mock):
         1734567890, tz=pytz.timezone("US/Eastern")
     )
     assert (
-        user_rate_limits.reset_time.astimezone(pytz.timezone("US/Eastern"))
-        == expected
+        user_rate_limits.reset_time.astimezone(pytz.timezone("US/Eastern")) == expected
     )
     assert user_rate_limits.credits_consumed == 1
 
@@ -514,14 +513,22 @@ def test_make_request_keeps_rate_limits_on_malformed_response(client, respx_mock
     assert client.rate_limits == previous
 
 
-RENAMED_FIELDS = ("requests_limit", "requests_remaining", "requests_reset", "requests_consumed")
+RENAMED_FIELDS = (
+    "requests_limit",
+    "requests_remaining",
+    "requests_reset",
+    "requests_consumed",
+)
 
 
 def test_rate_limits_use_the_api_credits_nomenclature():
     """SDK requirements §8.1 (#48): the fields speak in API credits, as the
     product does, and the v1 ``requests_*`` names are gone without aliases."""
     rate_limits = UserRateLimits(
-        credit_limit=100, credits_remaining=50, reset_time=1734567890, credits_consumed=50
+        credit_limit=100,
+        credits_remaining=50,
+        reset_time=1734567890,
+        credits_consumed=50,
     )
 
     assert [field.name for field in fields(UserRateLimits)] == [
@@ -535,4 +542,3 @@ def test_rate_limits_use_the_api_credits_nomenclature():
     assert str(rate_limits) == (
         f"Credits used 50/100, remaining: 50, reset at: {rate_limits.reset_time.isoformat()}"
     )
-
