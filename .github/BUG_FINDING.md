@@ -676,7 +676,7 @@ their setting ignored with no error.
 
 ```python
 client = MarketDataClient(token="...")
-client.rate_limits.requests_remaining = 0
+client.rate_limits.credits_remaining = 0
 result = client.stocks.prices("AAPL")
 
 # Verify: a RateLimitError inside an error result, and NO HTTP request made.

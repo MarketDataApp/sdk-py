@@ -27,19 +27,23 @@ We implemented a **proactive rate limiting tracking and enforcement system** wit
 ```python
 @dataclass
 class UserRateLimits:
-    requests_limit: int              # Total requests allowed
-    requests_remaining: int          # Requests remaining in current window
-    requests_reset: datetime.datetime # When the limit resets
-    requests_consumed: int           # Total requests consumed
+    credit_limit: int                # API credits in the current window
+    credits_remaining: int           # API credits remaining
+    reset_time: datetime.datetime    # When the credits reset
+    credits_consumed: int            # API credits consumed
 
     def __post_init__(self):
-        self.requests_reset = format_timestamp(self.requests_reset)
+        self.reset_time = format_timestamp(self.reset_time)
 
     def __repr__(self) -> str:
-        return f"Rate used {self.requests_consumed}/{self.requests_limit},\
-            remaining: {self.requests_remaining} credits,\
-            next reset: {self.requests_reset.isoformat()}"
+        return (
+            f"Credits used {self.credits_consumed}/{self.credit_limit}, "
+            f"remaining: {self.credits_remaining}, "
+            f"reset at: {self.reset_time.isoformat()}"
+        )
 ```
+
+The fields follow the API-credits nomenclature of SDK requirements §8.1 (v2.0, #48): the product sells credits, not requests, and the `x-api-ratelimit-*` headers count credits. The v1 `requests_*` names were removed without aliases.
 
 **Rationale**:
 - **Dataclass**: Simple, immutable-like structure for rate limit info
@@ -82,10 +86,10 @@ After every response, rate limits are extracted from HTTP headers:
 def _extract_rate_limits(self, response: Response) -> UserRateLimits:
     self.logger.debug("Extracting response rate limits from response headers")
     return UserRateLimits(
-        requests_limit=int(response.headers["x-api-ratelimit-limit"]),
-        requests_remaining=int(response.headers["x-api-ratelimit-remaining"]),
-        requests_reset=int(response.headers["x-api-ratelimit-reset"]),
-        requests_consumed=int(response.headers["x-api-ratelimit-consumed"]),
+        credit_limit=int(response.headers["x-api-ratelimit-limit"]),
+        credits_remaining=int(response.headers["x-api-ratelimit-remaining"]),
+        reset_time=int(response.headers["x-api-ratelimit-reset"]),
+        credits_consumed=int(response.headers["x-api-ratelimit-consumed"]),
     )
 ```
 
@@ -110,7 +114,7 @@ def _check_rate_limits(self, raise_error: bool = True):
         self.logger.error("Rate limits cant be checked")
         raise RateLimitError("Rate limits cant be checked")
 
-    if raise_error and self.rate_limits.requests_remaining <= 0:
+    if raise_error and self.rate_limits.credits_remaining <= 0:
         raise RateLimitError("Rate limit exceeded")
 ```
 
@@ -130,14 +134,14 @@ client = MarketDataClient()
 rate_limits = client.rate_limits
 
 # Access individual fields
-print(f"Limit: {rate_limits.requests_limit}")
-print(f"Remaining: {rate_limits.requests_remaining}")
-print(f"Consumed: {rate_limits.requests_consumed}")
-print(f"Reset at: {rate_limits.requests_reset}")
+print(f"Limit: {rate_limits.credit_limit}")
+print(f"Remaining: {rate_limits.credits_remaining}")
+print(f"Consumed: {rate_limits.credits_consumed}")
+print(f"Reset at: {rate_limits.reset_time}")
 
 # Or use formatted string
 print(rate_limits)  
-# Output: "Rate used X/Y, remaining: Z credits, next reset: ISO timestamp"
+# Output: "Credits used X/Y, remaining: Z, reset at: ISO timestamp"
 ```
 
 **Benefits**:

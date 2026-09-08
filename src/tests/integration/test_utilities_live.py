@@ -47,4 +47,4 @@ def test_user_returns_plan_counters(live_client: MarketDataClient):
     assert user.credits_remaining <= user.credit_limit
     assert isinstance(user.options_data_permissions, str)
     # The call also refreshes the client's rate-limit snapshot.
-    assert live_client.rate_limits.requests_limit == user.credit_limit
+    assert live_client.rate_limits.credit_limit == user.credit_limit

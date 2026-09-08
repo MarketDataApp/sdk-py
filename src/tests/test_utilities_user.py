@@ -67,8 +67,8 @@ def test_get_utilities_user_refreshes_client_rate_limits(load_json, respx_mock, 
 
     client.utilities.user(output_format=OutputFormat.INTERNAL)
 
-    assert client.rate_limits.requests_limit == 10000
-    assert client.rate_limits.requests_remaining == 9500
+    assert client.rate_limits.credit_limit == 10000
+    assert client.rate_limits.credits_remaining == 9500
 
 
 def test_get_utilities_user_is_not_blocked_by_exhausted_credits(
@@ -77,7 +77,7 @@ def test_get_utilities_user_is_not_blocked_by_exhausted_credits(
     mock_data = load_json("utilities_user_response_200")
     respx_mock.get(USER_URL).respond(json=mock_data, status_code=200)
     client.rate_limits = UserRateLimits(
-        requests_limit=100, requests_remaining=0, requests_reset=60, requests_consumed=1
+        credit_limit=100, credits_remaining=0, reset_time=60, credits_consumed=1
     )
 
     user = client.utilities.user(output_format=OutputFormat.INTERNAL)

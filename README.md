@@ -150,22 +150,24 @@ client = MarketDataClient()
 rate_limits = client.rate_limits
 
 # Access individual fields
-print(f"Limit: {rate_limits.requests_limit}")
-print(f"Remaining: {rate_limits.requests_remaining}")
-print(f"Consumed: {rate_limits.requests_consumed}")
-print(f"Reset at: {rate_limits.requests_reset}")
+print(f"Limit: {rate_limits.credit_limit}")
+print(f"Remaining: {rate_limits.credits_remaining}")
+print(f"Consumed: {rate_limits.credits_consumed}")
+print(f"Reset at: {rate_limits.reset_time}")
 
 # Or use the formatted string representation
-print(rate_limits)  # Shows: "Rate used X/Y, remaining: Z credits, next reset: ISO timestamp"
+print(rate_limits)  # Shows: "Credits used X/Y, remaining: Z, reset at: ISO timestamp"
 ```
 
 **Note:** Rate limits are tracked via the following response headers:
-- `x-api-ratelimit-limit`: Total number of requests allowed
-- `x-api-ratelimit-remaining`: Number of requests remaining
-- `x-api-ratelimit-consumed`: Number of requests consumed
-- `x-api-ratelimit-reset`: Unix timestamp when the rate limit resets
+- `x-api-ratelimit-limit`: API credits available in the current window (`credit_limit`)
+- `x-api-ratelimit-remaining`: API credits remaining (`credits_remaining`)
+- `x-api-ratelimit-consumed`: API credits consumed (`credits_consumed`)
+- `x-api-ratelimit-reset`: Unix timestamp when the credits reset (`reset_time`)
 
-The `requests_reset` field is automatically converted to a `datetime.datetime` object for easier use.
+The header names still say `ratelimit`; the SDK exposes them in the product's API-credits terms.
+
+The `reset_time` field is automatically converted to a `datetime.datetime` object for easier use.
 
 ### Resources
 
