@@ -27,6 +27,7 @@ from marketdata.types import UserRateLimits
 PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 EXPIRATIONS_URL = "https://api.marketdata.app/v1/options/expirations/AAPL/"
 CANDLES_URL = "https://api.marketdata.app/v1/stocks/candles/H/AAPL/"
+QUOTES_URL = "https://api.marketdata.app/v1/options/quotes/"
 STATUS_URL = "https://api.marketdata.app/status/"
 RESET = 1734567890
 NO_DATA = {"s": "no_data"}
@@ -258,6 +259,43 @@ def test_retried_attempts_count_and_the_status_refresh_does_not(
     assert meta.request_id == "try-2"
     assert meta.rate_limits.credits_consumed == 1
     assert meta.rate_limits.credits_remaining == 98
+
+
+def test_a_retried_symbol_counts_its_attempts_and_the_others_run_once(
+    load_json, respx_mock, real_headers, monkeypatch
+):
+    """Issue #83: the per-request retry keeps every attempt in the call's
+    metadata while the healthy symbol is fetched (and billed) once."""
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    monkeypatch.setattr(
+        API_STATUS_DATA, "_trigger_async_refresh", lambda c: API_STATUS_DATA.refresh(c)
+    )
+    quotes = load_json("options_quotes_response_200")
+    good = respx_mock.get(QUOTES_URL + "AAPL250117C00150000/").respond(
+        json=quotes, headers=credit_headers(1, 99, request_id="good")
+    )
+    bad = respx_mock.get(QUOTES_URL + "AAPL250117P00150000/").mock(
+        side_effect=[
+            httpx.Response(
+                503, json={}, headers=credit_headers(0, 99, request_id="bad-1")
+            ),
+            httpx.Response(
+                200, json=quotes, headers=credit_headers(1, 98, request_id="bad-2")
+            ),
+        ]
+    )
+
+    result = real_headers.options.quotes(
+        ["AAPL250117C00150000", "AAPL250117P00150000"],
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert (good.call_count, bad.call_count) == (1, 2)
+    meta = get_meta(result)
+    assert meta.responses == 3
+    assert meta.rate_limits.credits_consumed == 2
+    assert meta.rate_limits.credits_remaining == 98
+    assert len(result.optionSymbol) == 2 * len(quotes["optionSymbol"])
 
 
 def test_utilities_without_credit_headers_still_carry_the_meta(

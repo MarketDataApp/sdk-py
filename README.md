@@ -567,6 +567,8 @@ The SDK includes automatic retry logic for handling transient errors: availabili
 
 The retry mechanism only retries `ServerError` (501 and above) and `NetworkError`, and only if the API service status is `ONLINE` or `UNKNOWN`. The retry adapter uses the `tenacity` library and will retry up to the specified number of attempts with exponential backoff between retries; a `Retry-After` header from the API overrides the computed wait.
 
+The retry wraps one request. In the calls made of several requests, `stocks.candles` (one per year-sized chunk of an intraday range) and `options.quotes` (one per symbol), each request retries on its own: a chunk or a symbol that fails is re-issued alone, the healthy responses are kept, and one unreachable symbol never re-sends (or re-bills) the others. The attempts still add up in the result's metadata (see [Credits and Response Metadata](#credits-and-response-metadata)).
+
 **Important:** Resource methods either return the requested result (DataFrame, list of objects, dict, or the CSV filename) or raise. There is no error return value; see [Error Handling](#error-handling).
 
 ## API Status Checking

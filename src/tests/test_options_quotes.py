@@ -9,6 +9,7 @@ from marketdata.exceptions import (
     BadRequestError,
     MarketdataHttpError,
     MinMaxDateValidationError,
+    ParseError,
     ServerError,
 )
 from marketdata.input_types.base import OutputFormat
@@ -196,7 +197,51 @@ def test_get_options_quotes_response_200_json(load_json, respx_mock, client):
     assert quotes == mock_data
 
 
-def test_options_quotes_bad_json_response(respx_mock, client):
+@pytest.mark.parametrize(
+    "output_format", [OutputFormat.INTERNAL, OutputFormat.JSON, OutputFormat.DATAFRAME]
+)
+@pytest.mark.parametrize("use_human_readable", [False, True])
+@pytest.mark.parametrize("bad_first", [False, True])
+def test_options_quotes_undecodable_symbol_body_is_a_parse_error(
+    load_json, respx_mock, client, output_format, use_human_readable, bad_first
+):
+    """Issue #82: a symbol answering 200 with a body that is not JSON (a proxy
+    or a captive portal error page) fails the call as every other resource
+    does, instead of being swapped for a fabricated empty row that read as
+    "no options" and broke the merge of the healthy symbols."""
+    fixture = (
+        "options_quotes_human_response_200"
+        if use_human_readable
+        else "options_quotes_response_200"
+    )
+    good = respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
+    ).respond(json=load_json(fixture), status_code=200)
+    bad = respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+    ).respond(text="<html>error page</html>", status_code=200)
+    symbols = ["AAPL271217C00255000", "AAPL271217P00255000"]
+    if bad_first:
+        symbols.reverse()
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=symbols,
+            output_format=output_format,
+            use_human_readable=use_human_readable,
+        )
+
+    error = exc_info.value
+    assert error.status_code == 200
+    assert error.request_url.startswith(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+    )
+    assert "<html>error page</html>" in error.message
+    assert good.call_count == 1
+    assert bad.call_count == 1
+
+
+def test_options_quotes_empty_symbol_body_is_a_parse_error(respx_mock, client):
     respx_mock.get(
         "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
     ).respond(
@@ -204,11 +249,10 @@ def test_options_quotes_bad_json_response(respx_mock, client):
         status_code=200,
     )
 
-    result = client.options.quotes(
-        symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
-    )
-    assert isinstance(result, OptionsQuotes)
-    assert len(result.optionSymbol) == 0
+    with pytest.raises(ParseError):
+        client.options.quotes(
+            symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
+        )
 
 
 def test_options_quotes_no_one_good_status_code(respx_mock, client):

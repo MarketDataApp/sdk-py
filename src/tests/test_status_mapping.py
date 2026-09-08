@@ -254,7 +254,9 @@ def test_no_data_dataframe_has_the_model_columns_and_no_rows_pandas(respx_mock, 
         df = client.options.expirations("AAPL", output_format=OutputFormat.DATAFRAME)
 
         assert len(df) == 0
-        assert set(df.columns) == {"expirations", "updated"}
+        # `expirations` is the index, as in a populated frame (#84).
+        assert df.index.name == "expirations"
+        assert set(df.columns) == {"updated"}
 
 
 def test_no_data_dataframe_has_the_model_columns_and_no_rows_polars(respx_mock, client):
@@ -333,6 +335,120 @@ def test_no_data_on_one_option_symbol_keeps_the_others(load_json, respx_mock, cl
     )
 
     assert len(quotes.optionSymbol) == len(mock_data["optionSymbol"])
+
+
+@pytest.mark.parametrize("handler", ["pandas", "polars"])
+def test_expirations_no_data_dataframe_has_the_shape_of_a_populated_one(
+    load_json, respx_mock, client, handler
+):
+    """Issue #84: the empty frame carries the `expirations` index and the
+    `updated` column, as a populated one does, so `pd.concat` across symbols
+    keeps the index name and gains no stray column."""
+    respx_mock.get(EXPIRATIONS_URL).respond(
+        json=load_json("options_expirations_response_200"), status_code=200
+    )
+    respx_mock.get("https://api.marketdata.app/v1/options/expirations/ZZZZ/").respond(
+        json=NO_DATA, status_code=404
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [handler]):
+        populated = client.options.expirations(
+            "AAPL", output_format=OutputFormat.DATAFRAME
+        )
+        empty = client.options.expirations("ZZZZ", output_format=OutputFormat.DATAFRAME)
+
+    assert list(empty.columns) == list(populated.columns)
+    if handler == "pandas":
+        assert empty.index.name == populated.index.name == "expirations"
+        assert list(populated.columns) == ["updated"]
+
+
+@pytest.mark.parametrize(
+    ("call", "url_pattern", "fixture"),
+    [
+        (
+            lambda c: c.funds.candles("VFINX"),
+            r".*/funds/candles/.*",
+            "funds_candles_response_200",
+        ),
+        (
+            lambda c: c.markets.status(),
+            r".*/markets/status/.*",
+            "markets_status_response_200",
+        ),
+        (
+            lambda c: c.stocks.prices("AAPL"),
+            r".*/stocks/prices/.*",
+            "stocks_prices_response_200",
+        ),
+        (
+            lambda c: c.stocks.quotes("AAPL"),
+            r".*/stocks/quotes/.*",
+            "stocks_quotes_response_200",
+        ),
+        (
+            lambda c: c.stocks.candles("AAPL"),
+            r".*/stocks/candles/.*",
+            "stocks_candles_response_200",
+        ),
+        (
+            lambda c: c.stocks.earnings("AAPL"),
+            r".*/stocks/earnings/.*",
+            "stocks_earnings_response_200",
+        ),
+        (
+            lambda c: c.stocks.news("AAPL"),
+            r".*/stocks/news/.*",
+            "stocks_news_response_200",
+        ),
+        (
+            lambda c: c.options.chain("AAPL"),
+            r".*/options/chain/.*",
+            "options_chain_response_200",
+        ),
+        (
+            lambda c: c.options.expirations("AAPL"),
+            r".*/options/expirations/.*",
+            "options_expirations_response_200",
+        ),
+        (
+            lambda c: c.options.lookup("AAPL 28-00-2023 200.0 call"),
+            r".*/options/lookup/.*",
+            "options_lookup_response_200",
+        ),
+        (
+            lambda c: c.options.quotes("AAPL271217C00255000"),
+            r".*/options/quotes/.*",
+            "options_quotes_response_200",
+        ),
+    ],
+)
+def test_every_resource_no_data_dataframe_has_the_shape_of_a_populated_one(
+    load_json, respx_mock, client, call, url_pattern, fixture
+):
+    """Issue #84 for every resource: without a column filter, an empty
+    DataFrame must be usable in place of a populated one (same index name,
+    same columns), whatever the resource. `options.expirations` was the one
+    that differed. Under `columns=` the empty frame still carries every model
+    column (#87).
+
+    `options.strikes` is left out on purpose: its columns are the expiration
+    dates of the answer itself, so no empty frame can match a populated one;
+    the resource is deprecated and goes away in #73."""
+    respx_mock.get(url__regex=url_pattern).mock(
+        side_effect=[
+            httpx.Response(200, json=load_json(fixture)),
+            httpx.Response(404, json=NO_DATA),
+        ]
+    )
+    client.default_params.output_format = OutputFormat.DATAFRAME
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        populated = call(client)
+        empty = call(client)
+
+    assert list(empty.index.names) == list(populated.index.names)
+    assert list(empty.columns) == list(populated.columns)
 
 
 def test_single_object_no_data_model_is_not_built(respx_mock, client):

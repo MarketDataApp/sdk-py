@@ -143,6 +143,10 @@ for attempt in retry_adapter:
         response = client._make_request(...)
 ```
 
+### Retry scope
+
+The retry wraps one request. For the single-request resources that is the whole call, so `api_error_handler` applies the policy around the method. The two fan-out resources, `stocks.candles` (one request per year-sized chunk) and `options.quotes` (one request per symbol), opt out of the decorator's retry (`retry=False`) and apply the same policy (`get_resource_retry_adapter`, status check included) to each request inside the worker thread: a failed chunk or symbol is re-issued alone and the healthy responses are kept. Retrying the whole call instead multiplied the traffic by the number of attempts (a 50-symbol call with one unreachable symbol sent 200 requests and billed the healthy ones four times) and, once #62 made transport errors retryable, did so on the most common failure of a large fan-out (#83).
+
 ## Consequences
 
 ### Positive
