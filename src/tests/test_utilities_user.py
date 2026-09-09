@@ -3,9 +3,9 @@ from unittest.mock import patch
 
 import pytest
 
-from marketdata.meta import get_meta
 from marketdata.exceptions import AuthenticationError
 from marketdata.input_types.base import OutputFormat
+from marketdata.meta import get_meta
 from marketdata.output_types.utilities_user import User
 from marketdata.types import UserRateLimits
 

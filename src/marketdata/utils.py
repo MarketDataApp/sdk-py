@@ -172,6 +172,15 @@ def validate_single_param(param: str, value: Any) -> Any:
     return value
 
 
+def csv_header(columns: list[str]) -> str:
+    """The header row of a CSV file, rendered by the same writer that renders
+    a merged fan-out body, so an empty answer and a populated one quote and
+    terminate their header identically."""
+    output = StringIO()
+    csv.writer(output).writerow(columns)
+    return output.getvalue()
+
+
 def merge_csv_responses(
     responses: list[Response], known_columns: list[str], *, with_header: bool = True
 ) -> str:
