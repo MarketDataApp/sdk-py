@@ -242,7 +242,7 @@ def test_get_stocks_earnings_status_offline(respx_mock, client):
         json={},
         status_code=501,
     )
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         client.stocks.earnings(symbol="AAPL")
 
 

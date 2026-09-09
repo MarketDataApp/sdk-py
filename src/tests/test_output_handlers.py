@@ -5,7 +5,6 @@ from unittest.mock import patch
 
 import polars as pl
 import pytest
-import pytz
 
 from marketdata.input_types.base import DateFormat, UserUniversalAPIParams
 from marketdata.output_handlers import _try_get_handler, get_dataframe_output_handler
@@ -242,20 +241,6 @@ def test_pandas_output_handler_get_result_index_columns():
     assert df is not None
     assert df.columns.tolist() == ["b"]
     assert df.index.name == "a"
-
-
-def test_polars_output_handler_initialize_dataframe():
-    handler = PolarsOutputHandler(
-        data={
-            "a": [1, 2, 3],
-            "b": [4, 5, 6],
-        },
-        output_schema=DummySchemaNoDates,
-        user_universal_params=_make_params(),
-    )
-    df = handler._initialize_dataframe()
-    assert df is not None
-    assert df.columns == ["a", "b"]
 
 
 def test_polars_output_handler_normalize_value():

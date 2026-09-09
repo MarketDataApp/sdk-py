@@ -37,7 +37,7 @@ This document defines a systematic process for discovering bugs in
 ### Environment setup
 
 ```bash
-uv sync --group dev          # installs pytest, respx, freezegun, pandas, polars, black, isort
+uv sync --group dev          # installs pytest, respx, freezegun, pandas, polars, ruff
 uv pip install -e .
 python --version             # 3.10 minimum; CI runs 3.10, 3.11 and 3.12
 

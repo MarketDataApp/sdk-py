@@ -43,7 +43,7 @@ class OptionsChain:
         ]
 
     def __repr__(self) -> str:
-        result = f"Options Chain:\n"
+        result = "Options Chain:\n"
         result += f"Symbol: {len(self.optionSymbol)} options\n"
         result += f"Underlying: {len(self.underlying)} underlying\n"
         result += f"Expiration: {len(self.expiration)} expirations\n"
@@ -96,7 +96,7 @@ class OptionsChainHumanReadable:
         self.Date = [format_timestamp(date) for date in self.Date]
 
     def __repr__(self) -> str:
-        result = f"Options Chain:\n"
+        result = "Options Chain:\n"
         result += f"Underlying: {len(self.Underlying)} underlying\n"
         result += f"Expiration Date: {len(self.Expiration_Date)} expiration dates\n"
         result += f"Option Side: {len(self.Option_Side)} sides\n"

@@ -35,7 +35,7 @@ def test_stock_quote_str():
     assert instance.change_percent == 0.0
 
 
-def test_stock_quotes_human_readable_str():
+def test_stock_quotes_human_readable_str_from_keywords():
     timestamp = int(
         datetime.datetime(
             2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
@@ -418,7 +418,7 @@ def test_get_stocks_quotes_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         client.stocks.quotes(
             symbols=["AAPL", "MSFT"],
             output_format=OutputFormat.INTERNAL,
