@@ -200,6 +200,12 @@ def test_column_key_matches_names_the_way_the_api_does():
         # values arrive alone and the `s` value is what marks them as an error.
         ("no_data,Symbol not found.\r\n", "Symbol not found."),
         ("error,Invalid date\r\n", "Invalid date"),
+        # The marker is matched through `column_key`, as the header row is:
+        # normalising one and not the other would drop the message of a 404
+        # and read it as the empty answer again.
+        ("NO_DATA,Symbol not found.\r\n", "Symbol not found."),
+        (" no_data ,Symbol not found.\r\n", "Symbol not found."),
+        ("Error,Invalid date\r\n", "Invalid date"),
         # The reader is lenient with an unterminated quote, and reading the
         # message it does recover beats reporting the raw body.
         ('s,errmsg\r\nerror,"Invalid date', "Invalid date"),

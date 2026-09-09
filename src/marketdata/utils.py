@@ -68,6 +68,11 @@ def column_key(name: str) -> str:
 # that shape is recognised by its ``s`` value instead (both verified live).
 _CSV_ERROR_HEADER = ["s", "errmsg"]
 _CSV_ERROR_STATUSES = ("error", "no_data")
+# The headerless shape is recognised by its `s` value, matched through the same
+# `column_key` the header row uses: normalising one and not the other would let
+# a differently spelled marker slip through, and a 404 whose message was lost
+# reads as the empty answer again, which is the bug of #91.
+_CSV_ERROR_STATUS_KEYS = {column_key(status) for status in _CSV_ERROR_STATUSES}
 # An error envelope is a short table. A body larger than this is a page, not a
 # message, and is reported as the raw body it is.
 _CSV_ERROR_MAX_LENGTH = 4096
@@ -102,7 +107,7 @@ def parse_csv_errmsg(text: str) -> str | None:
         if [column_key(name) for name in rows[0]] != _CSV_ERROR_HEADER:
             return None
         row = rows[1]
-    elif len(rows) == 1 and rows[0][0] in _CSV_ERROR_STATUSES:
+    elif len(rows) == 1 and column_key(rows[0][0]) in _CSV_ERROR_STATUS_KEYS:
         row = rows[0]
     else:
         return None

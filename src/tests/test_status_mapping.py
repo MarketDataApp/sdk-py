@@ -339,6 +339,29 @@ def test_a_body_that_is_not_a_csv_keeps_its_exception_and_its_retries(
     assert route.call_count == (client.max_retries + 1 if retried else 1)
 
 
+@pytest.mark.parametrize(
+    "errmsg",
+    [None, ["a", "b"], {"k": "v"}, 123],
+    ids=["null", "list", "object", "number"],
+)
+def test_an_errmsg_that_is_not_text_still_raises_and_shows_the_body(
+    respx_mock, client, errmsg
+):
+    """An `errmsg` of any type means the API said something, so a 404 carrying
+    it is not the empty answer. The message shown is the raw body rather than
+    Python's repr of the decoded value, which told the reader nothing (a null
+    errmsg used to surface as the message "None")."""
+    body = {"s": "error", "errmsg": errmsg}
+    respx_mock.get(PRICES_URL).respond(json=body, status_code=404)
+
+    with pytest.raises(NotFoundError) as exc_info:
+        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    message = exc_info.value.message
+    assert message.startswith('{"s": "error"') or message.startswith('{"s":"error"')
+    assert "errmsg" in message
+
+
 # ---------------------------------------------------------------- no data
 
 

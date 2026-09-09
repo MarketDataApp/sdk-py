@@ -128,10 +128,17 @@ class MarketDataClient:
         Bounded so a malformed or hostile response cannot balloon exception
         messages and log output. The flag says whether an ``errmsg`` was found,
         which is what separates "invalid question" from "empty answer" on 404.
+
+        An ``errmsg`` that is not a string (``null``, a list, an object) still
+        counts as one -- the API said something, and a 404 carrying it is not
+        the empty answer -- but the message shown is the raw body rather than
+        Python's ``repr`` of the decoded value, which told the reader nothing.
         """
         try:
             errmsg = response.json()["errmsg"]
             has_errmsg = True
+            if not isinstance(errmsg, str):
+                errmsg = response.text
         except Exception:
             errmsg = parse_csv_errmsg(response.text)
             has_errmsg = errmsg is not None
