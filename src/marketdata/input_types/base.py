@@ -62,7 +62,6 @@ class Mode(str, Enum):
 
 
 class UserUniversalAPIParams(BaseInputType):
-
     model_config = BaseModelConfig
 
     output_format: OutputFormat = Field(

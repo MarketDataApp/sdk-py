@@ -25,7 +25,6 @@ from marketdata.exceptions import (
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.options_expirations import OptionsExpirations
 from marketdata.output_types.stocks_candles import StockCandle
-from marketdata.utils import is_no_data
 
 PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 EXPIRATIONS_URL = "https://api.marketdata.app/v1/options/expirations/AAPL/"

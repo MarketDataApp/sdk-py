@@ -2,7 +2,6 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
-import httpx
 import pytest
 import pytz
 
@@ -124,7 +123,7 @@ def test_get_options_quotes_response_200_internal(load_json, respx_mock, client)
     assert quotes.last[0] == 64.97
     assert quotes.openInterest[0] == 588
     assert quotes.volume[0] == 0
-    assert quotes.inTheMoney[0] == True
+    assert quotes.inTheMoney[0]
     assert quotes.intrinsicValue[0] == 23.7344
     assert quotes.extrinsicValue[0] == 42.0156
     assert quotes.underlyingPrice[0] == 278.7344
@@ -172,7 +171,7 @@ def test_get_options_quotes_human_response_200(load_json, respx_mock, client):
     assert quotes.Last[0] == 67.46
     assert quotes.Open_Interest[0] == 5094
     assert quotes.Volume[0] == 10
-    assert quotes.In_The_Money[0] == True
+    assert quotes.In_The_Money[0]
     assert quotes.Intrinsic_Value[0] == 28.7943
     assert quotes.Extrinsic_Value[0] == 39.3857
     assert quotes.Underlying_Price[0] == 278.7943
@@ -317,7 +316,7 @@ def test_get_options_quotes_response_200_dataframe_pandas(
         assert quotes.askSize.iloc[0] == 84
         assert quotes.openInterest.iloc[0] == 588
         assert quotes.volume.iloc[0] == 0
-        assert quotes.inTheMoney.iloc[0] == True
+        assert quotes.inTheMoney.iloc[0]
         assert quotes.intrinsicValue.iloc[0] == 23.7344
         assert quotes.extrinsicValue.iloc[0] == 42.0156
         assert quotes.underlyingPrice.iloc[0] == 278.7344
@@ -369,7 +368,7 @@ def test_get_options_quotes_response_200_dataframe_polars(
         assert quotes["askSize"][0] == 84
         assert quotes["openInterest"][0] == 588
         assert quotes["volume"][0] == 0
-        assert quotes["inTheMoney"][0] == True
+        assert quotes["inTheMoney"][0]
         assert quotes["intrinsicValue"][0] == 23.7344
         assert quotes["extrinsicValue"][0] == 42.0156
         assert quotes["underlyingPrice"][0] == 278.7344
@@ -387,7 +386,7 @@ def test_get_options_quotes_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadRequestError) as exc_info:
+    with pytest.raises(BadRequestError):
         client.options.quotes(
             symbols=["AAPL271217C00255000"], output_format=OutputFormat.INTERNAL
         )
@@ -415,7 +414,7 @@ def test_get_options_quotes_status_offline(respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         client.options.quotes(
             symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
         )
@@ -439,10 +438,6 @@ PUT_ROW = CALL_ROW.replace("AAPL271217C00255000", "AAPL271217P00255000").replace
     ",call,", ",put,"
 )
 CSV_PLACEHOLDER = '0\r\n""\r\n'
-
-
-def _csv_quotes(*, symbols, **kwargs):
-    return client_quotes_csv(symbols, **kwargs)
 
 
 def test_get_options_quotes_response_200_csv(respx_mock, client, tmp_path):
@@ -666,10 +661,8 @@ def test_options_quotes_join_dicts():
     assert joined["s"] == "ok"
     assert joined["optionSymbol"] == ["AAPL271217C00255000", "AAPL271217C00255000"]
     assert joined["underlying"] == ["AAPL", "AAPL"]
-    expected_expiration = [
-        datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone("US/Eastern")),
-        datetime.datetime.fromtimestamp(1829077200, tz=pytz.timezone("US/Eastern")),
-    ]
+    # `join_dicts` concatenates the raw values; the timestamps become datetimes
+    # in `__post_init__`, which this test does not reach.
     assert joined["expiration"] == [1829077200, 1829077200]
 
 

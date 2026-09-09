@@ -425,7 +425,7 @@ def test_get_stocks_candles_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         client.stocks.candles(
             symbol="AAPL",
             resolution="D",

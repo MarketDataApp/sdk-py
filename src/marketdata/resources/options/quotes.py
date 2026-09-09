@@ -108,7 +108,6 @@ def quotes(
         OutputFormat.INTERNAL,
         OutputFormat.JSON,
     ]:
-
         # A body that is not JSON (a proxy's HTML error page) fails the call
         # as it does everywhere else (#82); a fabricated empty row would read
         # as "no options" and break the merge of the healthy symbols.

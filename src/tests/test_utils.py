@@ -66,11 +66,11 @@ def test_format_timestamp_date_only_localization():
 
 
 def test_check_is_date():
-    assert check_is_date("2024-01-01") == True
-    assert check_is_date(datetime.date(2024, 1, 1)) == True
-    assert check_is_date(None) == False
-    assert check_is_date("yesterday") == False
-    assert check_is_date(Exception) == False
+    assert check_is_date("2024-01-01")
+    assert check_is_date(datetime.date(2024, 1, 1))
+    assert not check_is_date(None)
+    assert not check_is_date("yesterday")
+    assert not check_is_date(Exception)
 
 
 def test_validate_single_param():

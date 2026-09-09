@@ -4,12 +4,12 @@ from urllib.parse import urlencode
 
 from httpx import Response
 
+from marketdata.exceptions import ParseError
 from marketdata.input_types.base import (
     BaseInputType,
     OutputFormat,
     UserUniversalAPIParams,
 )
-from marketdata.exceptions import ParseError
 from marketdata.internal_settings import GLOBAL_EXCLUDED_PARAMS
 from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.settings import settings

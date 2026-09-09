@@ -66,10 +66,9 @@ class OptionsStrikesHumanReadable:
         return v
 
     def __repr__(self) -> str:
-        _list_to_string = lambda lst: "\n".join([str(item) for item in lst])
         extra_kwargs = {k: v for k, v in self.__dict__.items() if k not in ["Date"]}
-        result = f"Options Strikes:\n"
-        result += f"Dates:\n"
+        result = "Options Strikes:\n"
+        result += "Dates:\n"
         for k, v in extra_kwargs.items():
             result += f"{k}: {len(v)}\n"
         return result

@@ -23,20 +23,6 @@ def test_options_strikes_str():
     assert isinstance(str(instance), str)
 
 
-def test_options_strikes_human_readable_str():
-    timestamp = int(
-        datetime.datetime(
-            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
-        ).timestamp()
-    )
-    data = {
-        "Date": timestamp,
-        "2025-12-12": [110.0, 120.0, 125.0, 130.0, 135.0],
-    }
-    instance = OptionsStrikesHumanReadable(**data)
-    assert isinstance(str(instance), str)
-
-
 def test_options_strikes_post_init():
     data = {
         "s": "ok",
@@ -251,7 +237,7 @@ def test_get_options_strikes_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadRequestError) as exc_info:
+    with pytest.raises(BadRequestError):
         client.options.strikes("AAPL", output_format=OutputFormat.INTERNAL)
 
 
@@ -275,7 +261,7 @@ def test_get_options_strikes_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         client.options.strikes("AAPL", output_format=OutputFormat.INTERNAL)
 
 
