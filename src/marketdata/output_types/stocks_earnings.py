@@ -28,8 +28,10 @@ class StockEarnings:
         ]
 
     def __repr__(self) -> str:
-        _format_dates = lambda dates: [date.strftime("%Y-%m-%d") for date in dates]
-        result = f"Stock Earnings:\n"
+        def _format_dates(dates):
+            return [date.strftime("%Y-%m-%d") for date in dates]
+
+        result = "Stock Earnings:\n"
         result += f"Symbol: {self.symbol}\n"
         result += f"Fiscal Year: {self.fiscalYear}\n"
         result += f"Fiscal Quarter: {self.fiscalQuarter}\n"
@@ -76,9 +78,10 @@ class StockEarningsHumanReadable:
 
     def __repr__(self) -> str:
 
-        _format_dates = lambda dates: [date.strftime("%Y-%m-%d") for date in dates]
+        def _format_dates(dates):
+            return [date.strftime("%Y-%m-%d") for date in dates]
 
-        result = f"Stock Earnings:\n"
+        result = "Stock Earnings:\n"
         result += f"Symbol: {self.Symbol}\n"
         result += f"Fiscal Year: {self.Fiscal_Year}\n"
         result += f"Fiscal Quarter: {self.Fiscal_Quarter}\n"

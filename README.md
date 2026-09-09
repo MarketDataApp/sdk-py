@@ -791,8 +791,7 @@ ValueError: No dataframe output handler found
 
 ### Development Dependencies
 
-- `black>=25.11.0`: Code formatter
-- `isort>=7.0.0`: Import sorter
+- `ruff>=0.16.0`: Linter, import sorter and formatter
 - `pandas>=2.3.3`: DataFrame library (for testing)
 - `polars-lts-cpu>=1.33.1`: DataFrame library (for testing)
 - `pytest>=9.0.1`: Testing framework
@@ -868,8 +867,20 @@ It uses the free-trial symbols (AAPL, VFINX), so a run costs no API credits. CI 
 
 ### Linting
 
+`ruff` lints (unused imports, undefined names), sorts imports and formats. CI
+runs the same two commands in check mode on every pull request, and the
+pre-commit hooks run them on staged files, once you install them:
+
 ```bash
-./lint.sh
+uv run pre-commit install    # once per clone
+./lint.sh                    # rewrites, and exits non-zero if anything is left
+```
+
+To check without rewriting, on the paths CI checks:
+
+```bash
+uv run ruff check src/ examples/ .github/scripts/
+uv run ruff format --check src/ examples/ .github/scripts/
 ```
 
 ### Build

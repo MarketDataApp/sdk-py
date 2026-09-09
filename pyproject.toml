@@ -81,9 +81,7 @@ polars = [
 
 [dependency-groups]
 dev = [
-    "black>=25.11.0",
     "freezegun>=1.5.5",
-    "isort>=7.0.0",
     "pandas>=2.3.3",
     "polars-lts-cpu>=1.33.1",
     "pre-commit>=4.5.1",
@@ -91,7 +89,28 @@ dev = [
     "pytest-cov>=7.0.0",
     "pytest-xdist>=3.8.0",
     "respx>=0.22.0",
+    "ruff>=0.16.0",
 ]
+
+[tool.ruff]
+# 88 is the width black used, so adopting ruff reflows almost nothing.
+line-length = 88
+# The lowest interpreter the package supports and CI runs.
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "F",  # pyflakes: unused imports, undefined names, f-strings without placeholders
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "I",  # isort: import order
+]
+ignore = [
+    "E501",  # line too long (the formatter owns line width)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["marketdata"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/marketdata"]

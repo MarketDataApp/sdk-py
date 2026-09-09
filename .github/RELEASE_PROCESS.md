@@ -77,9 +77,9 @@ avoiding: the shipped wheel currently depends only on `httpx`, `pydantic`,
 
    ```bash
    ./test.sh                    # uv sync && uv run pytest -n 4 --cov="marketdata"
-   ./lint.sh                    # black + isort --profile black (this rewrites files)
-   uv run black . --check
-   uv run isort . --profile black --check-only
+   ./lint.sh                    # ruff check --fix + ruff format (this rewrites files)
+   uv run ruff check src/ examples/ .github/scripts/
+   uv run ruff format --check src/ examples/ .github/scripts/
    uv build                     # confirm the wheel and sdist build, and check the version
    ls dist/                     # marketdata_sdk_py-X.Y.Z-py3-none-any.whl
    ```

@@ -17,7 +17,7 @@ class StockPrice:
         self.updated = format_timestamp(self.updated)
 
     def __repr__(self) -> str:
-        result = f"Stock Price:\n"
+        result = "Stock Price:\n"
         result += f"Symbol: {self.symbol}\n"
         result += f"Price: {self.mid}\n"
         result += f"Change: {self.change}\n"
@@ -45,7 +45,7 @@ class StockPricesHumanReadable:
         self.Date = format_timestamp(self.Date)
 
     def __repr__(self) -> str:
-        result = f"Stock Prices:\n"
+        result = "Stock Prices:\n"
         result += f"Symbol: {self.Symbol}\n"
         result += f"Price: {self.Mid}\n"
         result += f"Change Price: {self.Change_Price}\n"

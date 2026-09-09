@@ -6,7 +6,6 @@ from marketdata.output_handlers.base import BaseOutputHandler
 
 
 class PandasOutputHandler(BaseOutputHandler):
-
     def _try_get_plain_dataframe(self) -> pd.DataFrame:
         try:
             df = pd.DataFrame(self.data)
@@ -18,9 +17,12 @@ class PandasOutputHandler(BaseOutputHandler):
         try:
             list_lengths = [len(v) for v in self.data.values() if isinstance(v, list)]
             max_length = max(list_lengths) if list_lengths else 1
-            _get_value = lambda value: (
-                pd.Series(value) if isinstance(value, list) else [value] * max_length
-            )
+
+            def _get_value(value):
+                if isinstance(value, list):
+                    return pd.Series(value)
+                return [value] * max_length
+
             df = pd.DataFrame({k: _get_value(v) for k, v in self.data.items()})
         except Exception:
             return None

@@ -26,7 +26,7 @@ class StockQuote:
         return self.changepct
 
     def __repr__(self) -> str:
-        result = f"Stock Quote:\n"
+        result = "Stock Quote:\n"
         result += f"Symbol: {self.symbol}\n"
         result += f"Ask: {self.ask}\n"
         result += f"Ask Size: {self.askSize}\n"
@@ -62,7 +62,7 @@ class StockQuotesHumanReadable:
         self.Date = format_timestamp(self.Date)
 
     def __repr__(self) -> str:
-        result = f"Stock Quote:\n"
+        result = "Stock Quote:\n"
         result += f"Symbol: {self.Symbol}\n"
         result += f"Ask: {self.Ask}\n"
         result += f"Ask Size: {self.Ask_Size}\n"

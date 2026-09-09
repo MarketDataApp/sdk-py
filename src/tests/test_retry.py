@@ -33,7 +33,7 @@ def test_get_retry_adapter(client):
     assert retry_adapter is not None
     assert retry_adapter.stop.max_attempt_number == 4
     assert retry_adapter.retry.exception_types == (Exception,)
-    assert retry_adapter.reraise == False
+    assert not retry_adapter.reraise
 
     state = _make_retry_state(attempt_number=1, exc=None)
     assert retry_adapter.wait(state) == 1.0

@@ -20,7 +20,6 @@ class OptionsExpirationsInput(BaseInputType):
 
 
 class OptionsChainInput(BaseInputType):
-
     model_config = BaseModelConfig
 
     symbol: str | None = Field(
@@ -135,7 +134,6 @@ class OptionsChainInput(BaseInputType):
 
 
 class OptionsQuotesInput(BaseInputType):
-
     model_config = BaseModelConfig
 
     symbols: str | list[str] = Field(
@@ -169,7 +167,6 @@ class OptionsQuotesInput(BaseInputType):
 
 
 class OptionsStrikesInput(BaseInputType):
-
     model_config = BaseModelConfig
 
     symbol: str = Field(..., description="The symbol to fetch strikes for")
@@ -188,7 +185,6 @@ class LookupOptionSide(str, Enum):
 
 
 class OptionsLookupInput(BaseInputType):
-
     model_config = BaseModelConfig
 
     lookup: str = Field(

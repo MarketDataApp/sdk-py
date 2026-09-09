@@ -9,14 +9,17 @@ class FundsCandle:
     t: datetime.datetime
     o: float
     h: float
-    l: float
+    # `l` (low) is the API's own field name, and the dataclass fields are the
+    # public shape of `OutputFormat.INTERNAL` and of the DataFrame columns, so
+    # renaming it to satisfy E741 would be a breaking change.
+    l: float  # noqa: E741
     c: float
 
     def __post_init__(self):
         self.t = format_timestamp(self.t)
 
     def __repr__(self) -> str:
-        result = f"Funds Candle:\n"
+        result = "Funds Candle:\n"
         result += f"Time: {self.t}\n"
         result += f"Open: {self.o}\n"
         result += f"High: {self.h}\n"
@@ -40,7 +43,7 @@ class FundsCandlesHumanReadable:
         self.Date = format_timestamp(self.Date)
 
     def __repr__(self) -> str:
-        result = f"Funds Candle:\n"
+        result = "Funds Candle:\n"
         result += f"Date: {self.Date}\n"
         result += f"Open: {self.Open}\n"
         result += f"High: {self.High}\n"

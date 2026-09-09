@@ -191,7 +191,7 @@ def test_get_markets_status_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         client.markets.status(
             output_format=OutputFormat.INTERNAL,
         )
