@@ -483,6 +483,46 @@ def test_every_resource_no_data_dataframe_honours_the_column_filter(
     assert all(name in requested for name in [*names, *empty.columns])
 
 
+def test_an_api_alias_column_filter_does_not_keep_the_no_data_shape(
+    load_json, respx_mock, client
+):
+    """The documented limit of #87, pinned so it is a known behaviour rather
+    than a surprise.
+
+    The test above filters on the model's own field names, which always match.
+    The API also resolves its own aliases (`open` for `o`, `price`, `date`),
+    and those the SDK does not mirror: it cannot know which alias an endpoint
+    accepts. So the API answers `columns=open` with the single column `o`
+    while `model_columns` matches nothing and falls back to the full set, and
+    the two frames stop having the same shape - the index included, which is
+    what breaks a `pd.concat` across symbols.
+
+    Mirroring the aliases is the fix; it needs a per-endpoint table from the
+    API side first (`price` even depends on whether the market is open).
+    """
+    respx_mock.get(url__regex=r".*/stocks/candles/.*").mock(
+        side_effect=[
+            # What the API really answers for `columns=open`: the alias
+            # resolved to `o`, and nothing else.
+            httpx.Response(200, json={"s": "ok", "o": [1.0, 2.0]}),
+            httpx.Response(404, json=NO_DATA),
+        ]
+    )
+    client.default_params.output_format = OutputFormat.DATAFRAME
+    client.default_params.columns = ["open"]
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        populated = client.stocks.candles("AAPL")
+        empty = client.stocks.candles("AAPL")
+
+    assert list(populated.columns) == ["o"]
+    assert list(populated.index.names) == [None]
+    # The empty frame keeps every model column and the `t` index: the shapes
+    # differ, and that is the known gap.
+    assert list(empty.columns) == ["o", "h", "l", "c", "v"]
+    assert list(empty.index.names) == ["t"]
+
+
 CSV_PLACEHOLDER = '0\r\n""\r\n'
 
 

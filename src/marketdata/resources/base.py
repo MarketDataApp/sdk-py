@@ -12,7 +12,12 @@ from marketdata.input_types.base import (
 from marketdata.internal_settings import GLOBAL_EXCLUDED_PARAMS
 from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.settings import settings
-from marketdata.utils import column_key, parse_json, validate_single_param
+from marketdata.utils import (
+    column_key,
+    csv_header,
+    parse_json,
+    validate_single_param,
+)
 
 if TYPE_CHECKING:
     from marketdata.client import MarketDataClient
@@ -29,9 +34,18 @@ def model_columns(output_model: type, requested: list[str] | None = None) -> lis
     so ``Expiration Date`` is ``Expiration_Date``) or, on a human-readable
     model, the API name at the same position of its ``api_model`` twin
     (``t`` selects ``Date``), which is how the API filters before renaming.
-    The API's endpoint-dependent aliases (``open``, ``price``, ``date``) are
-    not mirrored: a name that matches nothing is ignored, and a filter that
-    matches nothing leaves the full set rather than a frame with no columns.
+
+    **Known limit.** The API's endpoint-dependent aliases (``open`` for ``o``,
+    ``price``, ``date``) are not mirrored: a name that matches nothing is
+    ignored, and a filter that matches nothing leaves the full set rather than
+    a frame with no columns. The API *does* resolve its own aliases, so for
+    such a filter the empty result and a populated one no longer have the same
+    shape: ``stocks.candles(columns=["open"])`` answers with the single column
+    ``o`` and no index, while the empty frame keeps every model column and the
+    ``t`` index. That is the one case #87 does not cover, pinned by
+    ``test_status_mapping.py::test_an_api_alias_column_filter_does_not_keep_the_no_data_shape``.
+    Mirroring the aliases would mean tracking a table the API changes per
+    endpoint (``price`` even depends on whether the market is open).
     """
     if not is_dataclass(output_model):  # pragma: no cover - every model is one
         return []
@@ -91,7 +105,7 @@ def no_data_result(
         # The caller who asked for no header gets an empty file, not a header.
         if user_universal_params.add_headers is False:
             return user_universal_params.write_file("")
-        return user_universal_params.write_file(",".join(columns) + "\r\n")
+        return user_universal_params.write_file(csv_header(columns))
 
     # Unreachable: the output format was validated by the Pydantic model.
     raise ValueError(f"Invalid output format: {output_format}")  # pragma: no cover

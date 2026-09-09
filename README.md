@@ -467,6 +467,8 @@ For the fan-out calls, a chunk (`stocks.candles`) or a symbol (`options.quotes`)
 
 The API renders the CSV empty answer as a `200` with a placeholder body instead of a `404` (MarketData-App/api#422); the SDK recognises it, so CSV output behaves as above.
 
+**One `columns=` case where the empty and the populated shapes still differ.** The API resolves its own column aliases (`open` for `o`, `price`, `date`), which the SDK does not mirror, because the accepted set depends on the endpoint. Asking for one of those (`stocks.candles(columns=["open"])`) gets a populated frame with the single column the API sent and an empty frame with every model column, so the two cannot be concatenated. Filter on the names the model exposes (or the API names of its twin under `use_human_readable=True`) and both shapes agree.
+
 ### `ValueError`
 
 Raised for various validation errors:

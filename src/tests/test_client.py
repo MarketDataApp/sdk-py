@@ -1,6 +1,6 @@
-from dataclasses import fields
 import datetime
 import os
+from dataclasses import fields
 from logging import Logger
 from unittest.mock import MagicMock, patch
 
