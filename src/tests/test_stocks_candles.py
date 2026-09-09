@@ -447,6 +447,23 @@ TWO_CHUNKS = dict(from_date="2023-01-01", to_date="2024-06-01")
 CHUNK_STARTS = ["2023-01-01", "2024-01-01"]
 
 
+def by_chunk(*responses: dict):
+    """Answer each chunk by its `from` date rather than by call order.
+
+    The chunks are fetched in parallel, so a plain `side_effect=[a, b]` hands
+    the first body to whichever worker the pool happened to start first: the
+    merge then came out in either order and the assertions raced. Keyed on the
+    chunk start, each chunk always gets its own body. Each call builds a fresh
+    `httpx.Response`, since a retried chunk asks for the same one twice.
+    """
+    by_start = dict(zip(CHUNK_STARTS, responses))
+
+    def answer(request):
+        return httpx.Response(200, **by_start[request.url.params["from"][:10]])
+
+    return answer
+
+
 def test_get_stocks_candles_response_200_csv(respx_mock, client, tmp_path):
     """The file is the API's CSV as received: its header, its rows."""
     respx_mock.get(DAILY_URL).respond(text=CSV_BODY, status_code=200)
@@ -465,10 +482,7 @@ def test_stocks_candles_csv_merges_every_chunk_under_the_api_header(
     respx_mock, client, tmp_path
 ):
     respx_mock.get(HOURLY_URL).mock(
-        side_effect=[
-            httpx.Response(200, text="t,c\r\n1,2\r\n"),
-            httpx.Response(200, text="t,c\r\n3,4\r\n"),
-        ]
+        side_effect=by_chunk(dict(text="t,c\r\n1,2\r\n"), dict(text="t,c\r\n3,4\r\n"))
     )
 
     output = client.stocks.candles(
@@ -489,10 +503,7 @@ def test_stocks_candles_csv_undecodable_chunk_body_is_a_parse_error(
     """Issue #86: an HTML page from one chunk fails the call instead of
     leaving a hole in the file."""
     respx_mock.get(HOURLY_URL).mock(
-        side_effect=[
-            httpx.Response(200, text=CSV_BODY),
-            httpx.Response(200, text="<html>error page</html>"),
-        ]
+        side_effect=by_chunk(dict(text=CSV_BODY), dict(text="<html>error page</html>"))
     )
 
     with pytest.raises(ParseError):
@@ -512,10 +523,7 @@ def test_stocks_candles_csv_leaves_out_a_chunk_with_no_data(
 ):
     """Issue #89: the API's CSV placeholder for an empty chunk is a 200."""
     respx_mock.get(HOURLY_URL).mock(
-        side_effect=[
-            httpx.Response(200, text=CSV_PLACEHOLDER),
-            httpx.Response(200, text=CSV_BODY),
-        ]
+        side_effect=by_chunk(dict(text=CSV_PLACEHOLDER), dict(text=CSV_BODY))
     )
 
     output = client.stocks.candles(
@@ -560,7 +568,7 @@ def test_stocks_candles_json_chunk_without_the_columns_is_a_parse_error(
     """A JSON body without the resource's fields (a proxy's JSON error page)
     fails the call instead of leaving a silent hole in the merge."""
     respx_mock.get(HOURLY_URL).mock(
-        side_effect=[httpx.Response(200, json=body) for body in bodies]
+        side_effect=by_chunk(*[dict(json=body) for body in bodies])
     )
 
     with pytest.raises(ParseError) as exc_info:
@@ -581,10 +589,10 @@ def test_stocks_candles_honours_the_column_filter_across_chunks(
     """Issue #90: the API answers with the requested keys only; the merge used
     to raise KeyError on the first missing model field."""
     respx_mock.get(HOURLY_URL).mock(
-        side_effect=[
-            httpx.Response(200, json={"s": "ok", "c": [1.0, 2.0], "v": [10, 20]}),
-            httpx.Response(200, json={"s": "ok", "c": [3.0], "v": [30]}),
-        ]
+        side_effect=by_chunk(
+            dict(json={"s": "ok", "c": [1.0, 2.0], "v": [10, 20]}),
+            dict(json={"s": "ok", "c": [3.0], "v": [30]}),
+        )
     )
 
     with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
