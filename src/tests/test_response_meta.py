@@ -263,6 +263,40 @@ def test_fan_out_meta_adds_up_the_chunks(load_json, respx_mock, real_headers):
     assert len(candles) == 2 * len(chunk["t"])
 
 
+@pytest.mark.parametrize("empty_first", [False, True])
+def test_a_dropped_no_data_symbol_does_not_label_the_call(
+    load_json, respx_mock, real_headers, empty_first
+):
+    """A symbol answering 404 `no_data` is recorded (it is billed) and then
+    dropped from the merge. It must not lend the call its status nor its
+    request id: `request_id` is what a caller quotes in a support ticket, so
+    it has to name a request that produced part of this result. Asserted in
+    both orders, since which response lands last is up to the thread pool."""
+    quotes = load_json("options_quotes_response_200")
+    url = "https://api.marketdata.app/v1/options/quotes/"
+    respx_mock.get(url + "HASDATA/").respond(
+        json=quotes,
+        status_code=200,
+        headers=credit_headers(1, 98, request_id="has-data"),
+    )
+    respx_mock.get(url + "NODATA/").respond(
+        json=NO_DATA,
+        status_code=404,
+        headers=credit_headers(0, 99, request_id="no-data"),
+    )
+    symbols = ["NODATA", "HASDATA"] if empty_first else ["HASDATA", "NODATA"]
+
+    result = real_headers.options.quotes(symbols, output_format=OutputFormat.INTERNAL)
+
+    meta = get_meta(result)
+    assert len(result.optionSymbol) == len(quotes["optionSymbol"])
+    assert meta.status_code == 200
+    assert meta.request_id == "has-data"
+    # Both responses were billed and both are counted.
+    assert meta.responses == 2
+    assert meta.rate_limits.credits_consumed == 1
+
+
 def test_retried_attempts_count_and_the_status_refresh_does_not(
     respx_mock, real_headers, monkeypatch
 ):
@@ -293,6 +327,33 @@ def test_retried_attempts_count_and_the_status_refresh_does_not(
     assert meta.request_id == "try-2"
     assert meta.rate_limits.credits_consumed == 1
     assert meta.rate_limits.credits_remaining == 98
+
+
+def test_a_call_whose_every_attempt_failed_reports_the_last_response(
+    respx_mock, real_headers, monkeypatch
+):
+    """No usable response to speak for the call, so the fallback applies: the
+    exception carries the real failure, not an invented success."""
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    monkeypatch.setattr(
+        API_STATUS_DATA, "_trigger_async_refresh", lambda c: API_STATUS_DATA.refresh(c)
+    )
+    respx_mock.get(PRICES_URL).mock(
+        side_effect=[
+            httpx.Response(
+                503, json={}, headers=credit_headers(0, 99, request_id=f"try-{n}")
+            )
+            for n in range(1, real_headers.max_retries + 2)
+        ]
+    )
+
+    with pytest.raises(marketdata.ServerError) as exc_info:
+        real_headers.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)
+
+    meta = get_meta(exc_info.value)
+    assert meta.status_code == 503
+    assert meta.request_id == f"try-{real_headers.max_retries + 1}"
+    assert meta.responses == real_headers.max_retries + 1
 
 
 def test_utilities_without_credit_headers_still_carry_the_meta(
@@ -437,3 +498,47 @@ def test_merge_without_credit_headers_has_no_rate_limits():
     assert merged.rate_limits is None
     assert merged.responses == 2
     assert merged.request_id == "b"
+
+
+def test_merge_speaks_for_the_last_response_that_could_have_contributed():
+    """A dropped `no_data` answer must not label the call: `status_code` and
+    `request_id` come from the last usable response, whatever the order the
+    responses were recorded in. `responses` still counts every one of them."""
+    empty = ResponseMeta(404, "no-data", limits(0, 99))
+    good = ResponseMeta(200, "has-data", limits(1, 98))
+
+    assert ResponseMeta.merge([good, empty]).request_id == "has-data"
+    assert ResponseMeta.merge([empty, good]).request_id == "has-data"
+    for order in ([good, empty], [empty, good]):
+        merged = ResponseMeta.merge(order)
+        assert merged.status_code == 200
+        assert merged.responses == 2
+
+
+def test_merge_falls_back_to_the_last_response_when_none_was_usable():
+    """Every attempt failed: there is no usable response to speak for the
+    call, so the last one is reported as it stands."""
+    first = ResponseMeta(503, "try-1", limits(0, 99))
+    second = ResponseMeta(503, "try-2", limits(0, 99))
+
+    merged = ResponseMeta.merge([first, second])
+
+    assert merged.status_code == 503
+    assert merged.request_id == "try-2"
+    assert merged.responses == 2
+
+
+def test_merge_accepts_a_203_as_a_usable_answer():
+    """`VALID_STATUS_CODES` is the same list the fan-outs filter on, so a 203
+    speaks for the call exactly as a 200 does."""
+    partial = ResponseMeta(203, "partial", limits(1, 98))
+    empty = ResponseMeta(404, "no-data", limits(0, 99))
+
+    assert ResponseMeta.merge([partial, empty]).request_id == "partial"
+
+
+def test_merge_of_nothing_is_a_value_error():
+    """`ResponseMeta` is exported from the package root; an empty merge used
+    to surface as a bare IndexError."""
+    with pytest.raises(ValueError, match="empty list"):
+        ResponseMeta.merge([])
