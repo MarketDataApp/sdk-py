@@ -28,6 +28,7 @@ from typing import Any, Iterator
 
 from httpx import Response
 
+from marketdata.internal_settings import VALID_STATUS_CODES
 from marketdata.types import UserRateLimits
 
 PANDAS_ATTRS_KEY = "marketdata"
@@ -44,7 +45,8 @@ class ResponseMeta:
     attempts), in which case ``credits_consumed`` is the sum over them,
     ``credit_limit`` and ``reset_time`` those of the newest window,
     ``credits_remaining`` the lowest seen **in that window**, and
-    ``status_code`` and ``request_id`` those of the last response.
+    ``status_code`` and ``request_id`` those of the last response that could
+    have contributed to the result.
 
     The balance is scoped to the newest window on purpose: a call whose
     retries cross a reset sees the credits go back up, and the lowest count
@@ -53,6 +55,18 @@ class ResponseMeta:
     existed, the same reason ``RateLimitTracker`` discards an older window.
     ``credits_consumed`` still adds up over every response: those credits were
     really paid for this call, whichever window billed them.
+
+    ``status_code`` and ``request_id`` describe a single response, so they are
+    read from the last one whose status is usable, never from a symbol or
+    chunk that answered ``no_data`` and was dropped from the merge. That
+    matters most for ``request_id``: it is the id to quote in a support
+    ticket, and it must name a request that produced part of this result. When
+    no response was usable (every attempt failed), they come from the last
+    one, which is then the honest answer.
+
+    The dataclass is frozen, but that is a shallow guarantee: ``rate_limits``
+    is a mutable :class:`UserRateLimits`, so its fields can still be
+    reassigned. Treat the whole object as read-only.
     """
 
     status_code: int
@@ -72,7 +86,18 @@ class ResponseMeta:
 
     @classmethod
     def merge(cls, metas: list[ResponseMeta]) -> ResponseMeta:
-        last = metas[-1]
+        if not metas:
+            raise ValueError("cannot merge an empty list of ResponseMeta")
+        # `status_code` and `request_id` describe one response, so they come
+        # from the last one that could have contributed to the result: the
+        # same `VALID_STATUS_CODES` the fan-outs use to build their `usable`
+        # list. Otherwise a symbol answering 404 `no_data` -- recorded, then
+        # dropped from the merge -- could label a successful call as a 404 and
+        # hand support the request id of the one response that returned
+        # nothing. With no usable response (every attempt failed) the last one
+        # is the honest answer.
+        usable = [meta for meta in metas if meta.status_code in VALID_STATUS_CODES]
+        speaker = usable[-1] if usable else metas[-1]
         known = [meta.rate_limits for meta in metas if meta.rate_limits is not None]
         rate_limits = None
         if known:
@@ -89,8 +114,8 @@ class ResponseMeta:
                 credits_consumed=sum(limits.credits_consumed for limits in known),
             )
         return cls(
-            status_code=last.status_code,
-            request_id=last.request_id,
+            status_code=speaker.status_code,
+            request_id=speaker.request_id,
             rate_limits=rate_limits,
             responses=len(metas),
         )
