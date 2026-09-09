@@ -79,10 +79,10 @@ def client(respx_mock):
         _client,
         "_extract_rate_limits",
         lambda x: UserRateLimits(
-            requests_limit=int(headers["x-api-ratelimit-limit"]),
-            requests_remaining=int(headers["x-api-ratelimit-remaining"]),
-            requests_reset=int(headers["x-api-ratelimit-reset"]),
-            requests_consumed=int(headers["x-api-ratelimit-consumed"]),
+            credit_limit=int(headers["x-api-ratelimit-limit"]),
+            credits_remaining=int(headers["x-api-ratelimit-remaining"]),
+            reset_time=int(headers["x-api-ratelimit-reset"]),
+            credits_consumed=int(headers["x-api-ratelimit-consumed"]),
         ),
     )
 

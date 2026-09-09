@@ -102,7 +102,7 @@ class MarketDataClient:
             self.logger.error("Rate limits cant be checked")
             raise RateLimitError("Rate limits cant be checked")
 
-        if raise_error and self.rate_limits.requests_remaining <= 0:
+        if raise_error and self.rate_limits.credits_remaining <= 0:
             raise RateLimitError("Rate limit exceeded")
 
     @staticmethod
@@ -174,10 +174,10 @@ class MarketDataClient:
         self.logger.debug(f"Extracting response rate limits from response headers")
         try:
             return UserRateLimits(
-                requests_limit=int(response.headers["x-api-ratelimit-limit"]),
-                requests_remaining=int(response.headers["x-api-ratelimit-remaining"]),
-                requests_reset=int(response.headers["x-api-ratelimit-reset"]),
-                requests_consumed=int(response.headers["x-api-ratelimit-consumed"]),
+                credit_limit=int(response.headers["x-api-ratelimit-limit"]),
+                credits_remaining=int(response.headers["x-api-ratelimit-remaining"]),
+                reset_time=int(response.headers["x-api-ratelimit-reset"]),
+                credits_consumed=int(response.headers["x-api-ratelimit-consumed"]),
             )
         except (KeyError, ValueError) as e:
             # Malformed response (e.g. missing or non-numeric rate-limit

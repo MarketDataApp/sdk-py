@@ -1,3 +1,4 @@
+from dataclasses import fields
 import datetime
 import os
 from logging import Logger
@@ -18,10 +19,10 @@ from marketdata.utils import format_duration_log
 
 def test_user_rate_limits_str():
     user_rate_limits = UserRateLimits(
-        requests_limit=100,
-        requests_remaining=50,
-        requests_reset=1734567890,
-        requests_consumed=50,
+        credit_limit=100,
+        credits_remaining=50,
+        reset_time=1734567890,
+        credits_consumed=50,
     )
     assert isinstance(str(user_rate_limits), str)
 
@@ -182,10 +183,10 @@ def test_client_check_rate_limits_no_rate_limits(client):
 
 def test_client_check_rate_limits_rate_limit_exceeded(client):
     client.rate_limits = UserRateLimits(
-        requests_limit=100,
-        requests_remaining=0,
-        requests_reset=1734567890,
-        requests_consumed=100,
+        credit_limit=100,
+        credits_remaining=0,
+        reset_time=1734567890,
+        credits_consumed=100,
     )
     with pytest.raises(RateLimitError):
         client._check_rate_limits(raise_error=True)
@@ -225,24 +226,24 @@ def test_client_setup_rate_limits(respx_mock):
 
     client = MarketDataClient(token="test")
     client._setup_rate_limits()
-    assert client.rate_limits.requests_limit == 60
-    assert client.rate_limits.requests_remaining == 59
+    assert client.rate_limits.credit_limit == 60
+    assert client.rate_limits.credits_remaining == 59
     # API returns UTC, convert to US/Eastern for comparison
     expected_utc = datetime.datetime(
         2024, 12, 19, 0, 24, 50, tzinfo=datetime.timezone.utc
     )
     expected_eastern = expected_utc.astimezone(pytz.timezone("US/Eastern"))
     assert (
-        client.rate_limits.requests_reset.astimezone(pytz.timezone("US/Eastern"))
+        client.rate_limits.reset_time.astimezone(pytz.timezone("US/Eastern"))
         == expected_eastern
     )
-    assert client.rate_limits.requests_consumed == 1
+    assert client.rate_limits.credits_consumed == 1
     # fromtimestamp with US/Eastern converts UTC timestamp to US/Eastern local time
     expected_from_ts = datetime.datetime.fromtimestamp(
         1734567890, tz=pytz.timezone("US/Eastern")
     )
     assert (
-        client.rate_limits.requests_reset.astimezone(pytz.timezone("US/Eastern"))
+        client.rate_limits.reset_time.astimezone(pytz.timezone("US/Eastern"))
         == expected_from_ts
     )
 
@@ -260,17 +261,16 @@ def test_client_extract_rate_limits(respx_mock):
     response = Response(status_code=200, headers=headers)
     client = MarketDataClient(token="test")
     user_rate_limits = client._extract_rate_limits(response)
-    assert user_rate_limits.requests_limit == 60
-    assert user_rate_limits.requests_remaining == 59
+    assert user_rate_limits.credit_limit == 60
+    assert user_rate_limits.credits_remaining == 59
     # API returns UTC, convert to US/Eastern for comparison
     expected = datetime.datetime.fromtimestamp(
         1734567890, tz=pytz.timezone("US/Eastern")
     )
     assert (
-        user_rate_limits.requests_reset.astimezone(pytz.timezone("US/Eastern"))
-        == expected
+        user_rate_limits.reset_time.astimezone(pytz.timezone("US/Eastern")) == expected
     )
-    assert user_rate_limits.requests_consumed == 1
+    assert user_rate_limits.credits_consumed == 1
 
 
 def test_client_pre_and_post_request_logs(client, respx_mock):
@@ -339,10 +339,10 @@ def test_client_max_retries_zero_no_retry(respx_mock, monkeypatch):
         c,
         "_extract_rate_limits",
         lambda x: UserRateLimits(
-            requests_limit=100,
-            requests_remaining=99,
-            requests_reset=60,
-            requests_consumed=1,
+            credit_limit=100,
+            credits_remaining=99,
+            reset_time=60,
+            credits_consumed=1,
         ),
     )
 
@@ -386,10 +386,10 @@ def test_client_max_retries_one(respx_mock, monkeypatch):
         c,
         "_extract_rate_limits",
         lambda x: UserRateLimits(
-            requests_limit=100,
-            requests_remaining=99,
-            requests_reset=60,
-            requests_consumed=1,
+            credit_limit=100,
+            credits_remaining=99,
+            reset_time=60,
+            credits_consumed=1,
         ),
     )
 
@@ -502,3 +502,34 @@ def test_make_request_keeps_rate_limits_on_malformed_response(client, respx_mock
     response = client._make_request(method="GET", url="markets/status/")
     assert response.status_code == 200
     assert client.rate_limits == previous
+
+
+RENAMED_FIELDS = (
+    "requests_limit",
+    "requests_remaining",
+    "requests_reset",
+    "requests_consumed",
+)
+
+
+def test_rate_limits_use_the_api_credits_nomenclature():
+    """SDK requirements §8.1 (#48): the fields speak in API credits, as the
+    product does, and the v1 ``requests_*`` names are gone without aliases."""
+    rate_limits = UserRateLimits(
+        credit_limit=100,
+        credits_remaining=50,
+        reset_time=1734567890,
+        credits_consumed=50,
+    )
+
+    assert [field.name for field in fields(UserRateLimits)] == [
+        "credit_limit",
+        "credits_remaining",
+        "reset_time",
+        "credits_consumed",
+    ]
+    for old_name in RENAMED_FIELDS:
+        assert not hasattr(rate_limits, old_name)
+    assert str(rate_limits) == (
+        f"Credits used 50/100, remaining: 50, reset at: {rate_limits.reset_time.isoformat()}"
+    )
