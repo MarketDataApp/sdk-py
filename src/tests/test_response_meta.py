@@ -153,6 +153,41 @@ def test_no_data_results_carry_the_meta_when_they_can(respx_mock, real_headers):
     assert get_meta(nothing) is None
 
 
+def test_a_failed_call_reports_the_credits_it_was_billed(respx_mock, real_headers):
+    """A failure is billed like any other answer, so the exception carries the
+    same metadata a result would: `get_meta(exc)` says what the call cost."""
+    respx_mock.get(PRICES_URL).respond(
+        json={"s": "error", "errmsg": "Symbol not found."},
+        status_code=404,
+        headers=credit_headers(10, 90, request_id="failed-1"),
+    )
+
+    with pytest.raises(marketdata.NotFoundError) as exc_info:
+        real_headers.stocks.prices("ZZZZ", output_format=OutputFormat.INTERNAL)
+
+    meta = get_meta(exc_info.value)
+    assert meta is not None
+    assert meta.status_code == 404
+    assert meta.request_id == "failed-1"
+    assert meta.rate_limits.credits_consumed == 10
+    assert meta.rate_limits.credits_remaining == 90
+
+
+def test_a_failure_with_no_response_carries_no_meta(client):
+    """A call that never reached the API (the pre-flight check) has nothing to
+    report, and nothing is invented for it."""
+    client._rate_limits.reset(
+        UserRateLimits(
+            credit_limit=100, credits_remaining=0, reset_time=RESET, credits_consumed=0
+        )
+    )
+
+    with pytest.raises(marketdata.RateLimitError) as exc_info:
+        client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)
+
+    assert get_meta(exc_info.value) is None
+
+
 def test_concurrent_calls_keep_their_own_consumed_credits(respx_mock, real_headers):
     """The issue's test: parallel calls with distinct consumed values, each
     result carries its own, and no shared state is read for attribution."""
@@ -397,10 +432,39 @@ def test_merge_sums_credits_and_keeps_the_newest_window():
 
     assert merged.responses == 3
     assert merged.status_code == 203 and merged.request_id == "r3"
+    # Every response was billed, whichever window billed it.
     assert merged.rate_limits.credits_consumed == 9
-    assert merged.rate_limits.credits_remaining == 40
+    # The balance belongs to the newest window: 40 and 98 are counts of
+    # windows that have already closed.
+    assert merged.rate_limits.credits_remaining == 90
     assert merged.rate_limits.credit_limit == 200
     assert merged.rate_limits.reset_time == last.rate_limits.reset_time
+
+
+def test_merge_takes_the_lowest_balance_inside_the_newest_window():
+    """Two responses of the same window: the lowest count is the balance after
+    the call, whatever order they completed in."""
+    first = ResponseMeta(200, "r1", limits(2, 98, reset=RESET))
+    second = ResponseMeta(200, "r2", limits(3, 95, reset=RESET))
+
+    merged = ResponseMeta.merge([second, first])
+
+    assert merged.rate_limits.credits_remaining == 95
+    assert merged.rate_limits.credits_consumed == 5
+
+
+def test_merge_does_not_carry_a_closed_window_balance_across_a_reset():
+    """A call whose retry crosses the reset: the credits went back up, so the
+    pre-reset count paired with the new window's `reset_time` would report a
+    state that never existed (the rule `RateLimitTracker` already applies)."""
+    before = ResponseMeta(503, "r1", limits(0, 2, reset=RESET))
+    after = ResponseMeta(200, "r2", limits(1, 99, reset=RESET + 60))
+
+    merged = ResponseMeta.merge([before, after])
+
+    assert merged.rate_limits.credits_remaining == 99
+    assert merged.rate_limits.reset_time == after.rate_limits.reset_time
+    assert merged.rate_limits.credits_consumed == 1
 
 
 def test_merge_without_credit_headers_has_no_rate_limits():
