@@ -16,7 +16,7 @@ def _get_annotation_data(annotation: Any) -> str:
 
     if origin is Union:
         args = get_args(annotation)
-        return f" | ".join([_get_annotation_data(arg) for arg in args])
+        return " | ".join([_get_annotation_data(arg) for arg in args])
 
     if origin is list:
         args = get_args(annotation)

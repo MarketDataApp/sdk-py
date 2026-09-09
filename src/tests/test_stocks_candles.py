@@ -425,7 +425,7 @@ def test_get_stocks_candles_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         client.stocks.candles(
             symbol="AAPL",
             resolution="D",
@@ -444,7 +444,7 @@ def test_get_stocks_candles_response_200_csv(respx_mock, client):
         output_format=OutputFormat.CSV,
         filename="test.csv",
     )
-    assert pathlib.Path(output).read_text() is not ""
+    assert pathlib.Path(output).read_text() != ""
 
 
 def test_stocks_candles_intraday_string_dates(load_json, respx_mock, client):

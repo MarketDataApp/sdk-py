@@ -157,7 +157,7 @@ def test_get_options_chain_response_200_internal(load_json, respx_mock, client):
     assert chain.last[0] == 170.55
     assert chain.openInterest[0] == 11
     assert chain.volume[0] == 0
-    assert chain.inTheMoney[0] == True
+    assert chain.inTheMoney[0]
     assert chain.intrinsicValue[0] == 169.2
     assert chain.extrinsicValue[0] == 0.58
     assert chain.underlyingPrice[0] == 279.2
@@ -234,7 +234,7 @@ def test_get_options_chain_human_response_200(load_json, respx_mock, client):
     assert chain.Last[0] == 273.72
     assert chain.Open_Interest[0] == 255
     assert chain.Volume[0] == 20
-    assert chain.In_The_Money[0] == True
+    assert chain.In_The_Money[0]
     assert chain.Intrinsic_Value[0] == 272.7
     assert chain.Extrinsic_Value[0] == 0.32
     assert chain.Underlying_Price[0] == 277.7
@@ -251,7 +251,7 @@ def test_get_options_chain_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadRequestError) as exc_info:
+    with pytest.raises(BadRequestError):
         client.options.chain(symbol="AAPL", output_format=OutputFormat.INTERNAL)
 
 
@@ -276,7 +276,7 @@ def test_get_options_chain_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         client.options.chain("AAPL", output_format=OutputFormat.INTERNAL)
 
 

@@ -18,7 +18,7 @@ class StockNews:
         self.updated = format_timestamp(self.updated)
 
     def __repr__(self) -> str:
-        result = f"Stock News:\n"
+        result = "Stock News:\n"
         result += f"Symbol: {self.symbol}\n"
         result += f"Headline: {self.headline}\n"
         result += f"Content: {resume_long_text(self.content)}\n"
@@ -45,7 +45,7 @@ class StockNewsHumanReadable:
         self.Date = format_timestamp(self.Date)
 
     def __repr__(self) -> str:
-        result = f"Stock News:\n"
+        result = "Stock News:\n"
         result += f"Symbol: {self.Symbol}\n"
         result += f"Headline: {self.headline}\n"
         result += f"Content: {resume_long_text(self.content)}\n"

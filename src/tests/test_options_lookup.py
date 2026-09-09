@@ -1,13 +1,10 @@
-import datetime
 import pathlib
 from unittest.mock import patch
 
 import pytest
-import pytz
 
 from marketdata.exceptions import BadRequestError, ServerError
 from marketdata.input_types.base import OutputFormat
-from marketdata.input_types.options import LookupOptionSide
 from marketdata.output_types.options_lookup import (
     OptionsLookup,
     OptionsLookupHumanReadable,
@@ -23,11 +20,6 @@ def test_options_lookup_str():
 
 
 def test_options_lookup_human_readable_str():
-    timestamp = int(
-        datetime.datetime(
-            2025, 1, 1, 0, 0, 0, 0, pytz.timezone("US/Eastern")
-        ).timestamp()
-    )
     instance = OptionsLookupHumanReadable(
         Symbol="AAPL230728C00200000",
     )
@@ -132,7 +124,7 @@ def test_get_options_lookup_response_400(respx_mock, client):
         json={"error": "Invalid symbol"},
         status_code=400,
     )
-    with pytest.raises(BadRequestError) as exc_info:
+    with pytest.raises(BadRequestError):
         client.options.lookup("AAPL 28-00-2023 200.0 call")
 
 

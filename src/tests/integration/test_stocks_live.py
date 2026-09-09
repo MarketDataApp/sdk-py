@@ -5,7 +5,6 @@ import datetime
 import pytest
 
 from marketdata import BadRequestError, MarketDataClient, OutputFormat
-from marketdata.exceptions import BadRequestError
 from marketdata.output_types.stocks_candles import StockCandle
 from marketdata.output_types.stocks_earnings import StockEarnings
 from marketdata.output_types.stocks_news import StockNews

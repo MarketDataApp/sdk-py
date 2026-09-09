@@ -214,7 +214,7 @@ def test_get_funds_candles_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadRequestError) as exc_info:
+    with pytest.raises(BadRequestError):
         client.funds.candles(
             symbol="VFINX",
             resolution="D",
@@ -242,7 +242,7 @@ def test_get_funds_candles_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         client.funds.candles(
             symbol="VFINX",
             resolution="D",

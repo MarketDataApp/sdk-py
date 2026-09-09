@@ -1,6 +1,5 @@
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
-from json import JSONDecodeError
 from typing import Annotated, Any
 
 from httpx import Response
