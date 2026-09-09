@@ -42,9 +42,17 @@ class ResponseMeta:
     HTTP responses behind the result: one for a plain call, more for a call
     made of several requests (candle chunks, option symbols, retried
     attempts), in which case ``credits_consumed`` is the sum over them,
-    ``credits_remaining`` the lowest seen, ``credit_limit`` and ``reset_time``
-    those of the newest window, and ``status_code`` and ``request_id`` those
-    of the last response.
+    ``credit_limit`` and ``reset_time`` those of the newest window,
+    ``credits_remaining`` the lowest seen **in that window**, and
+    ``status_code`` and ``request_id`` those of the last response.
+
+    The balance is scoped to the newest window on purpose: a call whose
+    retries cross a reset sees the credits go back up, and the lowest count
+    over both windows belongs to a window that has already closed. Pairing it
+    with the new window's ``reset_time`` would report a state that never
+    existed, the same reason ``RateLimitTracker`` discards an older window.
+    ``credits_consumed`` still adds up over every response: those credits were
+    really paid for this call, whichever window billed them.
     """
 
     status_code: int
@@ -69,9 +77,14 @@ class ResponseMeta:
         rate_limits = None
         if known:
             newest = max(known, key=lambda limits: limits.reset_timestamp)
+            current = [
+                limits
+                for limits in known
+                if limits.reset_timestamp == newest.reset_timestamp
+            ]
             rate_limits = UserRateLimits(
                 credit_limit=newest.credit_limit,
-                credits_remaining=min(limits.credits_remaining for limits in known),
+                credits_remaining=min(limits.credits_remaining for limits in current),
                 reset_time=newest.reset_time,
                 credits_consumed=sum(limits.credits_consumed for limits in known),
             )
@@ -120,7 +133,8 @@ def attach_meta(result: Any, meta: ResponseMeta) -> Any:
     """Attach ``meta`` to ``result`` and return the object to hand back.
 
     ``None`` (a single-object endpoint with no data) cannot carry anything and
-    is returned as is.
+    is returned as is. An exception takes the identity path like any other
+    object, which is how a failed call still reports what it was billed.
     """
     if result is None:
         return None
@@ -142,7 +156,11 @@ def attach_meta(result: Any, meta: ResponseMeta) -> Any:
 
 
 def get_meta(result: Any) -> ResponseMeta | None:
-    """The :class:`ResponseMeta` behind a resource call's result, if any."""
+    """The :class:`ResponseMeta` behind a resource call, if any.
+
+    Takes the result of a successful call or the exception a failed one
+    raised, so the credits a failure consumed are readable too.
+    """
     if result is None:
         return None
     attrs = getattr(result, "attrs", None)

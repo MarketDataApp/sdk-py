@@ -155,7 +155,19 @@ print(meta.request_id)                      # the cf-ray id, for support
 print(meta.rate_limits)                     # "Credits used X/Y, remaining: Z, reset at: ISO timestamp"
 ```
 
-`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest seen, and `meta.responses` says how many responses are behind the result. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data).
+`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data).
+
+A failed call is billed too, so the exception carries the same metadata a result would:
+
+```python
+try:
+    quotes = client.options.quotes(["AAPL250117C00150000", "NOTASYMBOL"])
+except marketdata.BaseMarketdataException as exc:
+    meta = marketdata.get_meta(exc)         # None if the call never reached the API
+    if meta:
+        print(meta.rate_limits.credits_consumed)   # what the failure cost
+        print(meta.responses)                      # requests behind it, retries included
+```
 
 There is no client-level snapshot: `client.rate_limits` was removed in 2.0 because with concurrent calls it reflected whichever request finished last. The SDK still tracks the latest known balance privately for the pre-flight check, and `client.utilities.user()` returns the account's balance at any time, for free.
 

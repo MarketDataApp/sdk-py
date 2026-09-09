@@ -106,6 +106,12 @@ def api_error_handler(
                 # Terminal failure, retries included: one ERROR line (SDK
                 # requirements §7), then the caller gets the exception itself.
                 logger.error(f"{func.__name__} failed: {exc}")
+                # A failed call is billed too: the responses it did get, the
+                # healthy requests of a fan-out and every retried attempt all
+                # consumed credits. `get_meta(exc)` reads them back, so the
+                # caller can account for what a failure cost.
+                if metas:
+                    attach_meta(exc, ResponseMeta.merge(metas))
                 raise
         if not metas:  # pragma: no cover - every resource call answers
             return result
