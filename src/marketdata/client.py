@@ -1,3 +1,4 @@
+import time
 from importlib.metadata import version
 from logging import DEBUG, INFO, Logger
 
@@ -18,6 +19,7 @@ from marketdata.exceptions import (
 from marketdata.input_types.base import UserUniversalAPIParams
 from marketdata.internal_settings import (
     HTTP_TIMEOUT,
+    MAX_CREDIT_WINDOW_SECONDS,
     MAX_RETRY_ATTEMPTS,
     NO_TOKEN_VALUE,
 )
@@ -100,15 +102,56 @@ class MarketDataClient:
         )
 
     def _check_rate_limits(self, raise_error: bool = True):
-        """Pre-flight check (SDK requirements §8.3) against the private tracker."""
+        """Pre-flight check (SDK requirements §8.3) against the private tracker.
+
+        One state refuses a request: the account is known to have no credits
+        left, in a window that has not reset yet. The other two used to raise
+        here and could not recover, because the tracker is fed by answers and
+        this runs before the request (#42):
+
+        - **Unknown credits.** The tracker starts empty, and answers without
+          credit headers leave it empty. Refusing here meant the state could
+          never be learned, and the client stayed bricked until it was built
+          again. The request goes out and its answer fills the tracker.
+        - **Exhausted credits in a window that already reset.** The state
+          describes a window that is over, so it is dropped rather than
+          consulted, and the next answer replaces it. Reading the balance
+          from ``/user/`` instead would spend a request to learn what the
+          next answer says anyway.
+
+        A reset time further in the past than a credit window can be is not a
+        window that closed, it is a value this client could not read (a header
+        that is not an epoch, a hand-built state, a clock that disagrees with
+        the API by more than a day). The request goes out, because refusing on
+        a number the SDK does not understand is the failure this fixes, but the
+        state is kept: it may be a real "no credits left" whose reset time is
+        the only unreadable part, and the next answer replaces it anyway.
+        """
         if not raise_error:
             return
         state = self._rate_limits.state
-        if state is None:
-            self.logger.error("Rate limits cant be checked")
-            raise RateLimitError("Rate limits cant be checked")
-        if state.credits_remaining <= 0:
-            raise RateLimitError("Rate limit exceeded")
+        if state is None or state.credits_remaining > 0:
+            return
+
+        seconds_to_reset = state.reset_timestamp - time.time()
+        if seconds_to_reset < -MAX_CREDIT_WINDOW_SECONDS:
+            self.logger.warning(
+                "Ignoring a credit state whose reset time is not a time this "
+                f"client can read: {state.reset_time.isoformat()}"
+            )
+            return
+        if seconds_to_reset <= 0:
+            self._rate_limits.discard(state)
+            return
+
+        self.logger.error(
+            f"No API credits left; the limit resets at {state.reset_time.isoformat()}"
+        )
+        raise RateLimitError(
+            "No API credits left until the limit resets at "
+            f"{state.reset_time.isoformat()}: the request was not sent",
+            retry_after=seconds_to_reset,
+        )
 
     @staticmethod
     def _error_message(response: Response) -> tuple[str, bool]:

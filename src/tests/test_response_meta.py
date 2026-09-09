@@ -3,6 +3,7 @@ result carries the credits its own request cost, also under concurrency."""
 
 import gc
 import pathlib
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from unittest.mock import patch
@@ -177,7 +178,12 @@ def test_a_failure_with_no_response_carries_no_meta(client):
     report, and nothing is invented for it."""
     client._rate_limits.reset(
         UserRateLimits(
-            credit_limit=100, credits_remaining=0, reset_time=RESET, credits_consumed=0
+            credit_limit=100,
+            credits_remaining=0,
+            # A window that has not reset yet, which is the only state the
+            # pre-flight check refuses (#42).
+            reset_time=time.time() + 3600,
+            credits_consumed=0,
         )
     )
 

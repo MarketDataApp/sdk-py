@@ -680,14 +680,41 @@ their setting ignored with no error.
 #### 8.3 Rate-limit exhaustion
 
 ```python
+import time
+
 client = MarketDataClient(token="...")
 client._rate_limits.reset(
-    UserRateLimits(credit_limit=100, credits_remaining=0, reset_time=60, credits_consumed=1)
+    UserRateLimits(
+        credit_limit=100,
+        credits_remaining=0,
+        reset_time=int(time.time()) + 3600,   # a window that has not reset yet
+        credits_consumed=100,
+    )
 )
-result = client.stocks.prices("AAPL")
+client.stocks.prices("AAPL")
 
-# Verify: a RateLimitError inside an error result, and NO HTTP request made.
-# Bug indicator: the request going out anyway, or an unhandled raise.
+# Verify: RateLimitError, NO HTTP request made, `error.response is None` (that is
+# what separates the SDK's refusal from the API's own 429) and `error.retry_after`
+# roughly the seconds left until the reset.
+# Bug indicator: the request going out anyway.
+```
+
+The other two states must **not** refuse, because the check runs before the request
+and the tracker is fed by answers, so refusing on them is self-perpetuating (#42):
+
+```python
+client._rate_limits.reset(None)                      # balance unknown
+client.stocks.prices("AAPL")                          # must go out
+
+client._rate_limits.reset(
+    UserRateLimits(
+        credit_limit=100, credits_remaining=0,
+        reset_time=int(time.time()) - 1,              # window already reset
+        credits_consumed=100,
+    )
+)
+client.stocks.prices("AAPL")                          # must go out
+# Bug indicator: a RateLimitError on either, which no later answer could clear.
 ```
 
 Also confirm the credits reported by `marketdata.get_meta(result)` change across

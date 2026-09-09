@@ -49,3 +49,20 @@ class RateLimitTracker:
         """Forget what is known (or replace it), bypassing the ordering rule."""
         with self._lock:
             self._state = state
+
+    def discard(self, state: UserRateLimits) -> None:
+        """Forget ``state``, but only while it is still the current one.
+
+        The pre-flight check drops an exhausted state once its window has
+        reset (#42). Comparing identity first keeps a late discard from
+        wiping the fresher state another thread recorded in between, which
+        would throw away a real "no credits left" and let a request out.
+
+        Emptying the tracker does lift the ordering rule for one update: the
+        next answer is accepted whatever window it describes, including a
+        late one from the window just dropped. That window is over, so the
+        check would drop its state again on the next request.
+        """
+        with self._lock:
+            if self._state is state:
+                self._state = None

@@ -415,7 +415,10 @@ All exception classes are importable from `marketdata` as well as from `marketda
 
 ### `RateLimitError`
 
-Raised when API rate limits are exceeded (before retry logic):
+Raised when the account has no API credits left, from two places that a caller can tell apart by `error.response`:
+
+- **The API answered `429`.** `error.response` is the answer, and `error.retry_after` carries the seconds it asked for, when it sent a `Retry-After` header.
+- **The SDK refused to send the request.** `error.response` is `None` and the request fields read `N/A`. This happens only when the last answer said there were no credits left and that window has not reset yet; `error.retry_after` is the number of seconds until it does. An unknown balance never refuses a request, and neither does an exhausted balance whose window has already reset.
 
 ```python
 from marketdata import MarketDataClient
@@ -450,7 +453,7 @@ One class per kind of failure, mapped from the HTTP status the API answered (SDK
 
 A `500` means the API itself failed on your request, so retrying would not help; `501` and above mean the API was unavailable or a gateway answered for it, which is why only those are retried. The two are separate classes: catching one never catches the other.
 
-All HTTP classes derive from `MarketdataHttpError` and keep the underlying `httpx` objects on `request` and `response`. `RateLimitError` is also raised by the pre-flight credit check, before any request goes out; in that case its request fields read `N/A`.
+All HTTP classes derive from `MarketdataHttpError` and keep the underlying `httpx` objects on `request` and `response`. `RateLimitError` is also raised by the pre-flight credit check, before any request goes out; in that case `response` is `None`, its request fields read `N/A`, and `retry_after` is the number of seconds until the balance resets.
 
 ### No data is not an error
 
@@ -836,10 +839,10 @@ See the specific resource documentation for details on concurrent request behavi
 
 Rate limits are tracked via response headers and updated after each request:
 
-- Rate limit information is extracted from response headers after every API call
-- The `UserRateLimits` object is updated automatically
-- Rate limit checking happens before each request (unless `check_rate_limits=False`)
-- If rate limits are exhausted, a `RateLimitError` is raised before making the request
+- Rate limit information is extracted from response headers after every API call, error answers included
+- The private tracker keeps the newest state it has seen; out-of-order answers do not move it backwards
+- The check runs before each request (unless `check_rate_limits=False`, which is how the `/user/` call at start-up and the service-status refresh go out)
+- The request is refused only when the balance is known to be zero in a window that has not reset yet. An unknown balance and an exhausted window that has already reset both let the request through, because the tracker is only fed by answers: refusing on those would mean the state could never change
 
 ## Development
 

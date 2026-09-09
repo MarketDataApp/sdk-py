@@ -1,5 +1,6 @@
 import datetime
 import os
+import time
 from dataclasses import fields
 from logging import Logger
 from unittest.mock import MagicMock, patch
@@ -14,6 +15,9 @@ from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import NO_TOKEN_VALUE
 from marketdata.settings import MarketDataSettings, settings
 from marketdata.types import UserRateLimits
+from src.tests.conftest import use_real_header_extraction
+
+PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 
 
 def test_user_rate_limits_str():
@@ -161,6 +165,17 @@ def test_client_check_rate_limits(client):
     assert client._rate_limits.state is not None
 
 
+def test_check_rate_limits_does_nothing_when_it_is_not_asked_to_raise(client):
+    """Demo mode and the `/user/` call at start-up go out unchecked, and the
+    state is left exactly as it was."""
+    state = _exhausted(time.time() + 3600)
+    client._rate_limits.reset(state)
+
+    client._check_rate_limits(raise_error=False)
+
+    assert client._rate_limits.state is state
+
+
 def test_client_no_token_not_check_rate_limits(respx_mock):
     client = MarketDataClient(token=NO_TOKEN_VALUE)
     route = respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
@@ -176,23 +191,213 @@ def test_client_no_token_not_check_rate_limits(respx_mock):
     assert not [c for c in respx_mock.calls if c.request.url.path == "/user/"]
 
 
-def test_client_check_rate_limits_no_rate_limits(client):
-    client._rate_limits.reset()
-    with pytest.raises(RateLimitError):
-        client._check_rate_limits(raise_error=True)
-
-
-def test_client_check_rate_limits_rate_limit_exceeded(client):
-    client._rate_limits.reset(
-        UserRateLimits(
-            credit_limit=100,
-            credits_remaining=0,
-            reset_time=1734567890,
-            credits_consumed=100,
-        )
+def _exhausted(reset_time) -> UserRateLimits:
+    return UserRateLimits(
+        credit_limit=100,
+        credits_remaining=0,
+        reset_time=reset_time,
+        credits_consumed=100,
     )
-    with pytest.raises(RateLimitError):
-        client._check_rate_limits(raise_error=True)
+
+
+def test_unknown_credits_do_not_refuse_a_request(respx_mock, client):
+    """Issue #42: the tracker is fed by answers and the check runs before the
+    request, so refusing on an unknown state made it unknowable forever and
+    the client stayed bricked until it was built again."""
+    client._rate_limits.reset()
+    route = respx_mock.get(PRICES_URL).respond(json={"s": "ok"}, status_code=200)
+
+    client._check_rate_limits(raise_error=True)
+    client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    assert route.call_count == 1
+
+
+def test_an_answer_with_no_credit_headers_leaves_the_client_usable(respx_mock, client):
+    """The same state, reached the way it happens in the wild: an answer that
+    carries no `x-api-ratelimit-*` headers at all."""
+    use_real_header_extraction(client)
+    client._rate_limits.reset()
+    client._rate_limits.reset()
+    route = respx_mock.get(PRICES_URL).respond(json={"s": "ok"}, status_code=200)
+
+    client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+    client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    assert route.call_count == 2
+    assert client._rate_limits.state is None
+
+
+def test_exhausted_credits_refuse_the_request_until_the_window_resets(
+    respx_mock, client
+):
+    state = _exhausted(time.time() + 3600)
+    client._rate_limits.reset(state)
+    route = respx_mock.get(PRICES_URL).respond(json={"s": "ok"}, status_code=200)
+
+    with pytest.raises(RateLimitError) as exc_info:
+        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    error = exc_info.value
+    assert not route.called, "the request must not go out"
+    assert state.reset_time.isoformat() in error.message
+    # About an hour: the round trip through `format_timestamp` and back moves
+    # the value by a fraction of a microsecond in either direction.
+    assert error.retry_after == pytest.approx(3600, abs=1)
+    # A pre-flight refusal is the one RateLimitError with no HTTP context, which
+    # is how a caller tells it from the API's own 429.
+    assert error.response is None
+    assert error.status_code == 0
+    assert client._rate_limits.state is state
+
+
+def test_exhausted_credits_of_a_window_that_reset_are_dropped(respx_mock, client):
+    """Issue #42: `reset_time` was stored and never consulted, so one exhausted
+    window refused every later request for the life of the client."""
+    use_real_header_extraction(client)
+    client._rate_limits.reset()
+    stale = _exhausted(time.time() - 1)
+    client._rate_limits.reset(stale)
+    route = respx_mock.get(PRICES_URL).respond(json={"s": "ok"}, status_code=200)
+
+    client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    assert route.call_count == 1
+    # Dropped rather than kept: this answer carries no credit headers, and a
+    # stale "no credits left" must not come back to refuse the next request.
+    assert client._rate_limits.state is None
+
+
+def test_the_answer_that_gets_through_repopulates_the_tracker(respx_mock, client):
+    use_real_header_extraction(client)
+    client._rate_limits.reset()
+    client._rate_limits.reset(_exhausted(time.time() - 1))
+    respx_mock.get(PRICES_URL).respond(
+        json={"s": "ok"},
+        status_code=200,
+        headers={
+            "x-api-ratelimit-limit": "100",
+            "x-api-ratelimit-remaining": "42",
+            "x-api-ratelimit-reset": str(int(time.time()) + 60),
+            "x-api-ratelimit-consumed": "58",
+        },
+    )
+
+    client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    assert client._rate_limits.state.credits_remaining == 42
+
+
+def test_a_real_answer_that_reports_no_credits_left_refuses_the_next_call(
+    respx_mock, client
+):
+    """The whole path with the headers the API really sends: an epoch reset in
+    the future and a zero balance, read from the answer rather than seeded, and
+    the refusal that follows on the next call. Every other test here builds the
+    state by hand, which is how a reset time the SDK cannot read would go
+    unnoticed."""
+    use_real_header_extraction(client)
+    client._rate_limits.reset()
+    reset_at = int(time.time()) + 300
+    route = respx_mock.get(PRICES_URL).respond(
+        json={"s": "ok"},
+        status_code=200,
+        headers={
+            "x-api-ratelimit-limit": "100",
+            "x-api-ratelimit-remaining": "0",
+            "x-api-ratelimit-reset": str(reset_at),
+            "x-api-ratelimit-consumed": "100",
+        },
+    )
+
+    client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+    with pytest.raises(RateLimitError) as exc_info:
+        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    assert route.call_count == 1, "the second request must not go out"
+    assert exc_info.value.retry_after == pytest.approx(300, abs=2)
+
+
+def test_a_naive_reset_time_is_read_in_the_zone_the_sdk_renders(respx_mock, client):
+    """A `reset_time` that arrives without an offset is US/Eastern, the zone
+    every timestamp in the SDK is rendered in. Reading it as UTC moved it by
+    hours, which is a refusal that is early or late by that much."""
+    eastern_in_an_hour = datetime.datetime.now(
+        pytz.timezone("US/Eastern")
+    ) + datetime.timedelta(hours=1)
+    client._rate_limits.reset(_exhausted(eastern_in_an_hour.replace(tzinfo=None)))
+    route = respx_mock.get(PRICES_URL).respond(json={"s": "ok"}, status_code=200)
+
+    with pytest.raises(RateLimitError) as exc_info:
+        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    assert not route.called
+    assert exc_info.value.retry_after == pytest.approx(3600, abs=2)
+
+
+def test_a_reset_time_the_client_cannot_read_lets_the_request_through(
+    respx_mock, client
+):
+    """`60` in the reset header (the shape the SDK's own fixtures use) parses
+    as a date in 1900. That is not a window that closed, it is a value this
+    client cannot read: the request goes out, and the state is kept rather
+    than dropped, since only its reset time is unreadable."""
+    state = _exhausted(60)
+    client._rate_limits.reset(state)
+    route = respx_mock.get(PRICES_URL).respond(json={"s": "ok"}, status_code=200)
+
+    client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    assert route.call_count == 1
+    assert client._rate_limits.state is state
+
+
+def test_a_429_leaves_the_pre_flight_speaking_for_the_next_call(respx_mock, client):
+    """The API's `Retry-After` is what it asked for on that request; the
+    pre-flight number that follows is the SDK's own, the time until the credit
+    window resets. Both are seconds to wait, and they need not agree."""
+    use_real_header_extraction(client)
+    client._rate_limits.reset()
+    route = respx_mock.get(PRICES_URL).respond(
+        json={"s": "error", "errmsg": "Rate limit exceeded"},
+        status_code=429,
+        headers={
+            "Retry-After": "30",
+            "x-api-ratelimit-limit": "100",
+            "x-api-ratelimit-remaining": "0",
+            "x-api-ratelimit-reset": str(int(time.time()) + 300),
+            "x-api-ratelimit-consumed": "100",
+        },
+    )
+
+    with pytest.raises(RateLimitError) as from_the_api:
+        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+    with pytest.raises(RateLimitError) as from_the_sdk:
+        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    assert route.call_count == 1
+    assert from_the_api.value.retry_after == 30.0
+    assert from_the_api.value.response is not None
+    assert from_the_sdk.value.retry_after == pytest.approx(300, abs=2)
+    assert from_the_sdk.value.response is None
+
+
+def test_a_429_still_raises_with_its_response(respx_mock, client):
+    """The other RateLimitError: the API's own answer, which keeps the HTTP
+    context and the `Retry-After` it sent."""
+    respx_mock.get(PRICES_URL).respond(
+        json={"s": "error", "errmsg": "Rate limit exceeded"},
+        status_code=429,
+        headers={"Retry-After": "30"},
+    )
+
+    with pytest.raises(RateLimitError) as exc_info:
+        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    error = exc_info.value
+    assert error.response is not None
+    assert error.status_code == 429
+    assert error.retry_after == 30.0
 
 
 def test_client_raise_for_status_fails(client):

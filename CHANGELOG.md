@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The pre-flight credit check no longer refuses requests it cannot judge (#42). It used to raise `RateLimitError` when the balance was unknown, a state the tracker could only leave by making a request, so a client that started without usable credit headers refused every call for the rest of its life. It also ignored the reset time, so one exhausted window refused every later request even after the API would have accepted them. Now an unknown balance and an exhausted window that has already reset both let the request through, and a refusal carries `retry_after`, the seconds until the balance resets
 - CSV files are created exclusively, so a path that appears between validation and the write fails the call instead of being silently overwritten; the `output/` directory is only created when a CSV is actually written, never on JSON/DataFrame/INTERNAL requests; CSV bytes are written verbatim on every platform (no doubled carriage returns on Windows) (#43)
 - A caller-supplied `filename` for `OutputFormat.CSV` is now honored on every resource; it used to be validated and then replaced by a timestamped file in `output/` (#60)
 - `stocks.candles()` no longer fetches every chunk-boundary day twice on intraday ranges longer than a year: the automatic year-sized chunks are now disjoint calendar-day ranges (#51)
