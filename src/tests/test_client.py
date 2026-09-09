@@ -1,6 +1,6 @@
-from dataclasses import fields
 import datetime
 import os
+from dataclasses import fields
 from logging import Logger
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +14,6 @@ from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import NO_TOKEN_VALUE
 from marketdata.settings import MarketDataSettings, settings
 from marketdata.types import UserRateLimits
-from marketdata.utils import format_duration_log
 
 
 def test_user_rate_limits_str():
@@ -66,7 +65,7 @@ def test_client_make_request_retry(client, respx_mock, monkeypatch):
         status_code=502,
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         client.stocks.prices(symbols="AAPL")
 
     prices_calls = [
@@ -84,7 +83,7 @@ def test_client_make_request_bad_status_not_retry(client, respx_mock):
         status_code=400,
     )
 
-    with pytest.raises(BadRequestError) as exc_info:
+    with pytest.raises(BadRequestError):
         client.stocks.prices(symbols="AAPL")
 
     assert respx_mock.calls.call_count == 2
@@ -97,7 +96,9 @@ def test_client_make_request_bad_status_not_retry(client, respx_mock):
 
 
 def test_validate_user_universal_params__settings_default(monkeypatch):
-    with (patch.object(MarketDataClient, "_make_request") as make_request_mock,):
+    with (
+        patch.object(MarketDataClient, "_make_request") as make_request_mock,
+    ):
         client = MarketDataClient(token="test")
         client.stocks.prices(symbols="AAPL")
         assert make_request_mock.called
@@ -346,7 +347,7 @@ def test_client_max_retries_zero_no_retry(respx_mock, monkeypatch):
         ),
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         c.stocks.prices(symbols="AAPL")
     assert respx_mock.calls.call_count == 2
 
@@ -393,7 +394,7 @@ def test_client_max_retries_one(respx_mock, monkeypatch):
         ),
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         c.stocks.prices(symbols="AAPL")
     prices_calls = [
         c for c in respx_mock.calls if c.request.url.path == "/v1/stocks/prices/"

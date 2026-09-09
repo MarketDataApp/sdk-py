@@ -8,7 +8,6 @@ from marketdata.utils import format_timestamp
 
 
 class StocksPricesInput(BaseInputType):
-
     model_config = BaseModelConfig
 
     symbols: str | list[str] = Field(
@@ -23,7 +22,6 @@ class StocksPricesInput(BaseInputType):
 
 
 class StocksQuotesInput(BaseInputType):
-
     model_config = BaseModelConfig
 
     symbols: str | list[str] = Field(
@@ -42,7 +40,6 @@ class StocksQuotesInput(BaseInputType):
 
 
 class StocksCandlesInput(BaseInputType):
-
     model_config = BaseModelConfig
 
     symbol: str = Field(description="The symbol to fetch candles for")
@@ -116,7 +113,6 @@ class StocksCandlesInput(BaseInputType):
 
 
 class StocksEarningsInput(BaseInputType):
-
     model_config = BaseModelConfig
 
     symbol: str = Field(description="The symbol to fetch earnings for")
@@ -148,7 +144,6 @@ class StocksEarningsInput(BaseInputType):
 
 
 class StocksNewsInput(BaseInputType):
-
     model_config = BaseModelConfig
 
     symbol: str = Field(description="The symbol to fetch news for")
