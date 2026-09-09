@@ -294,7 +294,17 @@ def test_no_data_candle_chunks_are_dropped_from_the_merge(
     assert all(isinstance(candle, StockCandle) for candle in candles)
 
 
-def test_no_data_on_every_candle_chunk_is_an_empty_result(respx_mock, client):
+@pytest.mark.parametrize(
+    ("output_format", "expected"),
+    [(OutputFormat.INTERNAL, []), (OutputFormat.JSON, NO_DATA)],
+    ids=["internal", "json"],
+)
+def test_no_data_on_every_candle_chunk_is_an_empty_result(
+    respx_mock, client, output_format, expected
+):
+    """`stocks.candles` is the one resource with no single response to echo
+    when every chunk is empty, so the JSON output falls back to the canonical
+    body rather than to one arbitrary chunk's."""
     respx_mock.get(CANDLES_URL).respond(json=NO_DATA, status_code=404)
 
     candles = client.stocks.candles(
@@ -302,10 +312,10 @@ def test_no_data_on_every_candle_chunk_is_an_empty_result(respx_mock, client):
         resolution="H",
         from_date="2023-01-01",
         to_date="2024-06-01",
-        output_format=OutputFormat.INTERNAL,
+        output_format=output_format,
     )
 
-    assert candles == []
+    assert candles == expected
 
 
 def test_no_data_on_every_option_symbol_is_an_empty_result(respx_mock, client):
@@ -546,6 +556,34 @@ def test_every_resource_renders_the_csv_no_data_placeholder_as_a_header_only_fil
     lines = pathlib.Path(path).read_bytes().split(b"\r\n")
     assert lines[1:] == [b""]
     assert lines[0] not in (b"", b"0")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{}, {"content": b""}, {"text": "<html>404 Not Found</html>"}],
+    ids=["json-no_data", "empty-body", "html-page"],
+)
+def test_a_no_data_404_is_empty_on_every_output_format_whatever_its_body(
+    respx_mock, client, tmp_path, body
+):
+    """The output format must not decide whether a call raises (#91). A 404
+    without `errmsg` is the empty answer by its status, so a body that does not
+    decode -- a CDN or proxy answering the 404 with no JSON -- gets the
+    canonical `{"s": "no_data"}` on the JSON path instead of a `ParseError`,
+    which is what the other three formats already did."""
+    kwargs = {"json": NO_DATA} if not body else body
+    respx_mock.get(PRICES_URL).respond(status_code=404, **kwargs)
+
+    assert client.stocks.prices("AAPL", output_format=OutputFormat.JSON) == NO_DATA
+    assert client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL) == []
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        assert (
+            len(client.stocks.prices("AAPL", output_format=OutputFormat.DATAFRAME)) == 0
+        )
+    path = client.stocks.prices(
+        "AAPL", output_format=OutputFormat.CSV, filename=tmp_path / f"{len(kwargs)}.csv"
+    )
+    assert pathlib.Path(path).exists()
 
 
 def test_no_data_csv_carries_the_requested_columns_in_request_order(

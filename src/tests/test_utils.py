@@ -135,6 +135,33 @@ def test_merge_csv_responses_rejects_a_body_that_is_not_this_resource(bodies, re
     assert exc_info.value.response is responses[-1]
 
 
+@pytest.mark.parametrize(
+    "second_header",
+    ["t,c", "T,C", "t, c", "﻿t,c"],
+    ids=["identical", "different-case", "space-after-comma", "bom"],
+)
+def test_merge_csv_responses_compares_headers_the_way_it_validates_them(second_header):
+    """A header is accepted when its names are this resource's columns seen
+    through `column_key`; the comparison between answers uses the same key, so
+    the same column spelled differently still merges. Raising here would be a
+    `ParseError` on a valid request, the failure mode #86 set out to remove.
+    The file keeps the first answer's spelling."""
+    responses = [_csv_response("t,c\n1,2\n"), _csv_response(f"{second_header}\n3,4\n")]
+
+    assert merge_csv_responses(responses, COLUMNS) == "t,c\r\n1,2\r\n3,4\r\n"
+
+
+def test_merge_csv_responses_still_refuses_a_different_column_order():
+    """Columns in another order are not the same header: merging the rows
+    would put each value under the wrong column."""
+    responses = [_csv_response("t,c\n1,2\n"), _csv_response("c,t\n4,3\n")]
+
+    with pytest.raises(ParseError) as exc_info:
+        merge_csv_responses(responses, COLUMNS)
+
+    assert "differs from" in exc_info.value.message
+
+
 def test_merge_csv_responses_without_headers_concatenates_rows_of_one_width():
     responses = [_csv_response("1,2\n3,4\n"), _csv_response("5,6\n")]
 

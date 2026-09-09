@@ -145,12 +145,17 @@ def merge_csv_responses(
     the same header, made of this resource's column names, and every row must
     be as wide as it; anything else (an HTML error page, a truncated body,
     two symbols answering with different columns) raises ``ParseError``
-    naming the offending response. With ``with_header=False``
+    naming the offending response. Headers are compared through ``column_key``,
+    the same way they are validated, so two answers spelling the same column
+    differently (case, a space after the comma) still merge; a different
+    *order* is refused, because merging misaligned rows would corrupt the
+    data. The file keeps the first answer's spelling. With ``with_header=False``
     (``add_headers=False``) the bodies carry no header, so only the row width
     is checked, against the first row seen.
     """
     known = {column_key(name) for name in known_columns}
     header: list[str] | None = None
+    header_key: list[str] | None = None
     width: int | None = None
     rows_out: list[list[str]] = []
 
@@ -164,9 +169,10 @@ def merge_csv_responses(
             unknown = [name for name in incoming if column_key(name) not in known]
             if unknown:
                 raise parse_error(response, f"unknown columns {unknown!r}")
+            incoming_key = [column_key(name) for name in incoming]
             if header is None:
-                header, width = incoming, len(incoming)
-            elif incoming != header:
+                header, header_key, width = incoming, incoming_key, len(incoming)
+            elif incoming_key != header_key:
                 raise parse_error(
                     response, f"header {incoming!r} differs from {header!r}"
                 )
