@@ -9,6 +9,7 @@ from marketdata.input_types.base import (
     OutputFormat,
     UserUniversalAPIParams,
 )
+from marketdata.exceptions import ParseError
 from marketdata.internal_settings import GLOBAL_EXCLUDED_PARAMS
 from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.settings import settings
@@ -99,7 +100,20 @@ def no_data_result(
     if output_format == OutputFormat.JSON:
         # Only the JSON output echoes the API's body; a CSV placeholder body
         # (#89) is not JSON, so nothing is decoded on the other formats.
-        return parse_json(response) if response is not None else dict(NO_DATA_BODY)
+        #
+        # A body that does not decode falls back to the canonical one rather
+        # than raising: the status already classified this answer as empty, and
+        # the other three output formats return their empty value for it. A
+        # `ParseError` only here would make the output format decide whether a
+        # call raises, which is exactly what #91 forbids. Reached when
+        # something between the client and the API answers the 404 (a CDN, a
+        # proxy, a gateway with no body).
+        if response is None:
+            return dict(NO_DATA_BODY)
+        try:
+            return parse_json(response)
+        except ParseError:
+            return dict(NO_DATA_BODY)
 
     if output_format == OutputFormat.CSV:
         # The caller who asked for no header gets an empty file, not a header.
