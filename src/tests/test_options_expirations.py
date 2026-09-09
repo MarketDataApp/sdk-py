@@ -148,7 +148,7 @@ def test_get_options_expirations_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadRequestError) as exc_info:
+    with pytest.raises(BadRequestError):
         client.options.expirations(symbol="AAPL", output_format=OutputFormat.INTERNAL)
 
 
@@ -173,7 +173,7 @@ def test_get_options_expirations_status_offline(load_json, respx_mock, client):
         status_code=501,
     )
 
-    with pytest.raises(ServerError) as exc_info:
+    with pytest.raises(ServerError):
         client.options.expirations(symbol="AAPL", output_format=OutputFormat.INTERNAL)
 
 

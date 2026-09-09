@@ -4,6 +4,7 @@ from marketdata.exceptions import (
     BadRequestError,
     BaseMarketdataException,
     ForbiddenError,
+    InternalError,
     InvalidStatusDataError,
     KeywordOnlyArgumentError,
     MarketdataHttpError,
@@ -14,7 +15,6 @@ from marketdata.exceptions import (
     NotFoundError,
     ParseError,
     RateLimitError,
-    InternalError,
     ServerError,
 )
 from marketdata.input_types.base import DateFormat, Mode, OutputFormat

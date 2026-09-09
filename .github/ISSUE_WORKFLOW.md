@@ -316,13 +316,16 @@ Closing due to inactivity. If you can provide the requested information, feel fr
        `--cov-fail-under` and no coverage status check — so read the number rather than
        trusting the build to fail.
 
-5. [ ] **Check formatting.** `./lint.sh` rewrites files; the pre-commit hooks and any
-       review will check them:
+5. [ ] **Lint and format.** `./lint.sh` rewrites files; the `Lint` check on the pull
+       request runs the same two commands in check mode, so a red `Lint` means you
+       skipped this step. Install the pre-commit hooks once per clone to catch it
+       before the push:
 
        ```bash
-       ./lint.sh                                    # black + isort --profile black
-       uv run black . --check
-       uv run isort . --profile black --check-only
+       uv run pre-commit install                    # once per clone
+       ./lint.sh                                    # rewrites, non-zero if anything is left
+       uv run ruff check src/ examples/ .github/scripts/
+       uv run ruff format --check src/ examples/ .github/scripts/
        ```
 
 6. [ ] **If the fix touches an input model or a URL parameter, verify the request the SDK

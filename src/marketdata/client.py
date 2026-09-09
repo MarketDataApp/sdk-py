@@ -34,7 +34,6 @@ from marketdata.utils import format_duration_log, obfuscate_token, resume_long_t
 
 
 class MarketDataClient:
-
     def __init__(
         self,
         token: str = None,
@@ -49,7 +48,7 @@ class MarketDataClient:
         self.library_user_agent = self._get_user_agent()
 
         self.logger = logger or get_logger()
-        self.logger.info(f"Initializing MarketDataClient")
+        self.logger.info("Initializing MarketDataClient")
         logged_token = (
             self.token if self.token == NO_TOKEN_VALUE else obfuscate_token(self.token)
         )
@@ -171,7 +170,7 @@ class MarketDataClient:
         )
 
     def _extract_rate_limits(self, response: Response) -> UserRateLimits | None:
-        self.logger.debug(f"Extracting response rate limits from response headers")
+        self.logger.debug("Extracting response rate limits from response headers")
         try:
             return UserRateLimits(
                 credit_limit=int(response.headers["x-api-ratelimit-limit"]),

@@ -4,6 +4,20 @@ from dataclasses import dataclass
 from marketdata.utils import format_timestamp
 
 
+def _join_list(lists: list[list]) -> list:
+    return [item for sublist in lists for item in sublist]
+
+
+def _to_internal_field(field: str) -> str:
+    """`Expiration Date` as the API sends it, `Expiration_Date` as the model
+    names it."""
+    return field.replace(" ", "_")
+
+
+def _to_human_readable_field(field: str) -> str:
+    return field.replace("_", " ")
+
+
 @dataclass
 class OptionsQuotes:
     s: str
@@ -47,7 +61,7 @@ class OptionsQuotes:
         ]
 
     def __repr__(self) -> str:
-        result = f"Options Quotes:\n"
+        result = "Options Quotes:\n"
         result += f"Symbol: {len(self.optionSymbol)} options\n"
         result += f"Underlying: {len(self.underlying)} underlying\n"
         result += f"Expiration: {len(self.expiration)} expirations\n"
@@ -63,7 +77,6 @@ class OptionsQuotes:
 
     @staticmethod
     def join_dicts(dicts: list[dict]) -> dict:
-        _join_list = lambda lists: [item for sublist in lists for item in sublist]
         data = {
             field: _join_list([dict.get(field, []) for dict in dicts])
             for field in OptionsQuotes.__dataclass_fields__
@@ -124,7 +137,7 @@ class OptionsQuotesHumanReadable:
         self.Date = [format_timestamp(date) for date in self.Date]
 
     def __repr__(self) -> str:
-        result = f"Options Quotes:\n"
+        result = "Options Quotes:\n"
         result += f"Underlying: {len(self.Underlying)} underlying\n"
         result += f"Expiration Date: {len(self.Expiration_Date)} expiration dates\n"
         result += f"Option Side: {len(self.Option_Side)} sides\n"
@@ -139,10 +152,6 @@ class OptionsQuotesHumanReadable:
 
     @staticmethod
     def join_dicts(dicts: list[dict]) -> dict:
-        _join_list = lambda lists: [item for sublist in lists for item in sublist]
-        _to_internal_field = lambda field: field.replace(" ", "_")
-        _to_human_readable_field = lambda field: field.replace("_", " ")
-
         data = {
             _to_internal_field(field): _join_list(
                 [dict[_to_human_readable_field(field)] for dict in dicts]

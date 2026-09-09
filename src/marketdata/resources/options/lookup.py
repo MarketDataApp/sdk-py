@@ -34,7 +34,6 @@ def lookup(
     )
 
     # All params are already in the path
-    _format_date = lambda date: date.strftime("%d-%M-%Y")
     excluded_params = OptionsLookupInput.model_fields.keys()
     lookup_quote = encode_path(input_params.lookup)
 
