@@ -581,6 +581,8 @@ The retry mechanism only retries `ServerError` (501 and above) and `NetworkError
 
 The retry wraps one request. In the calls made of several requests, `stocks.candles` (one per year-sized chunk of an intraday range) and `options.quotes` (one per symbol), each request retries on its own: a chunk or a symbol that fails is re-issued alone, the healthy responses are kept, and one unreachable symbol never re-sends (or re-bills) the others. The attempts still add up in the result's metadata (see [Credits and Response Metadata](#credits-and-response-metadata)).
 
+**One failed request fails the whole call, and the healthy ones are still billed.** The requests run in parallel and the call waits for all of them, so when one symbol or chunk ends in a terminal error the others have already been sent, charged and possibly retried. The exception carries that cost: `marketdata.get_meta(exc).rate_limits.credits_consumed` is what the failed call actually spent.
+
 **Important:** Resource methods either return the requested result (DataFrame, list of objects, dict, or the CSV filename) or raise. There is no error return value; see [Error Handling](#error-handling).
 
 ## API Status Checking
