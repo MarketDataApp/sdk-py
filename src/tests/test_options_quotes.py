@@ -2,7 +2,6 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
-import httpx
 import pytest
 import pytz
 
@@ -438,10 +437,6 @@ PUT_ROW = CALL_ROW.replace("AAPL271217C00255000", "AAPL271217P00255000").replace
     ",call,", ",put,"
 )
 CSV_PLACEHOLDER = '0\r\n""\r\n'
-
-
-def _csv_quotes(*, symbols, **kwargs):
-    return client_quotes_csv(symbols, **kwargs)
 
 
 def test_get_options_quotes_response_200_csv(respx_mock, client, tmp_path):
