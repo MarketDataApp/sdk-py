@@ -666,6 +666,34 @@ def test_options_quotes_join_dicts():
     assert joined["expiration"] == [1829077200, 1829077200]
 
 
+def test_options_quotes_human_readable_join_dicts():
+    """The human-readable merge, the only place the API's spaced names are
+    translated to the model's underscored ones. It went out of this PR with
+    the null helpers by mistake: nothing else exercises it with more than one
+    symbol, so a `join_dicts` that kept only the first symbol's rows would
+    leave the suite green and the file at 100% coverage."""
+    dicts = [
+        {
+            "s": "ok",
+            "Symbol": ["AAPL271217C00255000"],
+            "Underlying": ["AAPL"],
+            "Expiration Date": [1829077200],
+        },
+        {
+            "s": "ok",
+            "Symbol": ["AAPL271217C00255000"],
+            "Underlying": ["AAPL"],
+            "Expiration Date": [1829077200],
+        },
+    ]
+
+    assert OptionsQuotesHumanReadable.join_dicts(dicts) == {
+        "Symbol": ["AAPL271217C00255000", "AAPL271217C00255000"],
+        "Underlying": ["AAPL", "AAPL"],
+        "Expiration_Date": [1829077200, 1829077200],
+    }
+
+
 def test_options_quotes_input_date_range_aliases_on_wire(load_json, respx_mock, client):
     mock_data = load_json("options_quotes_response_200")
     respx_mock.get(

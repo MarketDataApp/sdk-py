@@ -126,3 +126,27 @@ def test_an_unreachable_candle_chunk_fails_the_call_without_re_sending_the_other
 
     assert calls.count("2023-01-01") == 1
     assert len(calls) == 1 + client.max_retries + 1
+
+
+@patch(
+    "marketdata.api_error.API_STATUS_DATA.get_api_status",
+    return_value=APIStatusResult.OFFLINE,
+)
+def test_an_outage_is_reported_once_for_the_whole_fan_out(
+    get_api_status, load_json, respx_mock, client, caplog
+):
+    """The status check moved into each worker with the per-request retry
+    (#83), and `get_api_status` logs an offline service at ERROR. Fifty
+    symbols asking it separately would answer an outage with fifty ERROR
+    lines, against the one-line rule of SDK requirements §7."""
+    respx_mock.get(url__regex=r".*/options/quotes/.*").respond(json={}, status_code=503)
+    symbols = [f"AAPL25011{i}C00150000" for i in range(8)]
+
+    with caplog.at_level("ERROR", logger="marketdata.logger"):
+        with pytest.raises(ServerError):
+            client.options.quotes(symbols, output_format=OutputFormat.INTERNAL)
+
+    # One lookup for the call, and the only ERROR line is the decorator's.
+    assert get_api_status.call_count == 1
+    assert len(caplog.records) == 1
+    assert "quotes failed" in caplog.records[0].message
