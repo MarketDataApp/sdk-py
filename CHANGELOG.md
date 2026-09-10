@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `options.quotes()` raises `BadStatusCodeError` instead of returning an error object when none of the per-symbol responses is usable (#20)
 - `stocks.quotes()` now requests `stocks/quotes/?symbols=...` instead of the deprecated `stocks/bulkquotes/`; the method, its parameters and its output are unchanged (#74)
 - **BREAKING**: `UserRateLimits` speaks in API credits, as the product does (SDK requirements §8.1): `requests_limit` → `credit_limit`, `requests_remaining` → `credits_remaining`, `requests_consumed` → `credits_consumed`, `requests_reset` → `reset_time`. The old names are gone, with no aliases; its string form now reads `Credits used X/Y, remaining: Z, reset at: <ISO timestamp>` (#48)
-- The pre-flight credit check reads a private, thread-safe tracker fed by every response that carries credit headers, error answers included; out-of-order responses (an older reset window, a higher remaining in the same window) are ignored, and every response logs its credits at DEBUG (#49)
+- The pre-flight credit check reads a private, thread-safe tracker fed by every response that carries credit headers, error answers included; out-of-order responses (an older reset window, a higher remaining in the same window) are ignored, and every response logs its credits at DEBUG. An envelope with a `credit_limit` of zero is not recorded: the API answers a missing or unknown token with demo data and a `0/0` envelope from another window, which would otherwise tell the check this account has no credits. `client.utilities.user()` is asked for precisely to learn the balance, so its answer replaces the state rather than being weighed against it (#49)
 
 ### Added
 
