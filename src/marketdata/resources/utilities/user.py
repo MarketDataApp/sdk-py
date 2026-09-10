@@ -33,6 +33,9 @@ def user(
         url="user/",
         include_api_version=False,
         check_rate_limits=False,
+        # Asked for precisely to learn the balance, so it replaces whatever the
+        # pre-flight state held instead of being weighed against it.
+        authoritative_credits=True,
     )
 
     return render(
