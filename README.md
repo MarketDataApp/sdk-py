@@ -587,6 +587,8 @@ The retry wraps one request. In the calls made of several requests, `stocks.cand
 
 **One failed request fails the whole call, and the healthy ones are still billed.** The requests run in parallel and the call waits for all of them, so when one symbol or chunk ends in a terminal error the others have already been sent, charged and possibly retried. The exception carries that cost: `marketdata.get_meta(exc).rate_limits.credits_consumed` is what the failed call actually spent.
 
+How long that wait can be, with the default three retries: the error surfaces once the slowest sibling finishes its own ladder, so about 7 seconds of backoff (1 + 2 + 4) when the siblings answer quickly, longer if the API sends `Retry-After`, and up to four HTTP timeouts (about 4 minutes at the 60-second default) if they hang instead of answering. Sibling requests keep being sent and billed during that time. Shortening it means cancelling the pending requests, which is [#98](https://github.com/MarketDataApp/sdk-py/issues/98).
+
 **Important:** Resource methods either return the requested result (DataFrame, list of objects, dict, or the CSV filename) or raise. There is no error return value; see [Error Handling](#error-handling).
 
 ## API Status Checking

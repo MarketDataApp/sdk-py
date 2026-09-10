@@ -27,7 +27,7 @@ from marketdata.utils import (
 SERVICE = "/v1/options/quotes/"
 
 
-@api_error_handler(service=SERVICE, retry=False)
+@api_error_handler(retry=False)
 @docs(exclude_params=["user_universal_params", "input_params"])
 @universal_params(resource_input_type=OptionsQuotesInput)
 def quotes(
