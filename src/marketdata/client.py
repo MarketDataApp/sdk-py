@@ -22,6 +22,8 @@ from marketdata.internal_settings import (
     NO_TOKEN_VALUE,
 )
 from marketdata.logger import get_logger
+from marketdata.meta import ResponseMeta, record_meta
+from marketdata.rate_limit_tracker import RateLimitTracker
 from marketdata.resources.funds import FundsResource
 from marketdata.resources.markets import MarketsResource
 from marketdata.resources.options import OptionsResource
@@ -62,8 +64,9 @@ class MarketDataClient:
         self.client = self._get_client()
         self.default_params = UserUniversalAPIParams()
 
-        # Set initial rate limits
-        self.rate_limits = None
+        # The private credit tracker behind the pre-flight check (#49); the
+        # request-scoped numbers travel with each result (marketdata.get_meta).
+        self._rate_limits = RateLimitTracker()
         self._setup_rate_limits()
 
         # Set resources
@@ -97,11 +100,14 @@ class MarketDataClient:
         )
 
     def _check_rate_limits(self, raise_error: bool = True):
-        if raise_error and self.rate_limits is None:
+        """Pre-flight check (SDK requirements §8.3) against the private tracker."""
+        if not raise_error:
+            return
+        state = self._rate_limits.state
+        if state is None:
             self.logger.error("Rate limits cant be checked")
             raise RateLimitError("Rate limits cant be checked")
-
-        if raise_error and self.rate_limits.credits_remaining <= 0:
+        if state.credits_remaining <= 0:
             raise RateLimitError("Rate limit exceeded")
 
     @staticmethod
@@ -165,8 +171,8 @@ class MarketDataClient:
             url="user/",
             check_rate_limits=False,
             include_api_version=False,
-            populate_rate_limits=True,
             response_log_level=DEBUG,
+            authoritative_credits=True,
         )
 
     def _extract_rate_limits(self, response: Response) -> UserRateLimits | None:
@@ -178,9 +184,14 @@ class MarketDataClient:
                 reset_time=int(response.headers["x-api-ratelimit-reset"]),
                 credits_consumed=int(response.headers["x-api-ratelimit-consumed"]),
             )
-        except (KeyError, ValueError) as e:
-            # Malformed response (e.g. missing or non-numeric rate-limit
-            # headers) must not crash the request that already succeeded.
+        except KeyError:
+            # No credit headers (the /status/ and /headers/ utilities, some
+            # error answers): nothing to track.
+            self.logger.debug("Response carries no rate-limit headers")
+            return None
+        except ValueError as e:
+            # Malformed headers must not crash the request that already
+            # succeeded.
             self.logger.warning(
                 f"Could not extract rate limits from response headers: {e!r}"
             )
@@ -203,8 +214,9 @@ class MarketDataClient:
         method: str,
         url: str,
         check_rate_limits: bool = True,
-        populate_rate_limits: bool = True,
+        part_of_result: bool = True,
         include_api_version: bool = True,
+        authoritative_credits: bool = False,
         timeout: int = HTTP_TIMEOUT,
         response_log_level: int = INFO,
         **kwargs,
@@ -235,11 +247,23 @@ class MarketDataClient:
             ) from exc
         self._post_request_logs(response, response_log_level)
 
-        self._raise_for_status(response)
+        # Every response that carries credit headers, error answers included,
+        # feeds the pre-flight tracker, which ignores an envelope that is not
+        # this account's. The request-scoped copy reports what the answer said
+        # whatever that is, and goes to the caller's result through the scope
+        # the resource decorator opened, unless the response is bookkeeping
+        # (the status cache refresh).
+        rate_limits = self._extract_rate_limits(response)
+        if rate_limits is not None:
+            self._rate_limits.update(rate_limits, authoritative=authoritative_credits)
+            self.logger.debug(
+                f"Credits: {rate_limits.credits_consumed} consumed, "
+                f"{rate_limits.credits_remaining}/{rate_limits.credit_limit} "
+                f"remaining, reset at {rate_limits.reset_time.isoformat()}"
+            )
+        if part_of_result:
+            record_meta(ResponseMeta.from_response(response, rate_limits))
 
-        if populate_rate_limits:
-            rate_limits = self._extract_rate_limits(response)
-            if rate_limits is not None:
-                self.rate_limits = rate_limits
+        self._raise_for_status(response)
 
         return response

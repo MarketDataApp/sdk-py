@@ -121,8 +121,10 @@ def test_get_utilities_status_is_not_blocked_by_exhausted_credits(
 ):
     mock_data = load_json("utilities_status_response_200")
     respx_mock.get(STATUS_URL).respond(json=mock_data, status_code=200)
-    client.rate_limits = UserRateLimits(
-        credit_limit=100, credits_remaining=0, reset_time=60, credits_consumed=1
+    client._rate_limits.reset(
+        UserRateLimits(
+            credit_limit=100, credits_remaining=0, reset_time=60, credits_consumed=1
+        )
     )
 
     statuses = client.utilities.status(output_format=OutputFormat.INTERNAL)

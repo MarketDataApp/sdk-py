@@ -8,6 +8,7 @@ from tenacity import before_sleep_log
 from marketdata.api_status import API_STATUS_DATA, APIStatusResult
 from marketdata.exceptions import NetworkError, ServerError
 from marketdata.internal_settings import INITIAL_RETRY_DELAY
+from marketdata.meta import ResponseMeta, attach_meta, collect_metas
 from marketdata.resources.base import BaseResource
 from marketdata.retry import get_retry_adapter
 
@@ -62,12 +63,24 @@ def api_error_handler(
             reraise=True,
             before_sleep=_status_check_before_sleep,
         )
-        try:
-            return retry_adapter(func, *args, **kwargs)
-        except Exception as exc:
-            # Terminal failure, retries included: one ERROR line (SDK
-            # requirements §7), then the caller gets the exception itself.
-            logger.error(f"{func.__name__} failed: {exc}")
-            raise
+        # Every response behind this call (chunks, symbols, retried attempts)
+        # lands in `metas`; the merged metadata travels with the result (#49).
+        with collect_metas() as metas:
+            try:
+                result = retry_adapter(func, *args, **kwargs)
+            except Exception as exc:
+                # Terminal failure, retries included: one ERROR line (SDK
+                # requirements §7), then the caller gets the exception itself.
+                logger.error(f"{func.__name__} failed: {exc}")
+                # A failed call is billed too: the responses it did get, the
+                # healthy requests of a fan-out and every retried attempt all
+                # consumed credits. `get_meta(exc)` reads them back, so the
+                # caller can account for what a failure cost.
+                if metas:
+                    attach_meta(exc, ResponseMeta.merge(metas, failed=True))
+                raise
+        if not metas:  # pragma: no cover - every resource call answers
+            return result
+        return attach_meta(result, ResponseMeta.merge(metas))
 
     return wrapper

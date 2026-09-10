@@ -5,6 +5,7 @@ import pytest
 
 from marketdata.exceptions import AuthenticationError
 from marketdata.input_types.base import OutputFormat
+from marketdata.meta import get_meta
 from marketdata.output_types.utilities_user import User
 from marketdata.types import UserRateLimits
 
@@ -65,10 +66,12 @@ def test_get_utilities_user_refreshes_client_rate_limits(load_json, respx_mock, 
     # drop that so the real extraction runs.
     client.__dict__.pop("_extract_rate_limits", None)
 
-    client.utilities.user(output_format=OutputFormat.INTERNAL)
+    user = client.utilities.user(output_format=OutputFormat.INTERNAL)
 
-    assert client.rate_limits.credit_limit == 10000
-    assert client.rate_limits.credits_remaining == 9500
+    # The balance travels with the result and feeds the pre-flight tracker.
+    assert get_meta(user).rate_limits.credit_limit == 10000
+    assert get_meta(user).rate_limits.credits_remaining == 9500
+    assert client._rate_limits.state.credits_remaining == 9500
 
 
 def test_get_utilities_user_is_not_blocked_by_exhausted_credits(
@@ -76,8 +79,10 @@ def test_get_utilities_user_is_not_blocked_by_exhausted_credits(
 ):
     mock_data = load_json("utilities_user_response_200")
     respx_mock.get(USER_URL).respond(json=mock_data, status_code=200)
-    client.rate_limits = UserRateLimits(
-        credit_limit=100, credits_remaining=0, reset_time=60, credits_consumed=1
+    client._rate_limits.reset(
+        UserRateLimits(
+            credit_limit=100, credits_remaining=0, reset_time=60, credits_consumed=1
+        )
     )
 
     user = client.utilities.user(output_format=OutputFormat.INTERNAL)

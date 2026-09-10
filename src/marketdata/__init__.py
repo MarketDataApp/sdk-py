@@ -18,12 +18,17 @@ from marketdata.exceptions import (
     ServerError,
 )
 from marketdata.input_types.base import DateFormat, Mode, OutputFormat
+from marketdata.meta import ResponseMeta, get_meta
+from marketdata.types import UserRateLimits
 
 __all__ = [
     "MarketDataClient",
     "OutputFormat",
     "DateFormat",
     "Mode",
+    "ResponseMeta",
+    "UserRateLimits",
+    "get_meta",
     "BaseMarketdataException",
     "MarketdataHttpError",
     "BadRequestError",

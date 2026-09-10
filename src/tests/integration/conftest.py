@@ -49,6 +49,7 @@ def live_client(live_token: str) -> MarketDataClient:
     # One client per session: construction already makes a live /user/ call to
     # seed the rate limits, so this is also the first live assertion.
     client = MarketDataClient(token=live_token)
-    assert client.rate_limits is not None, "/user/ did not return rate-limit headers"
-    assert client.rate_limits.credit_limit > 0
+    state = client._rate_limits.state
+    assert state is not None, "/user/ did not return rate-limit headers"
+    assert state.credit_limit > 0
     return client

@@ -1,3 +1,4 @@
+import contextvars
 import datetime
 import itertools
 from concurrent.futures import ThreadPoolExecutor
@@ -86,8 +87,16 @@ def candles(
     self.logger.debug("Fetching stock candles...")
     responses = []
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS) as executor:
+        # Each worker runs in a copy of the caller's context so its response
+        # lands in the call's metadata scope (#49).
         futures = [
-            executor.submit(_get_response, input_params, from_date, to_date)
+            executor.submit(
+                contextvars.copy_context().run,
+                _get_response,
+                input_params,
+                from_date,
+                to_date,
+            )
             for from_date, to_date in year_ranges
         ]
         responses = [future.result(timeout=HTTP_TIMEOUT) for future in futures]
