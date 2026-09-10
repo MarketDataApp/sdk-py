@@ -191,6 +191,7 @@ class MarketDataClient:
             check_rate_limits=False,
             include_api_version=False,
             response_log_level=DEBUG,
+            authoritative_credits=True,
         )
 
     def _extract_rate_limits(self, response: Response) -> UserRateLimits | None:
@@ -234,6 +235,7 @@ class MarketDataClient:
         check_rate_limits: bool = True,
         part_of_result: bool = True,
         include_api_version: bool = True,
+        authoritative_credits: bool = False,
         timeout: int = HTTP_TIMEOUT,
         response_log_level: int = INFO,
         **kwargs,
@@ -265,12 +267,14 @@ class MarketDataClient:
         self._post_request_logs(response, response_log_level)
 
         # Every response that carries credit headers, error answers included,
-        # feeds the pre-flight tracker. The request-scoped copy goes to the
-        # caller's result through the scope the resource decorator opened,
-        # unless the response is bookkeeping (the status cache refresh).
+        # feeds the pre-flight tracker, which ignores an envelope that is not
+        # this account's. The request-scoped copy reports what the answer said
+        # whatever that is, and goes to the caller's result through the scope
+        # the resource decorator opened, unless the response is bookkeeping
+        # (the status cache refresh).
         rate_limits = self._extract_rate_limits(response)
         if rate_limits is not None:
-            self._rate_limits.update(rate_limits)
+            self._rate_limits.update(rate_limits, authoritative=authoritative_credits)
             self.logger.debug(
                 f"Credits: {rate_limits.credits_consumed} consumed, "
                 f"{rate_limits.credits_remaining}/{rate_limits.credit_limit} "
