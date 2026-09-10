@@ -17,9 +17,9 @@ from marketdata.exceptions import (
 )
 from marketdata.input_types.base import UserUniversalAPIParams
 from marketdata.internal_settings import (
-    HTTP_TIMEOUT,
     MAX_RETRY_ATTEMPTS,
     NO_TOKEN_VALUE,
+    REQUEST_TIMEOUT,
 )
 from marketdata.logger import get_logger
 from marketdata.meta import ResponseMeta, record_meta
@@ -97,6 +97,10 @@ class MarketDataClient:
         return Client(
             base_url=settings.marketdata_base_url,
             headers=self.headers,
+            # On the client, not on each call: httpx defaults to 5 seconds, so
+            # anything that reached this object without going through
+            # `_make_request` used a bound nobody chose (#64).
+            timeout=REQUEST_TIMEOUT,
         )
 
     def _check_rate_limits(self, raise_error: bool = True):
@@ -217,7 +221,6 @@ class MarketDataClient:
         part_of_result: bool = True,
         include_api_version: bool = True,
         authoritative_credits: bool = False,
-        timeout: int = HTTP_TIMEOUT,
         response_log_level: int = INFO,
         **kwargs,
     ) -> Response:
@@ -231,7 +234,10 @@ class MarketDataClient:
 
         self._pre_request_logs(method, url, **kwargs)
         try:
-            response = self.client.request(method, url, **kwargs, timeout=timeout)
+            # No `timeout=` here: the client carries the fixed one (§10),
+            # so there is one place to read it and no argument a resource
+            # could use to give itself a longer bound.
+            response = self.client.request(method, url, **kwargs)
         except DecodingError as exc:
             # The API answered but the body does not match its Content-Encoding
             # (an intercepting proxy): the answer is unusable, not missing.
