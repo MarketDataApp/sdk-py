@@ -77,7 +77,7 @@ def api_error_handler(
                 # consumed credits. `get_meta(exc)` reads them back, so the
                 # caller can account for what a failure cost.
                 if metas:
-                    attach_meta(exc, ResponseMeta.merge(metas))
+                    attach_meta(exc, ResponseMeta.merge(metas, failed=True))
                 raise
         if not metas:  # pragma: no cover - every resource call answers
             return result
