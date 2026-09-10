@@ -95,3 +95,21 @@ def test_api_error_handler_without_retry_calls_once(_, client):
     with pytest.raises(ServerError):
         resource.test_function_retries_itself()
     assert DummyResource.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"service": "/v1/options/quotes/"}, {"check_status": False}],
+    ids=["service", "check_status"],
+)
+def test_a_resource_that_retries_its_own_requests_cannot_configure_the_decorator(
+    kwargs,
+):
+    """`retry=False` means the resource builds its own adapter and passes the
+    service and the status check to it, so those arguments do nothing here. A
+    reader who changes the path in the decorator would see nothing fail while
+    the request kept using the old one, which is how the fan-outs drifted."""
+    with pytest.raises(ValueError) as exc_info:
+        api_error_handler(retry=False, **kwargs)
+
+    assert "does not use" in str(exc_info.value)
