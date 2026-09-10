@@ -3,6 +3,7 @@ from logging import DEBUG, INFO, Logger
 
 from httpx import Client, DecodingError, RequestError, Response
 
+from marketdata.api_error import get_resource_retry_adapter
 from marketdata.exceptions import (
     AuthenticationError,
     BadRequestError,
@@ -170,7 +171,14 @@ class MarketDataClient:
         if self.token is NO_TOKEN_VALUE:
             return
         self.logger.debug("Setting up rate limits")
-        self._make_request(
+        # Retried like any other request. It is the one call no resource makes,
+        # so without this a single connect timeout at start-up, now bounded at
+        # 2 seconds (#64), fails the constructor outright. The status check is
+        # off: `/user/` has no entry in the `/status/` service list, and asking
+        # for one while building the client would be a second request.
+        retry_adapter = get_resource_retry_adapter(self, "/user/", check_status=False)
+        retry_adapter(
+            self._make_request,
             method="GET",
             url="user/",
             check_rate_limits=False,

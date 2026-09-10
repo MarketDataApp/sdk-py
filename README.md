@@ -136,7 +136,7 @@ client = MarketDataClient(token="your_token_here", logger=custom_logger)
 - The library version is automatically detected from the installed package
 - All requests include an `Authorization: Bearer {token}` header
 - The client uses `httpx.Client` for HTTP requests with automatic connection pooling
-- Every request has the same fixed timeout: 99 seconds to read the answer, and 2 seconds to open the connection. It is not configurable, so a call cannot outlive the API's own limit; to give up sooner, cancel the call rather than shortening the timeout
+- Every request has the same fixed timeout, and it is not configurable: 2 seconds to open the connection, and 99 seconds each to write the request, wait for a free connection, and read a chunk of the answer. Those bound operations rather than the call, so a server that keeps trickling bytes can hold a request open longer; to give up sooner, cancel the call from your own code
 
 ### Credits and Response Metadata
 

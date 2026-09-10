@@ -8,13 +8,20 @@ import pytest
 
 from marketdata.api_status import API_STATUS_DATA
 from marketdata.client import MarketDataClient
-from marketdata.exceptions import NetworkError
+from marketdata.exceptions import AuthenticationError, NetworkError
 from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import REQUEST_TIMEOUT
 
 PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 QUOTES_URL = "https://api.marketdata.app/v1/options/quotes/"
 EXPECTED = {"connect": 2.0, "read": 99.0, "write": 99.0, "pool": 99.0}
+REQUEST = httpx.Request("GET", PRICES_URL)
+CREDIT_HEADERS = {
+    "x-api-ratelimit-limit": "100",
+    "x-api-ratelimit-remaining": "99",
+    "x-api-ratelimit-reset": "1789050420",
+    "x-api-ratelimit-consumed": "1",
+}
 
 
 def timeouts_of(respx_mock):
@@ -56,9 +63,10 @@ def test_every_request_of_a_call_carries_it(load_json, respx_mock, client):
 
 
 def test_the_status_refresh_carries_it_too(respx_mock, client):
-    """The one request no resource makes: the service-status refresh, issued
-    from a daemon thread. At 99 seconds it can hold the refresh flag for that
-    long, which is worth knowing rather than discovering."""
+    """The service-status refresh, which the SDK issues from a daemon thread
+    in production and this test drives synchronously. At 99 seconds it can hold
+    the in-flight flag for that long, which is worth knowing rather than
+    discovering."""
     API_STATUS_DATA.refresh(client)
 
     status_calls = [
@@ -68,6 +76,42 @@ def test_the_status_refresh_carries_it_too(respx_mock, client):
     assert all(call.request.extensions["timeout"] == EXPECTED for call in status_calls)
 
 
+def test_the_start_up_call_is_retried_like_any_other(respx_mock, monkeypatch):
+    """`/user/` at construction is the one request no resource makes, so it sat
+    outside the retry adapter. At 60 seconds a connect timeout there was
+    unreachable; at 2 seconds a cold DNS, TCP and TLS handshake can hit it, and
+    the client would fail to build on the first try."""
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    request = httpx.Request("GET", "https://api.marketdata.app/user/")
+    route = respx_mock.get("https://api.marketdata.app/user/").mock(
+        side_effect=[
+            httpx.ConnectTimeout("cold handshake", request=request),
+            httpx.Response(200, json={}, headers=CREDIT_HEADERS),
+        ]
+    )
+
+    client = MarketDataClient(token="test")
+
+    assert route.call_count == 2
+    assert client._rate_limits.state is not None
+
+
+def test_a_start_up_failure_that_no_retry_can_fix_stops_at_one_request(
+    respx_mock, monkeypatch
+):
+    """A bad token is not a transient failure: it must not be sent four times
+    before the constructor gives up."""
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    route = respx_mock.get("https://api.marketdata.app/user/").respond(
+        json={"s": "error", "errmsg": "Invalid token"}, status_code=401
+    )
+
+    with pytest.raises(AuthenticationError):
+        MarketDataClient(token="bad")
+
+    assert route.call_count == 1
+
+
 def test_a_connect_timeout_is_a_network_error_and_is_retried(
     respx_mock, client, monkeypatch
 ):
@@ -75,7 +119,7 @@ def test_a_connect_timeout_is_a_network_error_and_is_retried(
     failure the SDK names and retries (SDK requirements §9.2)."""
     monkeypatch.setattr("time.sleep", lambda *_: None)
     route = respx_mock.get(PRICES_URL).mock(
-        side_effect=httpx.ConnectTimeout("timed out", request=None)
+        side_effect=httpx.ConnectTimeout("timed out", request=REQUEST)
     )
 
     with pytest.raises(NetworkError) as exc_info:
@@ -88,7 +132,7 @@ def test_a_connect_timeout_is_a_network_error_and_is_retried(
 def test_a_read_timeout_is_a_network_error(respx_mock, client, monkeypatch):
     monkeypatch.setattr("time.sleep", lambda *_: None)
     respx_mock.get(PRICES_URL).mock(
-        side_effect=httpx.ReadTimeout("too slow", request=None)
+        side_effect=httpx.ReadTimeout("too slow", request=REQUEST)
     )
 
     with pytest.raises(NetworkError) as exc_info:
