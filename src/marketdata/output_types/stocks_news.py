@@ -1,5 +1,6 @@
 import datetime
 from dataclasses import dataclass
+from typing import ClassVar
 
 from marketdata.utils import format_timestamp, resume_long_text
 
@@ -33,6 +34,8 @@ class StockNews:
 
 @dataclass
 class StockNewsHumanReadable:
+    api_model: ClassVar[type] = StockNews
+
     Symbol: str
     headline: str
     content: str

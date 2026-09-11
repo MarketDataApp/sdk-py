@@ -358,7 +358,7 @@ Fetches stock candles (OHLCV data) for a symbol with support for various timefra
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written (merged from multiple concurrent requests if date range spans multiple years for intraday resolutions)
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, no responses received, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** The method returns the requested output, an empty result when the API has no data for the query (`404` with `s: "no_data"`, see the [README](../README.md#no-data-is-not-an-error)), or raises. A chunk with no data is left out of the merge.
+> **Note:** The method returns the requested output, an empty result when the API has no data for the query (`404` with `s: "no_data"`, see the [README](../README.md#no-data-is-not-an-error)), or raises. A chunk with no data is left out of the merge. In CSV output the merged file keeps the header the API sent (the requested `columns`, the human-readable names) and every row of every chunk; a chunk whose body is not a CSV of this resource raises `ParseError`. On the other formats the chunks are merged on the model's columns among those the API sent, in the order it sent them (the request order under `columns=`), and a chunk that lacks one of them, or carries one that is not a list as long as its others, raises `ParseError` as well.
 
 #### Date Range Handling
 

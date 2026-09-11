@@ -1,5 +1,6 @@
 import datetime
 from dataclasses import dataclass
+from typing import ClassVar
 
 from marketdata.utils import format_timestamp
 
@@ -21,6 +22,10 @@ class MarketStatus:
 
 @dataclass
 class MarketStatusHumanReadable:
+    # Not in the twin's order (`date, status`). Safe only because both names
+    # match through `column_key`, so `model_columns` never maps them by position.
+    api_model: ClassVar[type] = MarketStatus
+
     Status: str
     Date: datetime.datetime
 

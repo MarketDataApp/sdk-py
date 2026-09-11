@@ -1,17 +1,24 @@
+import csv
 import datetime
+import sys
 
+import httpx
 import pytest
 import pytz
 
+from marketdata.exceptions import ParseError
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.utils import (
     check_is_date,
+    column_key,
     dict_to_csv,
     encode_path,
     encode_path_segment,
     format_duration_log,
     format_timestamp,
-    merge_csv_texts,
+    is_no_data,
+    json_answer_columns,
+    merge_csv_responses,
     obfuscate_token,
     resume_long_text,
     split_dates_by_timeframe,
@@ -79,31 +86,222 @@ def test_validate_single_param():
     assert validate_single_param("a", None) is None
 
 
-def test_merge_csv_texts():
-    texts = [
-        "a,b,c\n1,2,3\n4,5,6",
-        "a,b,c\n7,8,9\n10,11,12",
-    ]
-    result = merge_csv_texts(texts, ["a", "b", "c"])
-    assert result == "a,b,c\r\n1,2,3\r\n4,5,6\r\n7,8,9\r\n10,11,12\r\n"
+# ----------------------------------------------------- merge_csv_responses
 
-    texts = [
-        "a,b,c\n1,2,3\n4,5,6",
-        "a,b,c\n7,8,9\n10,11,12",
-        "",
-    ]
-    result = merge_csv_texts(texts, ["a", "b", "c"])
-    expected = "a,b,c\r\n1,2,3\r\n4,5,6\r\n7,8,9\r\n10,11,12\r\n"
-    assert result == expected
+COLUMNS = ["t", "o", "h", "l", "c", "v"]
 
-    texts = [
-        "a,b,c\n1,2,3\n4,5,6",
-        "a,b,c\n7,8,9\n10,11,12",
-        "a,b,d\n13,14,15\n16,17,18",
+
+def _csv_response(text: str, status: int = 200) -> httpx.Response:
+    return httpx.Response(
+        status,
+        text=text,
+        request=httpx.Request("GET", "https://api.marketdata.app/v1/x/"),
+    )
+
+
+def test_merge_csv_responses_takes_the_header_from_the_answers():
+    """Issue #86: the merged header is the one the API sent, so `columns=`
+    and the human-readable names survive the merge, with every row."""
+    responses = [
+        _csv_response("t,c\n1,2\n3,4\n"),
+        _csv_response("t,c\r\n5,6\r\n"),
+        _csv_response("t,c\n"),
     ]
-    result = merge_csv_texts(texts, ["a", "b", "c"])
-    expected = "a,b,c\r\n1,2,3\r\n4,5,6\r\n7,8,9\r\n10,11,12\r\n"
-    assert result == expected
+
+    assert merge_csv_responses(responses, COLUMNS) == "t,c\r\n1,2\r\n3,4\r\n5,6\r\n"
+
+
+def test_merge_csv_responses_accepts_human_readable_names_for_the_model_fields():
+    responses = [_csv_response("\ufeffExpiration Date,Strike\n1,2\n")]
+
+    result = merge_csv_responses(responses, ["Expiration_Date", "Strike"])
+
+    assert result == "Expiration Date,Strike\r\n1,2\r\n"
+
+
+@pytest.mark.parametrize(
+    ("bodies", "reason"),
+    [
+        (["<html>error page</html>\n"], "unknown columns"),
+        ([""], "no header row"),
+        (["t,c\n1,2\n", "t,o\n1,2\n"], "differs from"),
+        (["t,c\n1,2\n", "t,c\n1\n"], "does not have 2 values"),
+    ],
+)
+def test_merge_csv_responses_rejects_a_body_that_is_not_this_resource(bodies, reason):
+    responses = [_csv_response(body) for body in bodies]
+
+    with pytest.raises(ParseError) as exc_info:
+        merge_csv_responses(responses, COLUMNS)
+
+    assert reason in exc_info.value.message
+    assert exc_info.value.response is responses[-1]
+
+
+@pytest.mark.parametrize(
+    "second_header",
+    ["t,c", "T,C", "t, c", "﻿t,c"],
+    ids=["identical", "different-case", "space-after-comma", "bom"],
+)
+def test_merge_csv_responses_compares_headers_the_way_it_validates_them(second_header):
+    """A header is accepted when its names are this resource's columns seen
+    through `column_key`; the comparison between answers uses the same key, so
+    the same column spelled differently still merges. Raising here would be a
+    `ParseError` on a valid request, the failure mode #86 set out to remove.
+    The file keeps the first answer's spelling."""
+    responses = [_csv_response("t,c\n1,2\n"), _csv_response(f"{second_header}\n3,4\n")]
+
+    assert merge_csv_responses(responses, COLUMNS) == "t,c\r\n1,2\r\n3,4\r\n"
+
+
+def test_merge_csv_responses_still_refuses_a_different_column_order():
+    """Columns in another order are not the same header: merging the rows
+    would put each value under the wrong column."""
+    responses = [_csv_response("t,c\n1,2\n"), _csv_response("c,t\n4,3\n")]
+
+    with pytest.raises(ParseError) as exc_info:
+        merge_csv_responses(responses, COLUMNS)
+
+    assert "differs from" in exc_info.value.message
+
+
+def test_merge_csv_responses_without_headers_concatenates_rows_of_one_width():
+    responses = [_csv_response("1,2\n3,4\n"), _csv_response("5,6\n")]
+
+    result = merge_csv_responses(responses, COLUMNS, with_header=False)
+
+    assert result == "1,2\r\n3,4\r\n5,6\r\n"
+    with pytest.raises(ParseError):
+        merge_csv_responses(
+            responses + [_csv_response("7\n")], COLUMNS, with_header=False
+        )
+
+
+# A field past the reader's limit fails on every Python; a NUL byte only
+# before 3.11, which reads it as data.
+UNREADABLE_CSV_FIELDS = [
+    pytest.param("x" * 200_000, id="field-over-the-limit"),
+    pytest.param(
+        "a\x00b",
+        id="nul-byte",
+        marks=pytest.mark.skipif(
+            sys.version_info >= (3, 11), reason="the csv module reads NUL from 3.11 on"
+        ),
+    ),
+]
+
+
+@pytest.mark.parametrize("with_header", [True, False], ids=["header", "no-header"])
+@pytest.mark.parametrize("field", UNREADABLE_CSV_FIELDS)
+def test_merge_csv_responses_turns_a_body_the_csv_module_cannot_read_into_a_parse_error(
+    field, with_header
+):
+    """`csv.Error` is not an SDK exception: a body the reader refuses fails
+    like any other body that is not this resource's answer, and names it."""
+    header = "t,c\n" if with_header else ""
+    responses = [
+        _csv_response(f"{header}1,2\n"),
+        _csv_response(f"{header}{field},3\n"),
+    ]
+
+    with pytest.raises(ParseError) as exc_info:
+        merge_csv_responses(responses, COLUMNS, with_header=with_header)
+
+    assert "unreadable CSV" in exc_info.value.message
+    assert exc_info.value.response is responses[1]
+    assert isinstance(exc_info.value.__cause__, csv.Error)
+
+
+# ----------------------------------------------------- json_answer_columns
+
+
+def test_json_answer_columns_follow_the_order_the_answers_send():
+    """Under `columns=` the API sends the requested keys only, in request
+    order (checked live: `columns=v,c` answers `{"v": [...], "c": [...]}`).
+    The merge keeps that order, which is the order of the empty result and of
+    every single-request resource, not the model's; the status flag and keys
+    the model does not know are not columns."""
+    responses = [_csv_response(""), _csv_response("")]
+    answers = [{"c": [1], "t": [2], "x": [0]}, {"c": [4], "t": [3], "s": "ok"}]
+
+    assert json_answer_columns(responses, answers, COLUMNS) == ["c", "t"]
+
+
+@pytest.mark.parametrize(
+    ("answers", "reason", "bad_index"),
+    [
+        ([{"t": [1]}, None], "not a JSON object", 1),
+        ([[], {"t": [1]}], "not a JSON object", 0),
+        ([{"t": [1]}, "t"], "not a JSON object", 1),
+        (
+            [{"s": "ok", "error": "upstream timeout"}],
+            "none of this resource's fields",
+            0,
+        ),
+        ([{"t": [1], "c": [2]}, {"t": [3], "c": [4]}, {"t": [5]}], "['c']", 2),
+        ([{"t": [1]}, {"t": [3], "c": [4]}], "missing columns ['c']", 0),
+        ([{"t": [1], "c": [2]}, {"t": [3], "c": []}], "different lengths", 1),
+        ([{"t": [1], "c": [2]}, {"t": [3], "c": "4.5"}], "are not lists", 1),
+        ([{"t": [1], "c": [2]}, {"t": [3], "c": None}], "are not lists", 1),
+    ],
+    ids=[
+        "null",
+        "array",
+        "string",
+        "no-columns",
+        "a-later-answer-lacks-one",
+        "the-first-answer-lacks-one",
+        "an-empty-column",
+        "a-column-that-is-a-string",
+        "a-null-column",
+    ],
+)
+def test_json_answer_columns_name_the_answer_that_breaks_the_merge(
+    answers, reason, bad_index
+):
+    """The review of #92: a column missing from one symbol shifted the rows of
+    every symbol after it. Whichever answer lacks a column, the first one
+    included, fails the call, and so does a column that is empty or not a
+    list, which shifts the rows the same way. Each failure is a `ParseError`
+    carrying the response that caused it."""
+    responses = [_csv_response("") for _ in answers]
+
+    with pytest.raises(ParseError) as exc_info:
+        json_answer_columns(responses, answers, COLUMNS)
+
+    assert reason in exc_info.value.message
+    assert exc_info.value.response is responses[bad_index]
+
+
+def test_column_key_matches_names_the_way_the_api_does():
+    assert column_key("Expiration Date") == column_key("Expiration_Date")
+    assert column_key("optionSymbol") == column_key("OPTIONSYMBOL")
+    assert column_key("t") != column_key("c")
+
+
+# ----------------------------------------------------------- is_no_data
+
+CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (404, '{"s": "no_data"}', True),
+        (200, '0\r\n""\r\n', True),
+        (203, '0\r\n""\r\n', True),
+        (200, '""\r\n', True),
+        (200, '0\n""\n', True),
+        (200, "t,c\r\n1,2\r\n", False),
+        (200, "0\r\n", False),
+        (200, "", False),
+        (500, '0\r\n""\r\n', False),
+    ],
+)
+def test_is_no_data_recognises_the_404_and_the_csv_placeholder(status, body, expected):
+    """Issue #89: in CSV format the API renders the empty answer as a 200 with
+    a placeholder table (MarketData-App/api#422)."""
+    assert is_no_data(_csv_response(body, status)) is expected
 
 
 ET = pytz.timezone("US/Eastern")

@@ -1,5 +1,6 @@
 import datetime
 from dataclasses import dataclass
+from typing import ClassVar
 
 from marketdata.utils import format_timestamp
 
@@ -35,6 +36,8 @@ class StockPrice:
 
 @dataclass
 class StockPricesHumanReadable:
+    api_model: ClassVar[type] = StockPrice
+
     Symbol: str
     Mid: float
     Change_Price: float

@@ -1,5 +1,6 @@
 import datetime
 from dataclasses import dataclass
+from typing import ClassVar
 
 from marketdata.utils import format_timestamp
 
@@ -60,6 +61,8 @@ class OptionsChain:
 
 @dataclass
 class OptionsChainHumanReadable:
+    api_model: ClassVar[type] = OptionsChain
+
     Symbol: list[str]
     Underlying: list[str]
     Expiration_Date: list[datetime.datetime]

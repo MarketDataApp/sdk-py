@@ -1,5 +1,6 @@
 import datetime
 from dataclasses import dataclass
+from typing import ClassVar
 
 from marketdata.utils import format_timestamp
 
@@ -33,6 +34,8 @@ class FundsCandle:
 
 @dataclass
 class FundsCandlesHumanReadable:
+    api_model: ClassVar[type] = FundsCandle
+
     Date: datetime.datetime
     Open: float
     High: float

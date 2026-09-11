@@ -57,7 +57,7 @@ def render(
             output_model,
             as_records=as_records,
             index_columns=index_columns,
-            body=parse_json(response),
+            response=response,
         )
     data = parse_json(response)
 
