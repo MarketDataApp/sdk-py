@@ -7,7 +7,7 @@ import logging
 import os
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor
+import threading
 
 from marketdata.logger import get_logger
 from marketdata.settings import settings
@@ -78,6 +78,7 @@ def test_the_handler_writes_to_the_stderr_of_the_moment(monkeypatch, capsys):
     every later line with it (a captured test, `redirect_stderr`)."""
     logger = logging.getLogger(LOGGER_NAME)
     monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
     redirected = io.StringIO()
 
     with contextlib.redirect_stderr(redirected):
@@ -86,6 +87,25 @@ def test_the_handler_writes_to_the_stderr_of_the_moment(monkeypatch, capsys):
 
     assert "after the redirect" in capsys.readouterr().err
     assert redirected.getvalue() == ""
+
+
+def test_the_handler_takes_a_stream_set_on_it(monkeypatch):
+    """`StreamHandler.setStream` is public, and an application may point its
+    stream handlers somewhere else: the current stderr is only the default."""
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
+    handler = get_logger().handlers[0]
+    mine = io.StringIO()
+
+    try:
+        handler.setStream(mine)
+        logger.warning("to my stream")
+    finally:
+        handler.setStream(None)
+
+    assert "to my stream" in mine.getvalue()
+    assert handler.stream is sys.stderr
 
 
 def test_the_handler_keeps_the_level_of_the_settings(monkeypatch, capsys):
@@ -110,17 +130,24 @@ def test_the_handler_keeps_the_level_of_the_settings(monkeypatch, capsys):
         logger.setLevel(level)
 
 
-def test_clients_built_at_once_add_one_handler(monkeypatch):
-    """The check and the add happen under one lock: two clients built at the
-    same moment would otherwise both see no handler and both add one."""
+def test_clients_built_at_once_attach_one_handler(monkeypatch):
+    """Sixteen threads released together all see a logger with no handler.
+    Only one handler ends up attached, because it is always the same one and
+    `addHandler` does not add a handler twice. Repeated, since a race shows
+    up in some rounds only."""
     logger = logging.getLogger(LOGGER_NAME)
-    monkeypatch.setattr(logger, "handlers", [])
-    interval = sys.getswitchinterval()
-    sys.setswitchinterval(1e-6)
-    try:
-        with ThreadPoolExecutor(max_workers=16) as pool:
-            list(pool.map(lambda _: get_logger(), range(64)))
-    finally:
-        sys.setswitchinterval(interval)
+    for _ in range(20):
+        monkeypatch.setattr(logger, "handlers", [])
+        barrier = threading.Barrier(16)
 
-    assert len(logger.handlers) == 1
+        def build():
+            barrier.wait()
+            get_logger()
+
+        threads = [threading.Thread(target=build) for _ in range(16)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert len(logger.handlers) == 1

@@ -77,11 +77,12 @@ class ResponseMeta:
     - An SDK HTTP exception (``MarketdataHttpError``, ``RateLimitError``)
       carries the response of the request it is about, the one a support
       ticket is about, and ``status_code`` and ``request_id`` are read from
-      it, so they agree with the exception's own.
+      it, so they agree with the exception's own, except that a missing
+      ``cf-ray`` is ``None`` here and the sentinel ``"N/A"`` there.
     - The same exceptions without a response have nothing to describe, and
-      report ``0`` and ``None``, as the exception does: the request got no
-      answer (a transport failure, the pre-flight refusal), or got one the
-      SDK could not read (a body that does not match its
+      report ``0`` and ``None`` (the exception: ``0`` and ``"N/A"``): the
+      request got no answer (a transport failure, the pre-flight refusal), or
+      got one the SDK could not read (a body that does not match its
       ``Content-Encoding``; that response is not recorded, so its credits are
       not counted either).
     - Any other exception (a CSV path that already exists, a bare
