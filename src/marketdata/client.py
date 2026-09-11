@@ -129,21 +129,20 @@ class MarketDataClient:
         which is what separates "invalid question" from "empty answer" on 404.
 
         An ``errmsg`` that is not a string (``null``, a list, an object) still
-        counts as one -- the API said something, and a 404 carrying it is not
-        the empty answer -- but the message shown is the raw body rather than
-        Python's ``repr`` of the decoded value, which told the reader nothing.
+        counts as one, since the API said something and a 404 carrying it is
+        not the empty answer. The message shown is then the raw body rather
+        than Python's ``repr`` of the decoded value, which told the reader
+        nothing.
         """
         try:
             errmsg = response.json()["errmsg"]
-            has_errmsg = True
-            if not isinstance(errmsg, str):
-                errmsg = response.text
         except Exception:
             errmsg = parse_csv_errmsg(response.text)
-            has_errmsg = errmsg is not None
-            if not has_errmsg:
-                errmsg = response.text
-        return resume_long_text(str(errmsg), max_length=500), has_errmsg
+            if errmsg is None:
+                return resume_long_text(response.text, max_length=500), False
+        if not isinstance(errmsg, str):
+            errmsg = response.text
+        return resume_long_text(errmsg, max_length=500), True
 
     def _raise_for_status(self, response: Response) -> None:
         """Map the HTTP status to the exception taxonomy (SDK requirements §9.1).
