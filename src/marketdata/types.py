@@ -1,7 +1,13 @@
 import datetime
 from dataclasses import dataclass
 
+import pytz
+
 from marketdata.utils import format_timestamp
+
+# Every timestamp the SDK renders is US/Eastern, so a value that arrived
+# without an offset is read in that zone rather than in UTC.
+DEFAULT_TIMEZONE = pytz.timezone("US/Eastern")
 
 
 @dataclass
@@ -19,11 +25,18 @@ class UserRateLimits:
 
     @property
     def reset_timestamp(self) -> float:
-        """``reset_time`` as a POSIX timestamp (a naive value reads as UTC), so
-        two states can be ordered whatever their timezone awareness."""
+        """``reset_time`` as a POSIX timestamp, so two states can be ordered
+        whatever their timezone awareness.
+
+        A naive value reads as US/Eastern, the timezone every other timestamp
+        in the SDK is rendered in and the one ``format_timestamp`` leaves
+        implicit when it parses a date with no offset. Reading it as UTC put
+        the value hours away from what it meant, which the pre-flight check
+        turns into a refusal that is early or late by that much (#42).
+        """
         reset = self.reset_time
         if reset.tzinfo is None:
-            reset = reset.replace(tzinfo=datetime.timezone.utc)
+            reset = DEFAULT_TIMEZONE.localize(reset)
         return reset.timestamp()
 
     def __repr__(self) -> str:

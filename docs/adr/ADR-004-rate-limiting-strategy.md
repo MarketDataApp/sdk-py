@@ -112,17 +112,22 @@ def _check_rate_limits(self, raise_error: bool = True):
     if not raise_error:
         return
     state = self._rate_limits.state   # RateLimitTracker, thread-safe
-    if state is None:
-        self.logger.error("Rate limits cant be checked")
-        raise RateLimitError("Rate limits cant be checked")
-    if state.credits_remaining <= 0:
-        raise RateLimitError("Rate limit exceeded")
+    if state is None or state.credits_remaining > 0:
+        return
+
+    seconds_to_reset = state.reset_timestamp - time.time()
+    if seconds_to_reset <= 0:
+        self._rate_limits.discard(state)   # the window is over
+        return
+
+    raise RateLimitError(..., retry_after=seconds_to_reset)
 ```
 
 **Rationale**:
 - **Fail early**: Prevent requests that would be rejected by the server
 - **Configurable**: `raise_error` flag allows skipping checks for specific requests (e.g., status checks)
 - **Logging**: Errors are logged for debugging
+- **Only a refusal it can justify (v2.0, #42)**: the check runs before the request and the tracker is fed by answers, so refusing on a state it cannot judge is self-perpetuating. An unknown balance used to raise, which is what kept it unknown, and an exhausted window kept refusing after the API had reset it, because `reset_time` was recorded and never read. Both let the request through now; only a known zero balance in a window that has not reset yet refuses, and it says how long until it does (`retry_after`).
 
 ### 5. Request-scoped metadata, no public snapshot (v2.0, #49)
 
