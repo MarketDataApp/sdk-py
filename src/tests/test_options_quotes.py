@@ -9,6 +9,7 @@ from marketdata.exceptions import (
     BadRequestError,
     MarketdataHttpError,
     MinMaxDateValidationError,
+    ParseError,
     ServerError,
 )
 from marketdata.input_types.base import OutputFormat
@@ -196,7 +197,51 @@ def test_get_options_quotes_response_200_json(load_json, respx_mock, client):
     assert quotes == mock_data
 
 
-def test_options_quotes_bad_json_response(respx_mock, client):
+@pytest.mark.parametrize(
+    "output_format", [OutputFormat.INTERNAL, OutputFormat.JSON, OutputFormat.DATAFRAME]
+)
+@pytest.mark.parametrize("use_human_readable", [False, True])
+@pytest.mark.parametrize("bad_first", [False, True])
+def test_options_quotes_undecodable_symbol_body_is_a_parse_error(
+    load_json, respx_mock, client, output_format, use_human_readable, bad_first
+):
+    """Issue #82: a symbol answering 200 with a body that is not JSON (a proxy
+    or a captive portal error page) fails the call as every other resource
+    does, instead of being swapped for a fabricated empty row that read as
+    "no options" and broke the merge of the healthy symbols."""
+    fixture = (
+        "options_quotes_human_response_200"
+        if use_human_readable
+        else "options_quotes_response_200"
+    )
+    good = respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
+    ).respond(json=load_json(fixture), status_code=200)
+    bad = respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+    ).respond(text="<html>error page</html>", status_code=200)
+    symbols = ["AAPL271217C00255000", "AAPL271217P00255000"]
+    if bad_first:
+        symbols.reverse()
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=symbols,
+            output_format=output_format,
+            use_human_readable=use_human_readable,
+        )
+
+    error = exc_info.value
+    assert error.status_code == 200
+    assert error.request_url.startswith(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+    )
+    assert "<html>error page</html>" in error.message
+    assert good.call_count == 1
+    assert bad.call_count == 1
+
+
+def test_options_quotes_empty_symbol_body_is_a_parse_error(respx_mock, client):
     respx_mock.get(
         "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
     ).respond(
@@ -204,11 +249,10 @@ def test_options_quotes_bad_json_response(respx_mock, client):
         status_code=200,
     )
 
-    result = client.options.quotes(
-        symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
-    )
-    assert isinstance(result, OptionsQuotes)
-    assert len(result.optionSymbol) == 0
+    with pytest.raises(ParseError):
+        client.options.quotes(
+            symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
+        )
 
 
 def test_options_quotes_no_one_good_status_code(respx_mock, client):
@@ -414,46 +458,12 @@ def test_options_quotes_join_dicts():
     assert joined["expiration"] == [1829077200, 1829077200]
 
 
-def test_options_quotes_get_null_dict():
-    null_dict = OptionsQuotes.get_null_dict()
-    assert null_dict == {
-        "optionSymbol": [],
-        "underlying": [],
-        "expiration": [],
-        "side": [],
-        "strike": [],
-        "firstTraded": [],
-        "dte": [],
-        "updated": [],
-        "bid": [],
-        "bidSize": [],
-        "mid": [],
-        "last": [],
-        "ask": [],
-        "askSize": [],
-        "openInterest": [],
-        "volume": [],
-        "inTheMoney": [],
-        "intrinsicValue": [],
-        "extrinsicValue": [],
-        "underlyingPrice": [],
-        "iv": [],
-        "delta": [],
-        "gamma": [],
-        "theta": [],
-        "vega": [],
-    }
-
-
-def test_options_quotes_get_null_csv_string():
-    fields = list(OptionsQuotes.__dataclass_fields__.keys())
-    null_csv_string = OptionsQuotes.get_null_csv_string()
-    assert null_csv_string == ",".join([""] * len(fields))
-    null_csv_string = OptionsQuotes.get_null_csv_string(add_headers=True)
-    assert null_csv_string == ",".join(fields) + "\n" + ",".join([""] * len(fields))
-
-
 def test_options_quotes_human_readable_join_dicts():
+    """The human-readable merge, the only place the API's spaced names are
+    translated to the model's underscored ones. It went out of this PR with
+    the null helpers by mistake: nothing else exercises it with more than one
+    symbol, so a `join_dicts` that kept only the first symbol's rows would
+    leave the suite green and the file at 100% coverage."""
     dicts = [
         {
             "s": "ok",
@@ -468,55 +478,12 @@ def test_options_quotes_human_readable_join_dicts():
             "Expiration Date": [1829077200],
         },
     ]
+
     assert OptionsQuotesHumanReadable.join_dicts(dicts) == {
         "Symbol": ["AAPL271217C00255000", "AAPL271217C00255000"],
         "Underlying": ["AAPL", "AAPL"],
         "Expiration_Date": [1829077200, 1829077200],
     }
-
-
-def test_options_quotes_human_readable_get_null_dict():
-    null_dict = OptionsQuotesHumanReadable.get_null_dict()
-    assert null_dict == {
-        "Symbol": [],
-        "Underlying": [],
-        "Expiration Date": [],
-        "Option Side": [],
-        "Strike": [],
-        "First Traded": [],
-        "Days To Expiration": [],
-        "Date": [],
-        "Bid": [],
-        "Bid Size": [],
-        "Mid": [],
-        "Ask": [],
-        "Ask Size": [],
-        "Last": [],
-        "Open Interest": [],
-        "Volume": [],
-        "In The Money": [],
-        "Intrinsic Value": [],
-        "Extrinsic Value": [],
-        "Underlying Price": [],
-        "IV": [],
-        "Delta": [],
-        "Gamma": [],
-        "Theta": [],
-        "Vega": [],
-    }
-
-
-def test_options_quotes_human_readable_get_null_csv_string():
-    fields = list(OptionsQuotesHumanReadable.__dataclass_fields__.keys())
-    null_csv_string = OptionsQuotesHumanReadable.get_null_csv_string()
-    assert null_csv_string == ",".join([""] * len(fields))
-    null_csv_string = OptionsQuotesHumanReadable.get_null_csv_string(add_headers=True)
-    expected_csv_string = (
-        ",".join([field.replace("_", " ") for field in fields])
-        + "\n"
-        + ",".join([""] * len(fields)).replace("_", " ")
-    )
-    assert null_csv_string == expected_csv_string
 
 
 def test_options_quotes_input_date_range_aliases_on_wire(load_json, respx_mock, client):
