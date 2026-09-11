@@ -7,15 +7,14 @@ lives in no single file; these tests pin it.
 """
 
 import importlib
+import inspect
 import pkgutil
 from dataclasses import dataclass, fields, is_dataclass
-from typing import ClassVar
+from typing import ClassVar, get_origin, get_type_hints
 
 import pytest
 
 import marketdata.output_types as output_types
-from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
-from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.resources.base import model_columns
 from marketdata.utils import column_key
 
@@ -80,16 +79,12 @@ def test_every_api_model_twin_lines_up_with_its_model(human, api):
 
 @pytest.mark.parametrize("model", HUMAN_MODELS, ids=lambda m: m.__name__)
 def test_the_api_twin_is_a_class_variable_not_a_column(model):
-    """`api_model` is declared as a `ClassVar` in the class body, so it is not
-    a dataclass field: not a column of `model_columns`, not a date column of
-    the DataFrame handlers, not an argument of the constructor."""
-    handler = get_dataframe_output_handler()(
-        {}, model, UserUniversalAPIParams(output_format=OutputFormat.DATAFRAME)
-    )
-
+    """`api_model` is declared in the class body as a `ClassVar`, so it is
+    neither a dataclass field (a column for `model_columns`) nor an argument
+    of the constructor."""
+    assert get_origin(get_type_hints(model)["api_model"]) is ClassVar
     assert "api_model" not in {field.name for field in fields(model)}
-    assert "api_model" not in handler._get_date_columns()
-    assert "api_model" not in handler._get_datetime_columns()
+    assert "api_model" not in inspect.signature(model).parameters
 
 
 def test_model_columns_refuses_a_twin_with_another_column_count():

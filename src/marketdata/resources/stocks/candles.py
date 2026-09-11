@@ -131,9 +131,8 @@ def candles(
 
     def _get_responses_data(responses: list[httpx.Response]) -> dict:
         responses_data = [parse_json(response) for response in responses]
-        # Under `columns=` the API sends the requested keys only (#90), so the
-        # merge covers the model fields the first chunk carries, in model
-        # order, and every chunk must carry them.
+        # Under `columns=` the API sends the requested keys only (#90), in
+        # request order, and every chunk must carry the same ones.
         present = json_answer_columns(
             responses, responses_data, model_columns(output_model)
         )

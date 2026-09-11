@@ -558,27 +558,37 @@ CANDLE_CHUNK = dict(json={"s": "ok", "t": [1], "c": [1.0]})
 
 
 @pytest.mark.parametrize(
-    ("bodies", "bad_index"),
+    ("bodies", "bad_index", "reason"),
     [
-        ([dict(json={"error": "upstream timeout"}), CANDLE_CHUNK], 0),
-        ([CANDLE_CHUNK, dict(json={"s": "ok", "t": [2]})], 1),
-        ([CANDLE_CHUNK, dict(text="null")], 1),
-        ([dict(text="[]"), CANDLE_CHUNK], 0),
+        (
+            [dict(json={"error": "upstream timeout"}), CANDLE_CHUNK],
+            0,
+            "missing columns ['t', 'c']",
+        ),
+        ([CANDLE_CHUNK, dict(json={"s": "ok", "t": [2]})], 1, "missing columns ['c']"),
+        ([dict(json={"s": "ok", "t": [2]}), CANDLE_CHUNK], 0, "missing columns ['c']"),
+        ([CANDLE_CHUNK, dict(json={"t": [2], "c": []})], 1, "different lengths"),
+        ([CANDLE_CHUNK, dict(text="null")], 1, "not a JSON object"),
+        ([dict(text="[]"), CANDLE_CHUNK], 0, "not a JSON object"),
     ],
     ids=[
         "no-fields-at-all",
         "a-later-chunk-lacks-a-column",
+        "the-first-chunk-lacks-a-column",
+        "a-chunk-with-an-empty-column",
         "a-chunk-is-null",
         "a-chunk-is-an-array",
     ],
 )
 def test_stocks_candles_json_chunk_without_the_columns_is_a_parse_error(
-    respx_mock, client, bodies, bad_index
+    respx_mock, client, bodies, bad_index, reason
 ):
     """A JSON body without the resource's fields (a proxy's JSON error page)
-    fails the call instead of leaving a silent hole in the merge. So does a
-    body that decodes to something other than an object, which used to raise
-    a bare `TypeError` from the merge."""
+    fails the call instead of leaving a silent hole in the merge, and so does a
+    chunk lacking a column another chunk carries, the first chunk included, or
+    carrying one that is shorter than the others. A body that is not an object
+    fails for that reason: `null` used to raise a bare `TypeError` from the
+    merge (an array already failed, as a body without the fields)."""
     respx_mock.get(HOURLY_URL).mock(side_effect=by_chunk(*bodies))
 
     with pytest.raises(ParseError) as exc_info:
@@ -587,6 +597,7 @@ def test_stocks_candles_json_chunk_without_the_columns_is_a_parse_error(
         )
 
     assert f"from={CHUNK_STARTS[bad_index]}" in exc_info.value.request_url
+    assert reason in exc_info.value.message
 
 
 # ------------------------------------------------------------- columns=
@@ -619,6 +630,51 @@ def test_stocks_candles_honours_the_column_filter_across_chunks(
     else:
         assert list(result.columns) == ["c", "v"]
         assert result["c"].tolist() == [1.0, 2.0, 3.0]
+
+
+@pytest.mark.parametrize("handler", ["pandas", "polars"])
+def test_stocks_candles_keeps_the_order_the_columns_were_requested_in(
+    respx_mock, client, handler
+):
+    """Checked live: `columns=v,c` answers `{"v": [...], "c": [...]}`, request
+    order and no status flag. The merged chunks keep that order, as the empty
+    result does (#87): the model's order (`c` before `v`) made the two frames
+    disagree, and `pl.concat` refuses frames whose columns differ in order."""
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=by_chunk(
+            dict(json={"v": [10, 20], "c": [1.0, 2.0]}),
+            dict(json={"v": [30], "c": [3.0]}),
+        )
+    )
+    empty_route = respx_mock.get(DAILY_URL).respond(
+        json={"s": "no_data"}, status_code=404
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [handler]):
+        populated = client.stocks.candles(
+            symbol="AAPL",
+            resolution="H",
+            output_format=OutputFormat.DATAFRAME,
+            columns=["v", "c"],
+            **TWO_CHUNKS,
+        )
+        empty = client.stocks.candles(
+            symbol="AAPL",
+            resolution="D",
+            output_format=OutputFormat.DATAFRAME,
+            columns=["v", "c"],
+        )
+        merged_json = client.stocks.candles(
+            symbol="AAPL",
+            resolution="H",
+            output_format=OutputFormat.JSON,
+            columns=["v", "c"],
+            **TWO_CHUNKS,
+        )
+
+    assert empty_route.called
+    assert list(populated.columns) == list(empty.columns) == ["v", "c"]
+    assert list(merged_json) == ["v", "c"]
 
 
 def test_stocks_candles_intraday_string_dates(load_json, respx_mock, client):
