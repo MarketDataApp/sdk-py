@@ -471,7 +471,8 @@ def test_every_resource_no_data_dataframe_honours_the_column_filter(
     too, in request order. `stocks.candles` used to fail on the populated
     side as well (#90).
 
-    The filter names two columns in the reverse of the model's order, and the
+    The filter names the last two columns (one for `options.lookup`, whose
+    model has one) in the reverse of the model's order, and the
     mocked answer has the shape the API gives (checked live): the requested
     keys, in request order, and no status flag. With the model's own order the
     test could not tell request order from model order, which is how the
@@ -561,6 +562,32 @@ def test_every_resource_renders_the_csv_no_data_placeholder_as_a_header_only_fil
     lines = pathlib.Path(path).read_bytes().split(b"\r\n")
     assert lines[1:] == [b""]
     assert lines[0] not in (b"", b"0")
+
+
+@pytest.mark.parametrize(("call", "url_pattern", "fixture"), RESOURCES)
+@pytest.mark.parametrize(
+    "output_format", [OutputFormat.JSON, OutputFormat.DATAFRAME, OutputFormat.INTERNAL]
+)
+def test_the_placeholder_body_is_an_empty_result_on_every_format(
+    respx_mock, client, call, url_pattern, fixture, output_format
+):
+    """The placeholder rule (#89) reads the body, not the format that was
+    asked for, and its `""` is also a JSON document, the empty string. The
+    answer is then the empty result on every resource and format: JSON output
+    used to echo `''` while the other formats returned their empty value,
+    which let the output format decide what the call returns (#91)."""
+    respx_mock.get(url__regex=url_pattern).respond(text='""', status_code=200)
+    client.default_params.output_format = output_format
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        result = call(client)
+
+    if output_format == OutputFormat.JSON:
+        assert result == {"s": "no_data"}
+    elif output_format == OutputFormat.DATAFRAME:
+        assert len(result) == 0
+    else:
+        assert result in ([], None)
 
 
 @pytest.mark.parametrize(

@@ -51,10 +51,6 @@ def is_no_data(response: Response) -> bool:
         return True
     if response.status_code not in VALID_STATUS_CODES or len(response.content) > 16:
         return False
-    # Only an answer to a CSV request can be the placeholder: the JSON string
-    # `""` answering a JSON request is a broken body, not an empty answer.
-    if response.request.url.params.get("format") != "csv":
-        return False
     return [line for line in response.text.splitlines() if line] in _CSV_NO_DATA_BODIES
 
 
@@ -200,10 +196,13 @@ def json_answer_columns(
 ) -> list[str]:
     """The columns a fan-out merges from its decoded JSON answers (#90).
 
-    They are the ``keys`` any answer carries, in the order the answers send
-    them: under ``columns=`` the API sends the requested columns only, in the
-    order they were requested, which is also the order of the empty result
-    and of every single-request resource. Every answer must be a JSON object
+    They are the ``keys`` (the model's columns) that any answer carries, keys
+    the model does not know being left out. Since every answer must carry
+    them all, a successful merge has the first answer's columns in the first
+    answer's order: under ``columns=`` the API sends the requested columns
+    only, in the order they were requested, which is also the order of the
+    empty result and of every single-request resource. Every answer must be a
+    JSON object
     carrying all of them as lists of one length, since the merge concatenates
     column by column and a missing or short column would shift every later
     row into the wrong symbol or chunk. Anything else raises ``ParseError``

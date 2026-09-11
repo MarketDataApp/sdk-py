@@ -2,6 +2,7 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import httpx
 import pytest
 import pytz
 
@@ -350,18 +351,27 @@ def test_options_quotes_symbol_with_a_broken_column_is_a_parse_error(
     assert reason in exc_info.value.message
 
 
+@pytest.mark.parametrize(
+    ("use_human_readable", "bid_key", "symbol_key", "merged"),
+    [
+        (False, "bid", "optionSymbol", ["bid", "optionSymbol", "s"]),
+        (True, "Bid", "Symbol", ["Bid", "Symbol"]),
+    ],
+    ids=["api-names", "human-readable"],
+)
 def test_options_quotes_keeps_the_order_the_columns_were_requested_in(
-    respx_mock, client
+    respx_mock, client, use_human_readable, bid_key, symbol_key, merged
 ):
     """Checked live: under `columns=bid,optionSymbol` the API answers
     `{"bid": [...], "optionSymbol": [...]}`, in request order and with no
-    status flag. The merge keeps that order, which is the order of the empty
-    result (#87) and of every single-request resource; the flag the SDK adds
+    status flag, and the human-readable answer keeps that order. The merge
+    keeps it too, which is the order of the empty result (#87) and of every
+    single-request resource; the flag the SDK adds to an API-named answer
     comes after the columns, where it always went for such an answer."""
     _answer_three_symbols(
         respx_mock,
         *[
-            {"bid": [price], "optionSymbol": [name]}
+            {bid_key: [price], symbol_key: [name]}
             for name, price in (("A", 1.0), ("B", 2.0), ("C", 3.0))
         ],
     )
@@ -369,11 +379,44 @@ def test_options_quotes_keeps_the_order_the_columns_were_requested_in(
     result = client.options.quotes(
         symbols=THREE_SYMBOLS,
         output_format=OutputFormat.JSON,
+        use_human_readable=use_human_readable,
         columns=["bid", "optionSymbol"],
     )
 
-    assert list(result) == ["bid", "optionSymbol", "s"]
-    assert result["bid"] == [1.0, 2.0, 3.0]
+    assert list(result) == merged
+    assert result[bid_key] == [1.0, 2.0, 3.0]
+
+
+@pytest.mark.parametrize("handler", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("use_human_readable", "bid_key", "symbol_key"),
+    [(False, "bid", "optionSymbol"), (True, "Bid", "Symbol")],
+    ids=["api-names", "human-readable"],
+)
+def test_options_quotes_frame_has_the_columns_of_the_empty_one(
+    respx_mock, client, handler, use_human_readable, bid_key, symbol_key
+):
+    """The populated frame and the empty one (#87) list the same columns in
+    the same order, on both models and both frame libraries."""
+    route = respx_mock.get(CALL_URL).mock(
+        side_effect=[
+            httpx.Response(200, json={bid_key: [1.0], symbol_key: ["A"]}),
+            httpx.Response(404, json={"s": "no_data"}),
+        ]
+    )
+    arguments = dict(
+        symbols=THREE_SYMBOLS[0],
+        output_format=OutputFormat.DATAFRAME,
+        use_human_readable=use_human_readable,
+        columns=["bid", "optionSymbol"],
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [handler]):
+        populated = client.options.quotes(**arguments)
+        empty = client.options.quotes(**arguments)
+
+    assert route.call_count == 2
+    assert list(populated.columns) == list(empty.columns)
 
 
 def test_options_quotes_merges_the_requested_columns_row_by_row(respx_mock, client):

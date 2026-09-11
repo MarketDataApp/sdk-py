@@ -120,9 +120,13 @@ def no_data_result(
         if response is None:
             return dict(NO_DATA_BODY)
         try:
-            return parse_json(response)
+            body = parse_json(response)
         except ParseError:
             return dict(NO_DATA_BODY)
+        # The CSV placeholder `""` (#89) is also a JSON document, the empty
+        # string, and reaches here whatever format was asked for: only an
+        # object is the API's body to echo.
+        return body if isinstance(body, dict) else dict(NO_DATA_BODY)
 
     if output_format == OutputFormat.CSV:
         # The caller who asked for no header gets an empty file, not a header.
