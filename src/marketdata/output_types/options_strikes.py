@@ -1,7 +1,9 @@
 import datetime
 from dataclasses import dataclass, fields
+from decimal import Decimal
 from typing import Any
 
+from marketdata.output_types.money import decimal_to_float, to_decimal
 from marketdata.utils import format_timestamp
 
 
@@ -18,16 +20,16 @@ class OptionsStrikes:
 
         for k, v in kwargs.items():
             if k not in fixed:
-                v = self._to_float_list(k, v)
+                v = self._to_decimal_list(k, v)
             setattr(self, k, v)
 
-        setattr(self, "updated", format_timestamp(kwargs["updated"]))
+        setattr(self, "updated", format_timestamp(decimal_to_float(kwargs["updated"])))
 
     @staticmethod
-    def _to_float_list(name: str, v: Any):
+    def _to_decimal_list(name: str, v: Any) -> list[Decimal]:
         if not isinstance(v, (list, tuple)):
-            raise TypeError(f"extra field '{name}' must be a list of floats")
-        return v
+            raise TypeError(f"extra field '{name}' must be a list of strike prices")
+        return [to_decimal(strike) for strike in v]
 
     def __repr__(self) -> str:
         extra_kwargs = {
@@ -54,16 +56,16 @@ class OptionsStrikesHumanReadable:
 
         for k, v in kwargs.items():
             if k not in fixed:
-                v = self._to_float_list(k, v)
+                v = self._to_decimal_list(k, v)
             setattr(self, k, v)
 
-        setattr(self, "Date", format_timestamp(kwargs["Date"]))
+        setattr(self, "Date", format_timestamp(decimal_to_float(kwargs["Date"])))
 
     @staticmethod
-    def _to_float_list(name: str, v: Any):
+    def _to_decimal_list(name: str, v: Any) -> list[Decimal]:
         if not isinstance(v, (list, tuple)):
-            raise TypeError(f"extra field '{name}' must be a list of floats")
-        return v
+            raise TypeError(f"extra field '{name}' must be a list of strike prices")
+        return [to_decimal(strike) for strike in v]
 
     def __repr__(self) -> str:
         extra_kwargs = {k: v for k, v in self.__dict__.items() if k not in ["Date"]}

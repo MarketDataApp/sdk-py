@@ -27,7 +27,7 @@ Fetches stock prices for one or more symbols. This method includes API status ch
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns a list of `StockPrice` objects
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 - `date_format` (DateFormat, optional): The date format to use. Defaults to `DateFormat.UNIX`.
   - `DateFormat.TIMESTAMP`: ISO timestamp format
@@ -46,7 +46,7 @@ Fetches stock prices for one or more symbols. This method includes API status ch
   - The DataFrame is indexed by the `symbol` column if present
   - All timestamp fields are automatically converted to `datetime.datetime` objects
 - If `output_format=OutputFormat.INTERNAL`: A list of `StockPrice` objects (or `StockPricesHumanReadable` if `use_human_readable=True`)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's decoded JSON body
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
@@ -153,7 +153,7 @@ Fetches stock quotes for one or more symbols. This method includes API status ch
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns a list of `StockQuote` or `StockQuotesHumanReadable` objects
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 - `use_52_week` (bool, optional): Whether to use the 52 week high and low
 - `extended` (bool, optional): Whether to use the extended quotes
@@ -174,7 +174,7 @@ Fetches stock quotes for one or more symbols. This method includes API status ch
   - The DataFrame is indexed by the `symbol` column if present (or `Symbol` if human-readable)
   - All timestamp fields are automatically converted to `datetime.datetime` objects
 - If `output_format=OutputFormat.INTERNAL`: A list of `StockQuote` objects (or `StockQuotesHumanReadable` if `use_human_readable=True`)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's decoded JSON body
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
@@ -335,7 +335,7 @@ Fetches stock candles (OHLCV data) for a symbol with support for various timefra
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns a list of `StockCandle` or `StockCandlesHumanReadable` objects
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 - `date_format` (DateFormat, optional): The date format to use. Defaults to `DateFormat.UNIX`.
   - `DateFormat.TIMESTAMP`: ISO timestamp format
@@ -354,7 +354,7 @@ Fetches stock candles (OHLCV data) for a symbol with support for various timefra
   - The DataFrame is indexed by the `t` column (timestamp) or `Date` column (if human-readable)
   - All timestamp fields are automatically converted to `datetime.datetime` objects
 - If `output_format=OutputFormat.INTERNAL`: A list of `StockCandle` objects (or `StockCandlesHumanReadable` if `use_human_readable=True`)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API (merged from multiple concurrent requests if date range spans multiple years for intraday resolutions)
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's decoded JSON body (merged from multiple concurrent requests if date range spans multiple years for intraday resolutions)
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written (merged from multiple concurrent requests if date range spans multiple years for intraday resolutions)
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, no responses received, etc.); see the [README](../README.md#error-handling)
 
@@ -553,7 +553,7 @@ Fetches earnings data for a symbol. This method includes API status checking and
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns a `StockEarnings` or `StockEarningsHumanReadable` object
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 - `date_format` (DateFormat, optional): The date format to use. Defaults to `DateFormat.UNIX`.
   - `DateFormat.TIMESTAMP`: ISO timestamp format
@@ -572,7 +572,7 @@ Fetches earnings data for a symbol. This method includes API status checking and
   - The DataFrame is indexed by the `symbol` column if present (or `Symbol` if human-readable)
   - All timestamp fields are automatically converted to `datetime.datetime` objects
 - If `output_format=OutputFormat.INTERNAL`: A `StockEarnings` object (or `StockEarningsHumanReadable` if `use_human_readable=True`)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's decoded JSON body
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
@@ -634,8 +634,9 @@ earnings = client.stocks.earnings(symbol="AAPL", output_format=OutputFormat.INTE
 print(f"Symbol: {earnings.symbol}")
 print(f"Fiscal Year: {earnings.fiscalYear}")
 print(f"Fiscal Quarter: {earnings.fiscalQuarter}")
-print(f"Reported EPS: {earnings.reportedEPS}")
-print(f"Estimated EPS: {earnings.estimatedEPS}")
+# EPS values are Decimal: print them one by one (or print(earnings))
+for reported, estimated in zip(earnings.reportedEPS, earnings.estimatedEPS):
+    print(f"Reported EPS: {reported}, Estimated EPS: {estimated}")
 ```
 
 **Get earnings with human-readable format:**
@@ -654,8 +655,9 @@ earnings = client.stocks.earnings(
 print(f"Symbol: {earnings.Symbol}")
 print(f"Fiscal Year: {earnings.Fiscal_Year}")
 print(f"Fiscal Quarter: {earnings.Fiscal_Quarter}")
-print(f"Reported EPS: {earnings.Reported_EPS}")
-print(f"Estimated EPS: {earnings.Estimated_EPS}")
+# EPS values are Decimal: print them one by one (or print(earnings))
+for reported, estimated in zip(earnings.Reported_EPS, earnings.Estimated_EPS):
+    print(f"Reported EPS: {reported}, Estimated EPS: {estimated}")
 ```
 
 **Get earnings as JSON:**
@@ -726,7 +728,7 @@ Fetches news articles for a symbol. This method includes API status checking and
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns a list of `StockNews` or `StockNewsHumanReadable` objects
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 - `date_format` (DateFormat, optional): The date format to use. Defaults to `DateFormat.UNIX`.
   - `DateFormat.TIMESTAMP`: ISO timestamp format
@@ -745,7 +747,7 @@ Fetches news articles for a symbol. This method includes API status checking and
   - The DataFrame is indexed by the `symbol` column if present (or `Symbol` if human-readable)
   - All timestamp fields are automatically converted to `datetime.datetime` objects
 - If `output_format=OutputFormat.INTERNAL`: A list of `StockNews` objects (or `StockNewsHumanReadable` if `use_human_readable=True`)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's decoded JSON body
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
@@ -893,8 +895,8 @@ When using `OutputFormat.INTERNAL`, the `prices()` method returns a list of `Sto
 ### StockPrice Properties
 
 - `symbol` (str): Stock symbol (e.g., "AAPL")
-- `mid` (float): Mid price
-- `change` (float): Price change
+- `mid` (Decimal): Mid price
+- `change` (Decimal): Price change
 - `change_percent` (property): Alias for `changepct` - percentage change
 - `changepct` (float): Percentage change (raw field name)
 - `s` (str): Status string
@@ -904,8 +906,8 @@ When using `OutputFormat.INTERNAL`, the `prices()` method returns a list of `Sto
 
 When `use_human_readable=True`:
 - `Symbol` (str): Stock symbol (e.g., "AAPL")
-- `Mid` (float): Mid price
-- `Change_Price` (float): Price change
+- `Mid` (Decimal): Mid price
+- `Change_Price` (Decimal): Price change
 - `Change_Percent` (float): Percentage change
 - `Date` (datetime.datetime): Last update timestamp
 
@@ -959,13 +961,13 @@ When using `OutputFormat.INTERNAL`, the `quotes()` method returns a list of `Sto
 ### StockQuote Properties
 
 - `symbol` (str): Stock symbol (e.g., "AAPL")
-- `ask` (float): Ask price
+- `ask` (Decimal): Ask price
 - `askSize` (int): Ask size
-- `bid` (float): Bid price
+- `bid` (Decimal): Bid price
 - `bidSize` (int): Bid size
-- `mid` (float): Mid price
-- `last` (float): Last trade price
-- `change` (float): Price change
+- `mid` (Decimal): Mid price
+- `last` (Decimal): Last trade price
+- `change` (Decimal): Price change
 - `change_percent` (property): Alias for `changepct` - percentage change
 - `changepct` (float): Percentage change (raw field name)
 - `volume` (int): Trading volume
@@ -975,13 +977,13 @@ When using `OutputFormat.INTERNAL`, the `quotes()` method returns a list of `Sto
 
 When `use_human_readable=True`:
 - `Symbol` (str): Stock symbol (e.g., "AAPL")
-- `Ask` (float): Ask price
+- `Ask` (Decimal): Ask price
 - `Ask_Size` (int): Ask size
-- `Bid` (float): Bid price
+- `Bid` (Decimal): Bid price
 - `Bid_Size` (int): Bid size
-- `Mid` (float): Mid price
-- `Last` (float): Last trade price
-- `Change_Price` (float): Price change
+- `Mid` (Decimal): Mid price
+- `Last` (Decimal): Last trade price
+- `Change_Price` (Decimal): Price change
 - `Change_Percent` (float): Percentage change
 - `Volume` (int): Trading volume
 - `Date` (datetime.datetime): Last update timestamp
@@ -1016,20 +1018,20 @@ When using `OutputFormat.INTERNAL`, the `candles()` method returns a list of `St
 ### StockCandle Properties
 
 - `t` (datetime.datetime): Timestamp of the candle
-- `o` (float): Open price
-- `h` (float): High price
-- `l` (float): Low price
-- `c` (float): Close price
+- `o` (Decimal): Open price
+- `h` (Decimal): High price
+- `l` (Decimal): Low price
+- `c` (Decimal): Close price
 - `v` (int): Volume
 
 ### StockCandlesHumanReadable Properties
 
 When `use_human_readable=True`:
 - `Date` (datetime.datetime): Timestamp of the candle
-- `Open` (float): Open price
-- `High` (float): High price
-- `Low` (float): Low price
-- `Close` (float): Close price
+- `Open` (Decimal): Open price
+- `High` (Decimal): High price
+- `Low` (Decimal): Low price
+- `Close` (Decimal): Close price
 - `Volume` (int): Volume
 
 ### Example Usage
@@ -1067,9 +1069,9 @@ When using `OutputFormat.INTERNAL`, the `earnings()` method returns a `StockEarn
 - `reportDate` (list[datetime.datetime]): List of report dates
 - `reportTime` (list[str]): List of report times (e.g., "after close", "before open")
 - `currency` (list[str]): List of currencies
-- `reportedEPS` (list[float]): List of reported EPS values
-- `estimatedEPS` (list[float]): List of estimated EPS values
-- `surpriseEPS` (list[float]): List of surprise EPS values
+- `reportedEPS` (list[Decimal]): List of reported EPS values
+- `estimatedEPS` (list[Decimal]): List of estimated EPS values
+- `surpriseEPS` (list[Decimal]): List of surprise EPS values
 - `surpriseEPSpct` (list[float]): List of surprise EPS percentages
 - `updated` (list[datetime.datetime]): List of update timestamps
 
@@ -1083,9 +1085,9 @@ When `use_human_readable=True`:
 - `Report_Date` (list[datetime.datetime]): List of report dates
 - `Report_Time` (list[str]): List of report times
 - `Currency` (list[str]): List of currencies
-- `Reported_EPS` (list[float]): List of reported EPS values
-- `Estimated_EPS` (list[float]): List of estimated EPS values
-- `Surprise_EPS` (list[float]): List of surprise EPS values
+- `Reported_EPS` (list[Decimal]): List of reported EPS values
+- `Estimated_EPS` (list[Decimal]): List of estimated EPS values
+- `Surprise_EPS` (list[Decimal]): List of surprise EPS values
 - `Surprise_EPS_Percent` (list[float]): List of surprise EPS percentages
 - `Updated` (list[datetime.datetime]): List of update timestamps
 

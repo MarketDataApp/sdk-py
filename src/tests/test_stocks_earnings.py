@@ -1,5 +1,6 @@
 import datetime
 import pathlib
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -83,7 +84,7 @@ def test_get_stocks_earnings_response_200_internal(load_json, respx_mock, client
     assert earnings.reportTime == ["after close", "before open"]
     assert earnings.currency == ["USD", None]
     assert earnings.reportedEPS == [None, None]
-    assert earnings.estimatedEPS == [2.67, None]
+    assert earnings.estimatedEPS == [Decimal("2.67"), None]
     assert earnings.surpriseEPS == [None, None]
     assert earnings.surpriseEPSpct == [None, None]
     assert earnings.updated == [
@@ -125,7 +126,7 @@ def test_get_stocks_earnings_human_response_200(load_json, respx_mock, client):
     assert earnings.Report_Time == ["after close", "before open"]
     assert earnings.Currency == ["USD", None]
     assert earnings.Reported_EPS == [None, None]
-    assert earnings.Estimated_EPS == [2.67, None]
+    assert earnings.Estimated_EPS == [Decimal("2.67"), None]
     assert earnings.Surprise_EPS == [None, None]
     assert earnings.Surprise_EPS_Percent == [None, None]
     assert earnings.Updated == [

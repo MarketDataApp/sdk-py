@@ -68,7 +68,7 @@ def candles(
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = parse_json(response)
+        data = parse_json(response, exact=True)
         data = get_data_records(data, exclude_keys=["s"])
 
         return [output_model(**row) for row in data]

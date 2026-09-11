@@ -1,24 +1,27 @@
 import datetime
 from dataclasses import dataclass
+from decimal import Decimal
 
+from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
 
 
 @dataclass
 class StockQuote:
     symbol: str
-    ask: float
+    ask: Decimal
     askSize: int
-    bid: float
+    bid: Decimal
     bidSize: int
-    mid: float
-    last: float
-    change: float
+    mid: Decimal
+    last: Decimal
+    change: Decimal
     changepct: float
     volume: int
     updated: datetime.datetime
 
     def __post_init__(self):
+        coerce_numbers(self)
         self.updated = format_timestamp(self.updated)
 
     @property
@@ -47,18 +50,19 @@ class StockQuote:
 @dataclass
 class StockQuotesHumanReadable:
     Symbol: str
-    Ask: float
+    Ask: Decimal
     Ask_Size: int
-    Bid: float
+    Bid: Decimal
     Bid_Size: int
-    Mid: float
-    Last: float
-    Change_Price: float
+    Mid: Decimal
+    Last: Decimal
+    Change_Price: Decimal
     Change_Percent: float
     Volume: int
     Date: datetime.datetime
 
     def __post_init__(self):
+        coerce_numbers(self)
         self.Date = format_timestamp(self.Date)
 
     def __repr__(self) -> str:

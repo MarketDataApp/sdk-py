@@ -64,7 +64,7 @@ def quotes(
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = get_data_records(parse_json(response), exclude_keys=["s"])
+        data = get_data_records(parse_json(response, exact=True), exclude_keys=["s"])
         return [output_model.from_dict(row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:

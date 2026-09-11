@@ -1,6 +1,8 @@
 import datetime
 from dataclasses import dataclass
+from decimal import Decimal
 
+from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
 
 
@@ -25,22 +27,22 @@ class OptionsQuotes:
     underlying: list[str]
     expiration: list[datetime.datetime]
     side: list[str]
-    strike: list[float]
+    strike: list[Decimal]
     firstTraded: list[datetime.datetime]
     dte: list[int]
     updated: list[datetime.datetime]
-    bid: list[float]
+    bid: list[Decimal]
     bidSize: list[int]
-    mid: list[float]
-    ask: list[float]
+    mid: list[Decimal]
+    ask: list[Decimal]
     askSize: list[int]
-    last: list[float]
+    last: list[Decimal]
     openInterest: list[int]
     volume: list[int]
     inTheMoney: list[bool]
-    intrinsicValue: list[float]
-    extrinsicValue: list[float]
-    underlyingPrice: list[float]
+    intrinsicValue: list[Decimal]
+    extrinsicValue: list[Decimal]
+    underlyingPrice: list[Decimal]
     iv: list[float]
     delta: list[float]
     gamma: list[float]
@@ -48,6 +50,7 @@ class OptionsQuotes:
     vega: list[float]
 
     def __post_init__(self):
+        coerce_numbers(self)
         self.updated = [
             format_timestamp(updated) for updated in self.updated if updated
         ]
@@ -105,22 +108,22 @@ class OptionsQuotesHumanReadable:
     Underlying: list[str]
     Expiration_Date: list[datetime.datetime]
     Option_Side: list[str]
-    Strike: list[float | int]
+    Strike: list[Decimal]
     First_Traded: list[datetime.datetime]
     Days_To_Expiration: list[int]
     Date: list[datetime.datetime]
-    Bid: list[float]
+    Bid: list[Decimal]
     Bid_Size: list[int]
-    Mid: list[float]
-    Ask: list[float]
+    Mid: list[Decimal]
+    Ask: list[Decimal]
     Ask_Size: list[int]
-    Last: list[float]
+    Last: list[Decimal]
     Open_Interest: list[int]
     Volume: list[int]
     In_The_Money: list[bool]
-    Intrinsic_Value: list[float]
-    Extrinsic_Value: list[float]
-    Underlying_Price: list[float]
+    Intrinsic_Value: list[Decimal]
+    Extrinsic_Value: list[Decimal]
+    Underlying_Price: list[Decimal]
     IV: list[float]
     Delta: list[float]
     Gamma: list[float]
@@ -128,6 +131,7 @@ class OptionsQuotesHumanReadable:
     Vega: list[float]
 
     def __post_init__(self):
+        coerce_numbers(self)
         self.Expiration_Date = [
             format_timestamp(expiration) for expiration in self.Expiration_Date
         ]

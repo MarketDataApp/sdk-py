@@ -67,7 +67,7 @@ def earnings(
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = parse_json(response)
+        data = parse_json(response, exact=True)
         return output_model.from_dict(data)
 
     elif user_universal_params.output_format == OutputFormat.JSON:

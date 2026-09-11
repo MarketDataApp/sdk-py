@@ -1,7 +1,15 @@
 import datetime
 from dataclasses import dataclass
+from decimal import Decimal
 
+from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
+
+
+def _format_amounts(amounts: list) -> str:
+    """`[1.52, None]`, where the list's own repr would print
+    `[Decimal('1.52'), None]`."""
+    return "[" + ", ".join(str(amount) for amount in amounts) + "]"
 
 
 @dataclass
@@ -14,13 +22,14 @@ class StockEarnings:
     reportDate: list[datetime.datetime]
     reportTime: list[str]
     currency: list[str]
-    reportedEPS: list[float]
-    estimatedEPS: list[float]
-    surpriseEPS: list[float]
+    reportedEPS: list[Decimal]
+    estimatedEPS: list[Decimal]
+    surpriseEPS: list[Decimal]
     surpriseEPSpct: list[float]
     updated: list[datetime.datetime]
 
     def __post_init__(self):
+        coerce_numbers(self)
         self.updated = [format_timestamp(updated) for updated in self.updated]
         self.date = [format_timestamp(date) for date in self.date]
         self.reportDate = [
@@ -39,9 +48,9 @@ class StockEarnings:
         result += f"Report Date: {_format_dates(self.reportDate)}\n"
         result += f"Report Time: {self.reportTime}\n"
         result += f"Currency: {self.currency}\n"
-        result += f"Reported EPS: {self.reportedEPS}\n"
-        result += f"Estimated EPS: {self.estimatedEPS}\n"
-        result += f"Surprise EPS: {self.surpriseEPS}\n"
+        result += f"Reported EPS: {_format_amounts(self.reportedEPS)}\n"
+        result += f"Estimated EPS: {_format_amounts(self.estimatedEPS)}\n"
+        result += f"Surprise EPS: {_format_amounts(self.surpriseEPS)}\n"
         result += f"Surprise EPS Percent: {self.surpriseEPSpct}\n"
         result += f"Updated: {_format_dates(self.updated)}\n"
         return result
@@ -63,13 +72,14 @@ class StockEarningsHumanReadable:
     Report_Date: list[datetime.datetime]
     Report_Time: list[str]
     Currency: list[str]
-    Reported_EPS: list[float]
-    Estimated_EPS: list[float]
-    Surprise_EPS: list[float]
+    Reported_EPS: list[Decimal]
+    Estimated_EPS: list[Decimal]
+    Surprise_EPS: list[Decimal]
     Surprise_EPS_Percent: list[float]
     Updated: list[datetime.datetime]
 
     def __post_init__(self):
+        coerce_numbers(self)
         self.Updated = [format_timestamp(updated) for updated in self.Updated]
         self.Date = [format_timestamp(date) for date in self.Date]
         self.Report_Date = [
@@ -89,9 +99,9 @@ class StockEarningsHumanReadable:
         result += f"Report Date: {_format_dates(self.Report_Date)}\n"
         result += f"Report Time: {self.Report_Time}\n"
         result += f"Currency: {self.Currency}\n"
-        result += f"Reported EPS: {self.Reported_EPS}\n"
-        result += f"Estimated EPS: {self.Estimated_EPS}\n"
-        result += f"Surprise EPS: {self.Surprise_EPS}\n"
+        result += f"Reported EPS: {_format_amounts(self.Reported_EPS)}\n"
+        result += f"Estimated EPS: {_format_amounts(self.Estimated_EPS)}\n"
+        result += f"Surprise EPS: {_format_amounts(self.Surprise_EPS)}\n"
         result += f"Surprise EPS Percent: {self.Surprise_EPS_Percent}\n"
         result += f"Updated: {_format_dates(self.Updated)}\n"
         return result

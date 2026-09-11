@@ -99,10 +99,13 @@ def quotes(
         OutputFormat.INTERNAL,
         OutputFormat.JSON,
     ]:
+        # Only the models keep money exact (#50): the DataFrame and the JSON
+        # output keep the float parse.
+        exact = user_universal_params.output_format == OutputFormat.INTERNAL
 
         def _parse_data(response: Response) -> dict:
             try:
-                return parse_json(response)
+                return parse_json(response, exact=exact)
             except ParseError:
                 return OptionsQuotes.get_null_dict()
 

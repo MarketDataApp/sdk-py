@@ -1,6 +1,7 @@
 import copy
 import datetime
 import pathlib
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -95,13 +96,13 @@ def test_stock_quote_from_dict():
     }
     instance = StockQuote.from_dict(data)
     assert instance.symbol == "AAPL"
-    assert instance.ask == 278.02
+    assert instance.ask == Decimal("278.02")
     assert instance.askSize == 100
-    assert instance.bid == 277.97
+    assert instance.bid == Decimal("277.97")
     assert instance.bidSize == 100
-    assert instance.mid == 277.995
-    assert instance.last == 278.0188
-    assert instance.change == -0.0112
+    assert instance.mid == Decimal("277.995")
+    assert instance.last == Decimal("278.0188")
+    assert instance.change == Decimal("-0.0112")
     assert instance.changepct == 0.0
     assert instance.volume == 4964676
     assert instance.updated == datetime.datetime.fromtimestamp(
@@ -165,13 +166,13 @@ def test_stock_quotes_human_readable_from_dict():
     }
     instance = StockQuotesHumanReadable.from_dict(data)
     assert instance.Symbol == "AAPL"
-    assert instance.Ask == 278.02
+    assert instance.Ask == Decimal("278.02")
     assert instance.Ask_Size == 100
-    assert instance.Bid == 277.97
+    assert instance.Bid == Decimal("277.97")
     assert instance.Bid_Size == 100
-    assert instance.Mid == 277.995
-    assert instance.Last == 278.0188
-    assert instance.Change_Price == 0.51
+    assert instance.Mid == Decimal("277.995")
+    assert instance.Last == Decimal("278.0188")
+    assert instance.Change_Price == Decimal("0.51")
     assert instance.Change_Percent == 0.0018
     assert instance.Volume == 4964676
     assert instance.Date == datetime.datetime.fromtimestamp(
@@ -196,24 +197,24 @@ def test_get_stocks_quotes_response_200_internal(load_json, respx_mock, client):
     )
     assert len(quotes) == 2
     assert quotes[0].symbol == "AAPL"
-    assert quotes[0].ask == 278.02
+    assert quotes[0].ask == Decimal("278.02")
     assert quotes[0].askSize == 100
-    assert quotes[0].bid == 277.97
+    assert quotes[0].bid == Decimal("277.97")
     assert quotes[0].bidSize == 100
-    assert quotes[0].mid == 277.995
-    assert quotes[0].last == 278.0188
-    assert quotes[0].change == -0.0112
+    assert quotes[0].mid == Decimal("277.995")
+    assert quotes[0].last == Decimal("278.0188")
+    assert quotes[0].change == Decimal("-0.0112")
     assert quotes[0].changepct == 0.0
     assert quotes[0].volume == 4964676
     assert quotes[0].updated == updated
     assert quotes[1].symbol == "MSFT"
-    assert quotes[1].ask == 479.45
+    assert quotes[1].ask == Decimal("479.45")
     assert quotes[1].askSize == 40
-    assert quotes[1].bid == 479.37
+    assert quotes[1].bid == Decimal("479.37")
     assert quotes[1].bidSize == 40
-    assert quotes[1].mid == 479.41
-    assert quotes[1].last == 479.42
-    assert quotes[1].change == -4.05
+    assert quotes[1].mid == Decimal("479.41")
+    assert quotes[1].last == Decimal("479.42")
+    assert quotes[1].change == Decimal("-4.05")
     assert quotes[1].changepct == -0.0084
     assert quotes[1].volume == 3581398
     assert quotes[1].updated == updated
@@ -244,13 +245,13 @@ def test_get_stocks_quotes_human_response_200(load_json, respx_mock, client):
         use_human_readable=True,
     )
     assert quotes[0].Symbol == "AAPL"
-    assert quotes[0].Ask == 278.55
+    assert quotes[0].Ask == Decimal("278.55")
     assert quotes[0].Ask_Size == 400
-    assert quotes[0].Bid == 278.54
+    assert quotes[0].Bid == Decimal("278.54")
     assert quotes[0].Bid_Size == 100
-    assert quotes[0].Mid == 278.545
-    assert quotes[0].Last == 278.54
-    assert quotes[0].Change_Price == 0.51
+    assert quotes[0].Mid == Decimal("278.545")
+    assert quotes[0].Last == Decimal("278.54")
+    assert quotes[0].Change_Price == Decimal("0.51")
     assert quotes[0].Change_Percent == 0.0018
     assert quotes[0].Volume == 17525589
     assert quotes[0].Date == datetime.datetime.fromtimestamp(
