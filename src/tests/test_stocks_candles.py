@@ -518,6 +518,30 @@ def test_stocks_candles_csv_undecodable_chunk_body_is_a_parse_error(
     assert not (tmp_path / "test.csv").exists()
 
 
+def test_stocks_candles_csv_chunk_the_csv_module_cannot_read_is_a_parse_error(
+    respx_mock, client, tmp_path
+):
+    """Issue #86: a field past the csv reader's limit escaped as a raw
+    `csv.Error`, which is not an SDK exception."""
+    unreadable = CSV_BODY + "x" * 200_000 + ",1,1,1,1,1\r\n"
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=by_chunk(dict(text=CSV_BODY), dict(text=unreadable))
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.stocks.candles(
+            symbol="AAPL",
+            resolution="H",
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+            **TWO_CHUNKS,
+        )
+
+    assert "unreadable CSV" in exc_info.value.message
+    assert "from=2024-01-01" in exc_info.value.request_url
+    assert not (tmp_path / "test.csv").exists()
+
+
 def test_stocks_candles_csv_leaves_out_a_chunk_with_no_data(
     respx_mock, client, tmp_path
 ):

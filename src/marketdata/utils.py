@@ -144,8 +144,8 @@ def merge_csv_responses(
     ``use_human_readable`` their human-readable names. Every body must carry
     the same header, made of this resource's column names, and every row must
     be as wide as it; anything else (an HTML error page, a truncated body,
-    two symbols answering with different columns) raises ``ParseError``
-    naming the offending response. Headers are compared through ``column_key``,
+    a body the ``csv`` module cannot read, two symbols answering with
+    different columns) raises ``ParseError`` naming the offending response. Headers are compared through ``column_key``,
     the same way they are validated, so two answers spelling the same column
     differently (case, a space after the comma) still merge; a different
     *order* is refused, because merging misaligned rows would corrupt the
@@ -160,7 +160,13 @@ def merge_csv_responses(
     rows_out: list[list[str]] = []
 
     for response in responses:
-        rows = [row for row in csv.reader(StringIO(response.text)) if row]
+        try:
+            rows = [row for row in csv.reader(StringIO(response.text)) if row]
+        except csv.Error as exc:
+            # A field past the reader's limit, or a NUL byte before Python
+            # 3.11. `csv.Error` is not an SDK exception, and the body is not
+            # this resource's answer either.
+            raise parse_error(response, f"unreadable CSV: {exc}") from exc
         if with_header:
             if not rows:
                 raise parse_error(response, "no header row")

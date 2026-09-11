@@ -754,6 +754,28 @@ def test_options_quotes_csv_undecodable_symbol_body_is_a_parse_error(
     assert not (tmp_path / "test.csv").exists()
 
 
+def test_options_quotes_csv_body_the_csv_module_cannot_read_is_a_parse_error(
+    respx_mock, client, tmp_path
+):
+    """Issue #86: a field past the csv reader's limit escaped as a raw
+    `csv.Error`, which is not an SDK exception."""
+    respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
+    respx_mock.get(PUT_URL).respond(
+        text=f"{CSV_HEADER}\r\n{'x' * 200_000},{PUT_ROW}\r\n"
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+        )
+
+    assert "unreadable CSV" in exc_info.value.message
+    assert exc_info.value.request_url.startswith(PUT_URL)
+    assert not (tmp_path / "test.csv").exists()
+
+
 def test_options_quotes_csv_leaves_out_a_symbol_with_no_data(
     respx_mock, client, tmp_path
 ):
