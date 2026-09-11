@@ -1,5 +1,6 @@
 import datetime
 import pathlib
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -114,18 +115,18 @@ def test_get_options_quotes_response_200_internal(load_json, respx_mock, client)
         2025, 12, 10, 19, 49, 56, tzinfo=datetime.timezone.utc
     ).astimezone(pytz.timezone("US/Eastern"))
     assert quotes.updated[0].astimezone(pytz.timezone("US/Eastern")) == expected
-    assert quotes.bid[0] == 65.1
+    assert quotes.bid[0] == Decimal("65.1")
     assert quotes.bidSize[0] == 29
-    assert quotes.mid[0] == 65.75
-    assert quotes.ask[0] == 66.4
+    assert quotes.mid[0] == Decimal("65.75")
+    assert quotes.ask[0] == Decimal("66.4")
     assert quotes.askSize[0] == 84
-    assert quotes.last[0] == 64.97
+    assert quotes.last[0] == Decimal("64.97")
     assert quotes.openInterest[0] == 588
     assert quotes.volume[0] == 0
     assert quotes.inTheMoney[0]
-    assert quotes.intrinsicValue[0] == 23.7344
-    assert quotes.extrinsicValue[0] == 42.0156
-    assert quotes.underlyingPrice[0] == 278.7344
+    assert quotes.intrinsicValue[0] == Decimal("23.7344")
+    assert quotes.extrinsicValue[0] == Decimal("42.0156")
+    assert quotes.underlyingPrice[0] == Decimal("278.7344")
     assert quotes.iv[0] == 0.2975
     assert quotes.delta[0] == 0.7188
     assert quotes.gamma[0] == 0.0029
@@ -162,18 +163,18 @@ def test_get_options_quotes_human_response_200(load_json, respx_mock, client):
     assert quotes.Date[0] == datetime.datetime.fromtimestamp(
         1765562189, tz=pytz.timezone("US/Eastern")
     )
-    assert quotes.Bid[0] == 67.05
+    assert quotes.Bid[0] == Decimal("67.05")
     assert quotes.Bid_Size[0] == 337
-    assert quotes.Mid[0] == 68.18
-    assert quotes.Ask[0] == 69.3
+    assert quotes.Mid[0] == Decimal("68.18")
+    assert quotes.Ask[0] == Decimal("69.3")
     assert quotes.Ask_Size[0] == 365
-    assert quotes.Last[0] == 67.46
+    assert quotes.Last[0] == Decimal("67.46")
     assert quotes.Open_Interest[0] == 5094
     assert quotes.Volume[0] == 10
     assert quotes.In_The_Money[0]
-    assert quotes.Intrinsic_Value[0] == 28.7943
-    assert quotes.Extrinsic_Value[0] == 39.3857
-    assert quotes.Underlying_Price[0] == 278.7943
+    assert quotes.Intrinsic_Value[0] == Decimal("28.7943")
+    assert quotes.Extrinsic_Value[0] == Decimal("39.3857")
+    assert quotes.Underlying_Price[0] == Decimal("278.7943")
     assert quotes.IV[0] == 0.2974
     assert quotes.Delta[0] == 0.7336
     assert quotes.Gamma[0] == 0.0028

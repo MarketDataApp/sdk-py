@@ -1,6 +1,7 @@
 """Live tests for the options resource: chain, expirations, quotes, lookup."""
 
 import datetime
+from decimal import Decimal
 
 import pytest
 
@@ -86,6 +87,11 @@ def test_chain_returns_expected_shape(live_chain: OptionsChain):
     assert all(isinstance(e, datetime.datetime) for e in live_chain.expiration)
     assert all(isinstance(dte, int) and dte >= 0 for dte in live_chain.dte)
     assert all(price > 0 for price in live_chain.underlyingPrice)
+    # Money is exact (#50); the greeks and IV stay floats.
+    for field in ("strike", "underlyingPrice"):
+        assert all(isinstance(v, Decimal) for v in getattr(live_chain, field))
+    for field in ("iv", "delta", "gamma", "theta", "vega"):
+        assert not any(isinstance(v, Decimal) for v in getattr(live_chain, field))
 
 
 def test_quotes_return_expected_shape(
@@ -106,6 +112,8 @@ def test_quotes_return_expected_shape(
     assert isinstance(quotes.expiration[0], datetime.datetime)
     assert isinstance(quotes.updated[0], datetime.datetime)
     assert quotes.bid[0] >= 0 and quotes.ask[0] >= quotes.bid[0]
+    assert isinstance(quotes.bid[0], Decimal)
+    assert isinstance(quotes.ask[0], Decimal)
     assert isinstance(quotes.openInterest[0], int)
 
 

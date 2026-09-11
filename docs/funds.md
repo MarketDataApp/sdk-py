@@ -35,7 +35,7 @@ Fetches funds candles (OHLC data) for a symbol with support for various timefram
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns a list of `FundsCandle` or `FundsCandlesHumanReadable` objects
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 - `date_format` (DateFormat, optional): The date format to use. Defaults to `DateFormat.UNIX`.
   - `DateFormat.TIMESTAMP`: ISO timestamp format
@@ -54,7 +54,7 @@ Fetches funds candles (OHLC data) for a symbol with support for various timefram
   - The DataFrame is indexed by the `t` column (timestamp) or `Date` column (if human-readable)
   - All timestamp fields are automatically converted to `datetime.datetime` objects
 - If `output_format=OutputFormat.INTERNAL`: A list of `FundsCandle` objects (or `FundsCandlesHumanReadable` if `use_human_readable=True`)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's decoded JSON body
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
@@ -213,10 +213,10 @@ When using `OutputFormat.INTERNAL`, the `candles()` method returns a list of `Fu
 ### FundsCandle Properties
 
 - `t` (datetime.datetime): Timestamp of the candle
-- `o` (float): Open price
-- `h` (float): High price
-- `l` (float): Low price
-- `c` (float): Close price
+- `o` (Decimal): Open price
+- `h` (Decimal): High price
+- `l` (Decimal): Low price
+- `c` (Decimal): Close price
 
 **Note:** Unlike stock candles, funds candles do not include volume data.
 
@@ -224,10 +224,10 @@ When using `OutputFormat.INTERNAL`, the `candles()` method returns a list of `Fu
 
 When `use_human_readable=True`:
 - `Date` (datetime.datetime): Timestamp of the candle
-- `Open` (float): Open price
-- `High` (float): High price
-- `Low` (float): Low price
-- `Close` (float): Close price
+- `Open` (Decimal): Open price
+- `High` (Decimal): High price
+- `Low` (Decimal): Low price
+- `Close` (Decimal): Close price
 
 ### Example Usage
 

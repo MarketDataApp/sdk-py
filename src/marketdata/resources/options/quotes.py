@@ -107,8 +107,11 @@ def quotes(
     ]:
         # A body that is not JSON (a proxy's HTML error page) fails the call
         # as it does everywhere else (#82); a fabricated empty row would read
-        # as "no options" and break the merge of the healthy symbols.
-        data = [parse_json(response) for response in usable]
+        # as "no options" and break the merge of the healthy symbols. Only the
+        # models keep money exact (#50): the DataFrame and the JSON output keep
+        # the float parse.
+        exact = user_universal_params.output_format == OutputFormat.INTERNAL
+        data = [parse_json(response, exact=exact) for response in usable]
         data = output_model.join_dicts(data)
 
         if user_universal_params.output_format == OutputFormat.DATAFRAME:

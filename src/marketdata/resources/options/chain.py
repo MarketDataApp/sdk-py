@@ -67,7 +67,7 @@ def chain(
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = parse_json(response)
+        data = parse_json(response, exact=True)
         if user_universal_params.use_human_readable:
             data = {k.replace(" ", "_"): v for k, v in data.items()}
         return output_model(**data)

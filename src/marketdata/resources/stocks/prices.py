@@ -67,7 +67,7 @@ def prices(
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = get_data_records(parse_json(response))
+        data = get_data_records(parse_json(response, exact=True))
         return [output_model.from_dict(row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:

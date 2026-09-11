@@ -128,8 +128,10 @@ def candles(
             index_columns=["t", "Date"],
         )
 
-    def _get_responses_data(responses: list[httpx.Response]) -> list[dict]:
-        responses_data = [parse_json(response) for response in responses]
+    def _get_responses_data(
+        responses: list[httpx.Response], exact: bool = False
+    ) -> list[dict]:
+        responses_data = [parse_json(response, exact=exact) for response in responses]
         result = {}
         for field in fields(output_model):
             result[field.name] = list(
@@ -147,7 +149,7 @@ def candles(
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = _get_responses_data(responses)
+        data = _get_responses_data(responses, exact=True)
         data = get_data_records(data, exclude_keys=["s"])
         return [output_model(**row) for row in data]
 

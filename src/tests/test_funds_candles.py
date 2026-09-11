@@ -1,5 +1,6 @@
 import datetime
 import pathlib
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -111,10 +112,10 @@ def test_get_funds_candles_response_200_internal(load_json, respx_mock, client):
     assert candles[0].t == datetime.datetime.fromtimestamp(
         1577941200, tz=pytz.timezone("US/Eastern")
     )
-    assert candles[0].o == 300.69
-    assert candles[0].h == 300.69
-    assert candles[0].l == 300.69
-    assert candles[0].c == 300.69
+    assert candles[0].o == Decimal("300.69")
+    assert candles[0].h == Decimal("300.69")
+    assert candles[0].l == Decimal("300.69")
+    assert candles[0].c == Decimal("300.69")
 
 
 def test_get_funds_candles_response_200_json(load_json, respx_mock, client):
@@ -202,10 +203,10 @@ def test_get_funds_candles_human_response_200(load_json, respx_mock, client):
     assert candles[0].Date == datetime.datetime.fromtimestamp(
         1577941200, tz=pytz.timezone("US/Eastern")
     )
-    assert candles[0].Open == 300.69
-    assert candles[0].High == 300.69
-    assert candles[0].Low == 300.69
-    assert candles[0].Close == 300.69
+    assert candles[0].Open == Decimal("300.69")
+    assert candles[0].High == Decimal("300.69")
+    assert candles[0].Low == Decimal("300.69")
+    assert candles[0].Close == Decimal("300.69")
 
 
 def test_get_funds_candles_response_400(respx_mock, client):

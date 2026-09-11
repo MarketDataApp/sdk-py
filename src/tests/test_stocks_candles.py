@@ -1,6 +1,7 @@
 import copy
 import datetime
 import pathlib
+from decimal import Decimal
 from unittest.mock import patch
 
 import httpx
@@ -111,10 +112,10 @@ def test_get_stocks_candles_response_200_internal(load_json, respx_mock, client)
     assert candles[0].t == datetime.datetime.fromtimestamp(
         1577941200, tz=pytz.timezone("US/Eastern")
     )
-    assert candles[0].o == 74.06
-    assert candles[0].h == 75.15
-    assert candles[0].l == 73.7975
-    assert candles[0].c == 75.0875
+    assert candles[0].o == Decimal("74.06")
+    assert candles[0].h == Decimal("75.15")
+    assert candles[0].l == Decimal("73.7975")
+    assert candles[0].c == Decimal("75.0875")
     assert candles[0].v == 135647456
 
 
@@ -152,10 +153,10 @@ def test_get_stocks_candles_response_200_internal_human_readable(
     assert candles[0].Date == datetime.datetime.fromtimestamp(
         1577941200, tz=pytz.timezone("US/Eastern")
     )
-    assert candles[0].Open == 74.06
-    assert candles[0].High == 75.15
-    assert candles[0].Low == 73.7975
-    assert candles[0].Close == 75.0875
+    assert candles[0].Open == Decimal("74.06")
+    assert candles[0].High == Decimal("75.15")
+    assert candles[0].Low == Decimal("73.7975")
+    assert candles[0].Close == Decimal("75.0875")
     assert candles[0].Volume == 135647456
 
 
