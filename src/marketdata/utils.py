@@ -78,6 +78,20 @@ _CSV_ERROR_STATUS_KEYS = {column_key(status) for status in _CSV_ERROR_STATUSES}
 _CSV_ERROR_MAX_LENGTH = 4096
 
 
+def _csv_rows(text: str) -> list[list[str]]:
+    """The rows of a CSV body, blank lines dropped and a BOM stripped from
+    the first value: the one way the SDK reads the API's CSV, shared by the
+    error envelope and the fan-out merge so the two cannot drift apart.
+
+    ``csv.Error`` (a field past the reader's size limit, or a NUL byte before
+    Python 3.11) propagates: each caller decides what an unreadable body means.
+    """
+    rows = [row for row in csv.reader(StringIO(text)) if row]
+    if rows:
+        rows[0][0] = rows[0][0].lstrip("\ufeff")  # a BOM is not data
+    return rows
+
+
 def parse_csv_errmsg(text: str) -> str | None:
     """The ``errmsg`` of the API's CSV error table, or ``None`` for any other
     body (#91).
@@ -87,21 +101,17 @@ def parse_csv_errmsg(text: str) -> str | None:
     a 404 that is the difference between "the symbol does not exist" and "no
     data for a valid question".
 
-    Never raises: a body that is not a CSV at all (a NUL byte, an unterminated
-    quote, a field past the reader's limit) is simply not an error table, and
-    the caller reports it as the raw body. Letting ``csv.Error`` out here would
-    replace the SDK's exception for that request, and a retryable status would
-    stop being retried.
+    Never raises: a body the reader refuses (a NUL byte, before Python 3.11)
+    is simply not an error table, and the caller reports it as the raw body.
+    Letting ``csv.Error`` out here would replace the SDK's exception for that
+    request, and a retryable status would stop being retried.
     """
     if len(text) > _CSV_ERROR_MAX_LENGTH:
         return None
     try:
-        rows = [row for row in csv.reader(StringIO(text)) if row]
+        rows = _csv_rows(text)
     except csv.Error:
         return None
-    if not rows:
-        return None
-    rows[0][0] = rows[0][0].lstrip("\ufeff")  # a BOM is not a column
 
     if len(rows) == 2:
         if [column_key(name) for name in rows[0]] != _CSV_ERROR_HEADER:
@@ -203,7 +213,8 @@ def merge_csv_responses(
     *order* is refused, because merging misaligned rows would corrupt the
     data. The file keeps the first answer's spelling. With ``with_header=False``
     (``add_headers=False``) the bodies carry no header, so only the row width
-    is checked, against the first row seen.
+    is checked, against the first row seen. Either way a BOM at the start of
+    a body is not data, and is dropped.
     """
     known = {column_key(name) for name in known_columns}
     header: list[str] | None = None
@@ -213,7 +224,7 @@ def merge_csv_responses(
 
     for response in responses:
         try:
-            rows = [row for row in csv.reader(StringIO(response.text)) if row]
+            rows = _csv_rows(response.text)
         except csv.Error as exc:
             # A field past the reader's limit, or a NUL byte before Python
             # 3.11. `csv.Error` is not an SDK exception, and the body is not
@@ -223,7 +234,6 @@ def merge_csv_responses(
             if not rows:
                 raise parse_error(response, "no header row")
             incoming, rows = rows[0], rows[1:]
-            incoming[0] = incoming[0].lstrip("\ufeff")  # a BOM is not a column
             unknown = [name for name in incoming if column_key(name) not in known]
             if unknown:
                 raise parse_error(response, f"unknown columns {unknown!r}")

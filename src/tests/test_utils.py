@@ -141,7 +141,7 @@ def test_merge_csv_responses_rejects_a_body_that_is_not_this_resource(bodies, re
 
 @pytest.mark.parametrize(
     "second_header",
-    ["t,c", "T,C", "t, c", "﻿t,c"],
+    ["t,c", "T,C", "t, c", "\ufefft,c"],
     ids=["identical", "different-case", "space-after-comma", "bom"],
 )
 def test_merge_csv_responses_compares_headers_the_way_it_validates_them(second_header):
@@ -164,6 +164,28 @@ def test_merge_csv_responses_still_refuses_a_different_column_order():
         merge_csv_responses(responses, COLUMNS)
 
     assert "differs from" in exc_info.value.message
+
+
+def test_merge_csv_responses_drops_a_bom_from_every_body_with_or_without_a_header():
+    """A BOM is not data. Without a header it stayed in the first value of
+    each body, and so in the middle of the merged file. The API sends none
+    today (checked live, with and without headers); a proxy might."""
+    with_header = [
+        _csv_response("\ufefft,c\n1,2\n"),
+        _csv_response("\ufefft,c\n3,4\n"),
+    ]
+    without = [
+        _csv_response("\ufeff1,2\n"),
+        _csv_response("\ufeff3,4\n"),
+    ]
+
+    assert merge_csv_responses(with_header, COLUMNS) == "t,c\r\n1,2\r\n3,4\r\n"
+    assert merge_csv_responses(without, COLUMNS, with_header=False) == (
+        "1,2\r\n3,4\r\n"
+    )
+    # Only at the start of a body: U+FEFF inside a value is data.
+    inside = [_csv_response("1,\ufeff2\n")]
+    assert merge_csv_responses(inside, COLUMNS, with_header=False) == "1,\ufeff2\r\n"
 
 
 def test_merge_csv_responses_without_headers_concatenates_rows_of_one_width():
@@ -299,6 +321,7 @@ def test_column_key_matches_names_the_way_the_api_does():
         # values arrive alone and the `s` value is what marks them as an error.
         ("no_data,Symbol not found.\r\n", "Symbol not found."),
         ("error,Invalid date\r\n", "Invalid date"),
+        ("\ufeffno_data,Symbol not found.\r\n", "Symbol not found."),
         # The marker is matched through `column_key`, as the header row is:
         # normalising one and not the other would drop the message of a 404
         # and read it as the empty answer again.
@@ -320,8 +343,9 @@ def test_column_key_matches_names_the_way_the_api_does():
         # A headerless data row is not an error, whatever its width.
         ("1704171600,184.1\r\n", None),
         ("no_data\r\n", None),
-        # Not a CSV at all: the reader raises on a NUL byte, and an error
-        # envelope is never this big.
+        # Not an error table: the reader raises on a NUL byte before Python
+        # 3.11 and reads it as data after, and an error envelope is never
+        # this big.
         ("oops\x00page", None),
         ("s,errmsg\r\nerror," + "a" * 5000 + "\r\n", None),
     ],
