@@ -1,6 +1,6 @@
 import types
 from abc import ABC, abstractmethod
-from dataclasses import fields, is_dataclass
+from dataclasses import is_dataclass
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Iterable, Union, get_args, get_origin
 
@@ -40,24 +40,18 @@ class BaseOutputHandler(ABC):
             )
         return False
 
-    # `fields()` rather than `__dataclass_fields__`: the latter also lists the
-    # `api_model` ClassVar of the human-readable models, which is not a column.
     def _get_date_columns(self) -> list[str]:
         if not is_dataclass(self.output_schema):
             return []
-        return [
-            field.name
-            for field in fields(self.output_schema)
-            if self._type_includes(field.type, date)
-        ]
+        fields = self.output_schema.__dataclass_fields__.values()
+        return [field.name for field in fields if self._type_includes(field.type, date)]
 
     def _get_datetime_columns(self) -> list[str]:
         if not is_dataclass(self.output_schema):
             return []
+        fields = self.output_schema.__dataclass_fields__.values()
         return [
-            field.name
-            for field in fields(self.output_schema)
-            if self._type_includes(field.type, datetime)
+            field.name for field in fields if self._type_includes(field.type, datetime)
         ]
 
     def _validate_result(self, result, **kwargs) -> Any:

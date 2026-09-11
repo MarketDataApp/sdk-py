@@ -113,12 +113,12 @@ def quotes(
         # as it does everywhere else (#82); a fabricated empty row would read
         # as "no options" and break the merge of the healthy symbols.
         data = [parse_json(response) for response in usable]
-        # Under `columns=` the API sends the requested keys only, so the merge
-        # covers the keys the first symbol carries, and every symbol must
-        # carry them: a symbol missing one would shift the rows of every
-        # symbol after it (the rule `stocks.candles` applies to chunks, #90).
-        json_answer_columns(usable, data, output_model.answer_keys())
-        data = output_model.join_dicts(data)
+        # Under `columns=` the API sends the requested keys only, in request
+        # order, and every symbol must carry the same ones: a symbol missing
+        # one would shift the rows of every symbol after it (the rule
+        # `stocks.candles` applies to chunks, #90).
+        columns = json_answer_columns(usable, data, output_model.answer_keys())
+        data = output_model.join_dicts(data, columns)
 
         if user_universal_params.output_format == OutputFormat.DATAFRAME:
             handler = get_dataframe_output_handler()

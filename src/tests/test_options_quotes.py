@@ -290,22 +290,24 @@ def _answer_three_symbols(respx_mock, first: dict, second: dict, third: dict):
     ("use_human_readable", "symbol_key", "bid_key"),
     [(False, "optionSymbol", "bid"), (True, "Symbol", "Bid")],
 )
+@pytest.mark.parametrize("lacking", [1, 0], ids=["second-symbol", "first-symbol"])
 def test_options_quotes_symbol_missing_a_column_is_a_parse_error(
-    respx_mock, client, output_format, use_human_readable, symbol_key, bid_key
+    respx_mock, client, output_format, use_human_readable, symbol_key, bid_key, lacking
 ):
-    """The review of #92: the second symbol's answer lacks the bid. The merge
-    padded that column with nothing, so the third symbol's bid landed on the
-    second symbol's row, and the human-readable merge raised a bare
-    `KeyError`. The first answer's columns are now the merge's, the rule the
-    chunks of `stocks.candles` follow (#90), and a symbol lacking one fails
-    the call naming that symbol."""
-    status = {} if use_human_readable else {"s": "ok"}
-    _answer_three_symbols(
-        respx_mock,
-        {**status, symbol_key: ["A"], bid_key: [1.0]},
-        {**status, symbol_key: ["B"]},
-        {**status, symbol_key: ["C"], bid_key: [3.0]},
-    )
+    """The review of #92: one symbol's answer lacks the bid. The merge padded
+    that column with nothing, so the third symbol's bid landed on the second
+    symbol's row, and the human-readable merge raised a bare `KeyError`; when
+    the first symbol was the one lacking it, the bid vanished for every
+    symbol without a word. Any answer lacking a column another one carries
+    now fails the call naming that symbol, the rule the chunks of
+    `stocks.candles` follow (#90). The answers have the shape the API gives
+    under `columns=`: the requested keys only."""
+    answers = [
+        {symbol_key: [name], bid_key: [price]}
+        for name, price in (("A", 1.0), ("B", 2.0), ("C", 3.0))
+    ]
+    del answers[lacking][bid_key]
+    _answer_three_symbols(respx_mock, *answers)
 
     with pytest.raises(ParseError) as exc_info:
         client.options.quotes(
@@ -315,8 +317,63 @@ def test_options_quotes_symbol_missing_a_column_is_a_parse_error(
             columns=["optionSymbol", "bid"],
         )
 
-    assert exc_info.value.request_url.startswith(PUT_URL)
+    assert exc_info.value.request_url.startswith((CALL_URL, PUT_URL)[lacking])
     assert f"missing columns {[bid_key]!r}" in exc_info.value.message
+
+
+@pytest.mark.parametrize(
+    ("bid", "reason"),
+    [([], "different lengths"), ("2.5", "are not lists"), (None, "are not lists")],
+    ids=["empty", "a-string", "null"],
+)
+def test_options_quotes_symbol_with_a_broken_column_is_a_parse_error(
+    respx_mock, client, bid, reason
+):
+    """A column that is there but empty, or not a list, shifts the rows the
+    same way: an empty bid put the third symbol's bid on the second symbol's
+    row, and a string was split into its characters."""
+    _answer_three_symbols(
+        respx_mock,
+        {"optionSymbol": ["A"], "bid": [1.0]},
+        {"optionSymbol": ["B"], "bid": bid},
+        {"optionSymbol": ["C"], "bid": [3.0]},
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=THREE_SYMBOLS,
+            output_format=OutputFormat.JSON,
+            columns=["optionSymbol", "bid"],
+        )
+
+    assert exc_info.value.request_url.startswith(PUT_URL)
+    assert reason in exc_info.value.message
+
+
+def test_options_quotes_keeps_the_order_the_columns_were_requested_in(
+    respx_mock, client
+):
+    """Checked live: under `columns=bid,optionSymbol` the API answers
+    `{"bid": [...], "optionSymbol": [...]}`, in request order and with no
+    status flag. The merge keeps that order, which is the order of the empty
+    result (#87) and of every single-request resource; the flag the SDK adds
+    comes after the columns, where it always went for such an answer."""
+    _answer_three_symbols(
+        respx_mock,
+        *[
+            {"bid": [price], "optionSymbol": [name]}
+            for name, price in (("A", 1.0), ("B", 2.0), ("C", 3.0))
+        ],
+    )
+
+    result = client.options.quotes(
+        symbols=THREE_SYMBOLS,
+        output_format=OutputFormat.JSON,
+        columns=["bid", "optionSymbol"],
+    )
+
+    assert list(result) == ["bid", "optionSymbol", "s"]
+    assert result["bid"] == [1.0, 2.0, 3.0]
 
 
 def test_options_quotes_merges_the_requested_columns_row_by_row(respx_mock, client):
@@ -792,9 +849,33 @@ def test_options_quotes_human_readable_join_dicts():
 )
 def test_options_quotes_join_dicts_refuses_to_shift_the_rows(model, dicts):
     """Called on its own, a merge that cannot line the rows up raises rather
-    than padding the missing column with nothing."""
+    than padding the missing column with nothing. The API-named merge used to
+    pad it; the human-readable one already raised, and is pinned here so the
+    two keep agreeing."""
     with pytest.raises(KeyError):
         model.join_dicts(dicts)
+
+
+def test_options_quotes_join_dicts_follows_the_keys_it_is_given():
+    """`quotes()` hands over the columns it checked, in the order the API sent
+    them. Under `columns=` the API sends no status flag, and the one the SDK
+    adds goes after the columns, where the merge always put it for such an
+    answer; an answer that carries the flag keeps it first."""
+    filtered = [
+        {"bid": [1.0], "optionSymbol": ["A"]},
+        {"bid": [2.0], "optionSymbol": ["B"]},
+    ]
+    full = [{"s": "ok", **answer} for answer in filtered]
+
+    joined = OptionsQuotes.join_dicts(filtered, ["bid", "optionSymbol"])
+
+    assert list(joined) == ["bid", "optionSymbol", "s"]
+    assert joined == {"bid": [1.0, 2.0], "optionSymbol": ["A", "B"], "s": "ok"}
+    assert list(OptionsQuotes.join_dicts(full, ["bid", "optionSymbol"])) == [
+        "s",
+        "bid",
+        "optionSymbol",
+    ]
 
 
 def test_options_quotes_answer_keys_are_the_keys_the_api_sends(load_json):

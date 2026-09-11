@@ -89,11 +89,11 @@ def test_validate_single_param():
 COLUMNS = ["t", "o", "h", "l", "c", "v"]
 
 
-def _csv_response(text: str, status: int = 200) -> httpx.Response:
+def _csv_response(text: str, status: int = 200, fmt: str = "csv") -> httpx.Response:
     return httpx.Response(
         status,
         text=text,
-        request=httpx.Request("GET", "https://api.marketdata.app/v1/x/"),
+        request=httpx.Request("GET", f"https://api.marketdata.app/v1/x/?format={fmt}"),
     )
 
 
@@ -178,14 +178,16 @@ def test_merge_csv_responses_without_headers_concatenates_rows_of_one_width():
 # ----------------------------------------------------- json_answer_columns
 
 
-def test_json_answer_columns_are_the_first_answers_keys_in_model_order():
-    """Under `columns=` the API sends the requested keys only; the merge
-    covers those, in the order of the model, and a later answer may carry
-    more (it is not asked to line up with anything beyond the first)."""
+def test_json_answer_columns_follow_the_order_the_answers_send():
+    """Under `columns=` the API sends the requested keys only, in request
+    order (checked live: `columns=v,c` answers `{"v": [...], "c": [...]}`).
+    The merge keeps that order, which is the order of the empty result and of
+    every single-request resource, not the model's; the status flag and keys
+    the model does not know are not columns."""
     responses = [_csv_response(""), _csv_response("")]
-    answers = [{"s": "ok", "c": [1], "t": [2]}, {"t": [3], "c": [4], "v": [5]}]
+    answers = [{"c": [1], "t": [2], "x": [0]}, {"c": [4], "t": [3], "s": "ok"}]
 
-    assert json_answer_columns(responses, answers, COLUMNS) == ["t", "c"]
+    assert json_answer_columns(responses, answers, COLUMNS) == ["c", "t"]
 
 
 @pytest.mark.parametrize(
@@ -200,15 +202,31 @@ def test_json_answer_columns_are_the_first_answers_keys_in_model_order():
             0,
         ),
         ([{"t": [1], "c": [2]}, {"t": [3], "c": [4]}, {"t": [5]}], "['c']", 2),
+        ([{"t": [1]}, {"t": [3], "c": [4]}], "missing columns ['c']", 0),
+        ([{"t": [1], "c": [2]}, {"t": [3], "c": []}], "different lengths", 1),
+        ([{"t": [1], "c": [2]}, {"t": [3], "c": "4.5"}], "are not lists", 1),
+        ([{"t": [1], "c": [2]}, {"t": [3], "c": None}], "are not lists", 1),
     ],
-    ids=["null", "array", "string", "no-columns", "a-later-answer-lacks-one"],
+    ids=[
+        "null",
+        "array",
+        "string",
+        "no-columns",
+        "a-later-answer-lacks-one",
+        "the-first-answer-lacks-one",
+        "an-empty-column",
+        "a-column-that-is-a-string",
+        "a-null-column",
+    ],
 )
 def test_json_answer_columns_name_the_answer_that_breaks_the_merge(
     answers, reason, bad_index
 ):
     """The review of #92: a column missing from one symbol shifted the rows of
-    every symbol after it. Each failure is a `ParseError` carrying the response
-    that caused it, not the first one."""
+    every symbol after it. Whichever answer lacks a column, the first one
+    included, fails the call, and so does a column that is empty or not a
+    list, which shifts the rows the same way. Each failure is a `ParseError`
+    carrying the response that caused it."""
     responses = [_csv_response("") for _ in answers]
 
     with pytest.raises(ParseError) as exc_info:
@@ -246,7 +264,15 @@ CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
 def test_is_no_data_recognises_the_404_and_the_csv_placeholder(status, body, expected):
     """Issue #89: in CSV format the API renders the empty answer as a 200 with
     a placeholder table (MarketData-App/api#422)."""
-    assert is_no_data(_csv_response(body, status)) is expected
+    assert is_no_data(_csv_response(body, status, fmt="csv")) is expected
+
+
+@pytest.mark.parametrize("body", ['0\r\n""\r\n', '""'])
+def test_the_csv_placeholder_rule_does_not_read_a_json_answer(body):
+    """`""` is also a valid JSON document, the empty string. Answering a JSON
+    request, it is a broken body and must reach the decoder, which raises,
+    rather than pass for "no data"."""
+    assert is_no_data(_csv_response(body, 200, fmt="json")) is False
 
 
 ET = pytz.timezone("US/Eastern")

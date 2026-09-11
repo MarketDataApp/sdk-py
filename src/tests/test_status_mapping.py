@@ -469,10 +469,16 @@ def test_every_resource_no_data_dataframe_honours_the_column_filter(
     """Issue #87 for every resource: under `columns=` the API answers with the
     requested keys only, so the empty frame must carry the requested columns
     too, in request order. `stocks.candles` used to fail on the populated
-    side as well (#90)."""
+    side as well (#90).
+
+    The filter names two columns in the reverse of the model's order, and the
+    mocked answer has the shape the API gives (checked live): the requested
+    keys, in request order, and no status flag. With the model's own order the
+    test could not tell request order from model order, which is how the
+    fan-outs' merge got through in model order."""
     body = load_json(fixture)
-    requested = [key for key in body if key != "s"][-2:]
-    filtered = {key: body[key] for key in ["s", *requested] if key in body}
+    requested = [key for key in body if key != "s"][-2:][::-1]
+    filtered = {key: body[key] for key in requested}
     respx_mock.get(url__regex=url_pattern).mock(
         side_effect=[
             httpx.Response(200, json=filtered),

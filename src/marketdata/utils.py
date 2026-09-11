@@ -51,6 +51,10 @@ def is_no_data(response: Response) -> bool:
         return True
     if response.status_code not in VALID_STATUS_CODES or len(response.content) > 16:
         return False
+    # Only an answer to a CSV request can be the placeholder: the JSON string
+    # `""` answering a JSON request is a broken body, not an empty answer.
+    if response.request.url.params.get("format") != "csv":
+        return False
     return [line for line in response.text.splitlines() if line] in _CSV_NO_DATA_BODIES
 
 
@@ -196,26 +200,40 @@ def json_answer_columns(
 ) -> list[str]:
     """The columns a fan-out merges from its decoded JSON answers (#90).
 
-    They are the ``keys`` the first answer carries, in the order of ``keys``:
-    under ``columns=`` the API sends the requested columns only. Every answer
-    must be a JSON object carrying all of them, and anything else raises
-    ``ParseError`` naming the offending response: a body that is not an
-    object (``null``, a list), a first answer with none of the keys (a
-    proxy's JSON error page), or a later answer missing a column of the
-    first. The merge concatenates column by column, so a column missing from
-    one answer would shift every later row into the wrong symbol or chunk,
-    and a merge with no columns would read as "no data" (#82).
+    They are the ``keys`` any answer carries, in the order the answers send
+    them: under ``columns=`` the API sends the requested columns only, in the
+    order they were requested, which is also the order of the empty result
+    and of every single-request resource. Every answer must be a JSON object
+    carrying all of them as lists of one length, since the merge concatenates
+    column by column and a missing or short column would shift every later
+    row into the wrong symbol or chunk. Anything else raises ``ParseError``
+    naming the offending response: a body that is not an object (``null``, a
+    list), answers with none of the keys (a proxy's JSON error page), an
+    answer missing a column another one carries, whichever it is, or a column
+    that is not a list of the same length as the others. A merge with no
+    columns would read as "no data" (#82).
     """
     for response, answer in zip(responses, answers, strict=True):
         if not isinstance(answer, dict):
             raise parse_error(response, "not a JSON object")
-    columns = [key for key in keys if key in answers[0]]
+    known = set(keys)
+    columns: list[str] = []
+    for answer in answers:
+        for key in answer:
+            if key in known and key not in columns:
+                columns.append(key)
     if not columns:
         raise parse_error(responses[0], "none of this resource's fields")
-    for response, answer in zip(responses[1:], answers[1:]):
+    for response, answer in zip(responses, answers):
         missing = [key for key in columns if key not in answer]
         if missing:
             raise parse_error(response, f"missing columns {missing!r}")
+        not_lists = [key for key in columns if not isinstance(answer[key], list)]
+        if not_lists:
+            raise parse_error(response, f"columns {not_lists!r} are not lists")
+        lengths = {key: len(answer[key]) for key in columns}
+        if len(set(lengths.values())) > 1:
+            raise parse_error(response, f"columns of different lengths {lengths!r}")
     return columns
 
 
