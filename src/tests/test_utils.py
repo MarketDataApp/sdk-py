@@ -15,6 +15,7 @@ from marketdata.utils import (
     format_duration_log,
     format_timestamp,
     is_no_data,
+    json_answer_columns,
     merge_csv_responses,
     obfuscate_token,
     resume_long_text,
@@ -172,6 +173,49 @@ def test_merge_csv_responses_without_headers_concatenates_rows_of_one_width():
         merge_csv_responses(
             responses + [_csv_response("7\n")], COLUMNS, with_header=False
         )
+
+
+# ----------------------------------------------------- json_answer_columns
+
+
+def test_json_answer_columns_are_the_first_answers_keys_in_model_order():
+    """Under `columns=` the API sends the requested keys only; the merge
+    covers those, in the order of the model, and a later answer may carry
+    more (it is not asked to line up with anything beyond the first)."""
+    responses = [_csv_response(""), _csv_response("")]
+    answers = [{"s": "ok", "c": [1], "t": [2]}, {"t": [3], "c": [4], "v": [5]}]
+
+    assert json_answer_columns(responses, answers, COLUMNS) == ["t", "c"]
+
+
+@pytest.mark.parametrize(
+    ("answers", "reason", "bad_index"),
+    [
+        ([{"t": [1]}, None], "not a JSON object", 1),
+        ([[], {"t": [1]}], "not a JSON object", 0),
+        ([{"t": [1]}, "t"], "not a JSON object", 1),
+        (
+            [{"s": "ok", "error": "upstream timeout"}],
+            "none of this resource's fields",
+            0,
+        ),
+        ([{"t": [1], "c": [2]}, {"t": [3], "c": [4]}, {"t": [5]}], "['c']", 2),
+    ],
+    ids=["null", "array", "string", "no-columns", "a-later-answer-lacks-one"],
+)
+def test_json_answer_columns_name_the_answer_that_breaks_the_merge(
+    answers, reason, bad_index
+):
+    """The review of #92: a column missing from one symbol shifted the rows of
+    every symbol after it. Each failure is a `ParseError` carrying the response
+    that caused it, not the first one."""
+    responses = [_csv_response("") for _ in answers]
+
+    with pytest.raises(ParseError) as exc_info:
+        json_answer_columns(responses, answers, COLUMNS)
+
+    assert reason in exc_info.value.message
+    assert exc_info.value.response is responses[bad_index]
 
 
 def test_column_key_matches_names_the_way_the_api_does():

@@ -272,6 +272,120 @@ def test_options_quotes_no_one_good_status_code(respx_mock, client):
     assert exc_info.value.message == "No responses from API"
 
 
+# ------------------------------------------------- merging the JSON answers
+
+THIRD_URL = "https://api.marketdata.app/v1/options/quotes/AAPL271217C00260000/"
+THREE_SYMBOLS = ["AAPL271217C00255000", "AAPL271217P00255000", "AAPL271217C00260000"]
+
+
+def _answer_three_symbols(respx_mock, first: dict, second: dict, third: dict):
+    for url, body in ((CALL_URL, first), (PUT_URL, second), (THIRD_URL, third)):
+        respx_mock.get(url).respond(json=body, status_code=200)
+
+
+@pytest.mark.parametrize(
+    "output_format", [OutputFormat.DATAFRAME, OutputFormat.JSON, OutputFormat.INTERNAL]
+)
+@pytest.mark.parametrize(
+    ("use_human_readable", "symbol_key", "bid_key"),
+    [(False, "optionSymbol", "bid"), (True, "Symbol", "Bid")],
+)
+def test_options_quotes_symbol_missing_a_column_is_a_parse_error(
+    respx_mock, client, output_format, use_human_readable, symbol_key, bid_key
+):
+    """The review of #92: the second symbol's answer lacks the bid. The merge
+    padded that column with nothing, so the third symbol's bid landed on the
+    second symbol's row, and the human-readable merge raised a bare
+    `KeyError`. The first answer's columns are now the merge's, the rule the
+    chunks of `stocks.candles` follow (#90), and a symbol lacking one fails
+    the call naming that symbol."""
+    status = {} if use_human_readable else {"s": "ok"}
+    _answer_three_symbols(
+        respx_mock,
+        {**status, symbol_key: ["A"], bid_key: [1.0]},
+        {**status, symbol_key: ["B"]},
+        {**status, symbol_key: ["C"], bid_key: [3.0]},
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=THREE_SYMBOLS,
+            output_format=output_format,
+            use_human_readable=use_human_readable,
+            columns=["optionSymbol", "bid"],
+        )
+
+    assert exc_info.value.request_url.startswith(PUT_URL)
+    assert f"missing columns {[bid_key]!r}" in exc_info.value.message
+
+
+def test_options_quotes_merges_the_requested_columns_row_by_row(respx_mock, client):
+    _answer_three_symbols(
+        respx_mock,
+        {"s": "ok", "optionSymbol": ["A"], "bid": [1.0]},
+        {"s": "ok", "optionSymbol": ["B"], "bid": [2.0]},
+        {"s": "ok", "optionSymbol": ["C"], "bid": [3.0]},
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        frame = client.options.quotes(
+            symbols=THREE_SYMBOLS,
+            output_format=OutputFormat.DATAFRAME,
+            columns=["optionSymbol", "bid"],
+        )
+
+    assert frame["bid"].to_dict() == {"A": 1.0, "B": 2.0, "C": 3.0}
+
+
+@pytest.mark.parametrize(
+    "body", ["null", "[]", '"ok"'], ids=["null", "array", "string"]
+)
+@pytest.mark.parametrize("use_human_readable", [False, True])
+def test_options_quotes_symbol_answering_a_json_non_object_is_a_parse_error(
+    load_json, respx_mock, client, body, use_human_readable
+):
+    """A body that decodes to something other than an object used to fail
+    with an `AttributeError` from inside the merge."""
+    fixture = (
+        "options_quotes_human_response_200"
+        if use_human_readable
+        else "options_quotes_response_200"
+    )
+    respx_mock.get(CALL_URL).respond(json=load_json(fixture), status_code=200)
+    respx_mock.get(PUT_URL).respond(text=body, status_code=200)
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=THREE_SYMBOLS[:2],
+            output_format=OutputFormat.JSON,
+            use_human_readable=use_human_readable,
+        )
+
+    assert exc_info.value.request_url.startswith(PUT_URL)
+    assert "not a JSON object" in exc_info.value.message
+
+
+@pytest.mark.parametrize("use_human_readable", [False, True])
+def test_options_quotes_answer_without_any_column_is_a_parse_error(
+    respx_mock, client, use_human_readable
+):
+    """A JSON body with none of the resource's columns (a proxy's JSON error
+    page) is not an answer of this resource. Merged, it gave a result with no
+    rows, which reads as "no options" (#82)."""
+    respx_mock.get(CALL_URL).respond(
+        json={"s": "ok", "error": "upstream timeout"}, status_code=200
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=THREE_SYMBOLS[0],
+            output_format=OutputFormat.JSON,
+            use_human_readable=use_human_readable,
+        )
+
+    assert "none of this resource's fields" in exc_info.value.message
+
+
 def test_get_options_quotes_response_200_dataframe_pandas(
     load_json, respx_mock, client
 ):
@@ -626,6 +740,7 @@ def test_options_quotes_join_dicts():
         },
     ]
     joined = OptionsQuotes.join_dicts(dicts)
+    assert list(joined)[0] == "s"
     assert joined["s"] == "ok"
     assert joined["optionSymbol"] == ["AAPL271217C00255000", "AAPL271217C00255000"]
     assert joined["underlying"] == ["AAPL", "AAPL"]
@@ -660,6 +775,38 @@ def test_options_quotes_human_readable_join_dicts():
         "Underlying": ["AAPL", "AAPL"],
         "Expiration_Date": [1829077200, 1829077200],
     }
+
+
+@pytest.mark.parametrize(
+    ("model", "dicts"),
+    [
+        (
+            OptionsQuotes,
+            [{"s": "ok", "optionSymbol": ["A"], "bid": [1.0]}, {"optionSymbol": ["B"]}],
+        ),
+        (
+            OptionsQuotesHumanReadable,
+            [{"Symbol": ["A"], "Bid": [1.0]}, {"Symbol": ["B"]}],
+        ),
+    ],
+)
+def test_options_quotes_join_dicts_refuses_to_shift_the_rows(model, dicts):
+    """Called on its own, a merge that cannot line the rows up raises rather
+    than padding the missing column with nothing."""
+    with pytest.raises(KeyError):
+        model.join_dicts(dicts)
+
+
+def test_options_quotes_answer_keys_are_the_keys_the_api_sends(load_json):
+    """The one naming rule behind both the check and the merge: the API model's
+    field names, and the human-readable names spelled with the API's spaces.
+    Checked against real answers, so a key the API spells differently from the
+    rule shows up here rather than as a rejected symbol."""
+    api_answer = load_json("options_quotes_response_200")
+    human_answer = load_json("options_quotes_human_response_200")
+
+    assert OptionsQuotes.answer_keys() == [key for key in api_answer if key != "s"]
+    assert OptionsQuotesHumanReadable.answer_keys() == list(human_answer)
 
 
 def test_options_quotes_input_date_range_aliases_on_wire(load_json, respx_mock, client):

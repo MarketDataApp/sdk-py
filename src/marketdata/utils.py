@@ -191,6 +191,34 @@ def merge_csv_responses(
     return output.getvalue()
 
 
+def json_answer_columns(
+    responses: list[Response], answers: list[Any], keys: list[str]
+) -> list[str]:
+    """The columns a fan-out merges from its decoded JSON answers (#90).
+
+    They are the ``keys`` the first answer carries, in the order of ``keys``:
+    under ``columns=`` the API sends the requested columns only. Every answer
+    must be a JSON object carrying all of them, and anything else raises
+    ``ParseError`` naming the offending response: a body that is not an
+    object (``null``, a list), a first answer with none of the keys (a
+    proxy's JSON error page), or a later answer missing a column of the
+    first. The merge concatenates column by column, so a column missing from
+    one answer would shift every later row into the wrong symbol or chunk,
+    and a merge with no columns would read as "no data" (#82).
+    """
+    for response, answer in zip(responses, answers, strict=True):
+        if not isinstance(answer, dict):
+            raise parse_error(response, "not a JSON object")
+    columns = [key for key in keys if key in answers[0]]
+    if not columns:
+        raise parse_error(responses[0], "none of this resource's fields")
+    for response, answer in zip(responses[1:], answers[1:]):
+        missing = [key for key in columns if key not in answer]
+        if missing:
+            raise parse_error(response, f"missing columns {missing!r}")
+    return columns
+
+
 _ONE_DAY = datetime.timedelta(days=1)
 
 

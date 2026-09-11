@@ -554,22 +554,32 @@ def test_stocks_candles_csv_with_every_chunk_empty_is_a_header_only_file(
     assert pathlib.Path(output).read_bytes() == b"t,c\r\n"
 
 
+CANDLE_CHUNK = dict(json={"s": "ok", "t": [1], "c": [1.0]})
+
+
 @pytest.mark.parametrize(
     ("bodies", "bad_index"),
     [
-        ([{"error": "upstream timeout"}, {"s": "ok", "t": [1], "c": [1.0]}], 0),
-        ([{"s": "ok", "t": [1], "c": [1.0]}, {"s": "ok", "t": [2]}], 1),
+        ([dict(json={"error": "upstream timeout"}), CANDLE_CHUNK], 0),
+        ([CANDLE_CHUNK, dict(json={"s": "ok", "t": [2]})], 1),
+        ([CANDLE_CHUNK, dict(text="null")], 1),
+        ([dict(text="[]"), CANDLE_CHUNK], 0),
     ],
-    ids=["no-fields-at-all", "a-later-chunk-lacks-a-column"],
+    ids=[
+        "no-fields-at-all",
+        "a-later-chunk-lacks-a-column",
+        "a-chunk-is-null",
+        "a-chunk-is-an-array",
+    ],
 )
 def test_stocks_candles_json_chunk_without_the_columns_is_a_parse_error(
     respx_mock, client, bodies, bad_index
 ):
     """A JSON body without the resource's fields (a proxy's JSON error page)
-    fails the call instead of leaving a silent hole in the merge."""
-    respx_mock.get(HOURLY_URL).mock(
-        side_effect=by_chunk(*[dict(json=body) for body in bodies])
-    )
+    fails the call instead of leaving a silent hole in the merge. So does a
+    body that decodes to something other than an object, which used to raise
+    a bare `TypeError` from the merge."""
+    respx_mock.get(HOURLY_URL).mock(side_effect=by_chunk(*bodies))
 
     with pytest.raises(ParseError) as exc_info:
         client.stocks.candles(

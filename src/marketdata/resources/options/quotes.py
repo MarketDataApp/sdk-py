@@ -20,6 +20,7 @@ from marketdata.resources.base import BaseResource, model_columns, no_data_resul
 from marketdata.utils import (
     encode_path_segment,
     is_no_data,
+    json_answer_columns,
     merge_csv_responses,
     parse_json,
 )
@@ -112,6 +113,11 @@ def quotes(
         # as it does everywhere else (#82); a fabricated empty row would read
         # as "no options" and break the merge of the healthy symbols.
         data = [parse_json(response) for response in usable]
+        # Under `columns=` the API sends the requested keys only, so the merge
+        # covers the keys the first symbol carries, and every symbol must
+        # carry them: a symbol missing one would shift the rows of every
+        # symbol after it (the rule `stocks.candles` applies to chunks, #90).
+        json_answer_columns(usable, data, output_model.answer_keys())
         data = output_model.join_dicts(data)
 
         if user_universal_params.output_format == OutputFormat.DATAFRAME:
