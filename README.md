@@ -136,6 +136,7 @@ client = MarketDataClient(token="your_token_here", logger=custom_logger)
 - The library version is automatically detected from the installed package
 - All requests include an `Authorization: Bearer {token}` header
 - The client uses `httpx.Client` for HTTP requests with automatic connection pooling
+- Every request has the same fixed timeout, and it is not configurable: 2 seconds to open the connection, and 99 seconds each to write the request, wait for a free connection, and read a chunk of the answer. Those bound operations rather than the call, so a server that keeps trickling bytes can hold a request open longer; to give up sooner, cancel the call from your own code
 
 ### Credits and Response Metadata
 
@@ -573,7 +574,7 @@ The SDK includes automatic retry logic for handling transient errors: availabili
 - **Default retry attempts**: 3
 - **Backoff strategy**: Exponential with multiplier 0.5, minimum wait 0.5 seconds, maximum wait 5 seconds
 - **Retried failures**: any HTTP status code greater than 500 (502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout, ...) and any connection failure or timeout. A 500 (`InternalError`), every 4xx and a 429 are not retried.
-- **Default timeout**: 60 seconds per request
+- **Request timeout**: 99 seconds, with a 2 second connect timeout, the same for every request and not configurable (SDK requirements §10)
 
 ### How It Works
 
@@ -583,7 +584,7 @@ The retry wraps one request. In the calls made of several requests, `stocks.cand
 
 **One failed request fails the whole call, and the healthy ones are still billed.** The requests run in parallel and the call waits for all of them, so when one symbol or chunk ends in a terminal error the others have already been sent, charged and possibly retried. The exception carries that cost: `marketdata.get_meta(exc).rate_limits.credits_consumed` is what the failed call actually spent.
 
-How long that wait can be, with the default three retries: the error surfaces once the slowest sibling finishes its own ladder, so about 7 seconds of backoff (1 + 2 + 4) when the siblings answer quickly, longer if the API sends `Retry-After`, and up to four HTTP timeouts (about 4 minutes at the 60-second default) if they hang instead of answering. Sibling requests keep being sent and billed during that time. Shortening it means cancelling the pending requests, which is [#98](https://github.com/MarketDataApp/sdk-py/issues/98).
+How long that wait can be, with the default three retries: the error surfaces once the slowest sibling finishes its own ladder, so about 7 seconds of backoff (1 + 2 + 4) when the siblings answer quickly, longer if the API sends `Retry-After`, and up to four HTTP timeouts (about 6 and a half minutes at the fixed 99 seconds) if they hang instead of answering. Sibling requests keep being sent and billed during that time. Shortening it means cancelling the pending requests, which is [#98](https://github.com/MarketDataApp/sdk-py/issues/98).
 
 **Important:** Resource methods either return the requested result (DataFrame, list of objects, dict, or the CSV filename) or raise. There is no error return value; see [Error Handling](#error-handling).
 

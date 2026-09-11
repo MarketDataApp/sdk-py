@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING**: every request now uses a 2 second connect timeout and 99 seconds for each read, write and connection-pool wait, instead of one 60 second bound shared by all four (SDK requirements §10). Those are per-operation bounds, as httpx defines them, not a deadline for the whole call. The value is fixed and not configurable, and `MarketDataClient._make_request` no longer takes a `timeout` argument: a call that should give up sooner is cancelled by the caller rather than given a shorter bound, so an SDK request cannot outlive the API's own limit. A connect or read timeout is still a `NetworkError` and is still retried (#64)
 - Retries follow SDK requirements §9.2: only `ServerError` (501 and above) and `NetworkError` are retried; `InternalError` (500), every 4xx, a 429 and a `NetworkError` the client itself caused (a base URL without a scheme, a malformed request, a proxy that refuses the connection) are final (#62)
 - Every SDK exception now carries the full support context (`request_id`, `request_url`, `status_code`, `timestamp`, `message`, `exception_type`) and a `support_info` block; non-HTTP failures report `N/A` / `0` for the request fields (#20)
 - All exception classes are re-exported from the package root (`from marketdata import BaseMarketdataException, ...`) (#20)
