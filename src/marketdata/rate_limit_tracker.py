@@ -48,13 +48,18 @@ class RateLimitTracker:
         ``authoritative`` is for an answer that was asked for precisely to
         learn the balance (``/user/``). It bypasses the ordering rule, which
         otherwise ignores a higher balance in the same window and would leave
-        a caller no way to correct a state that is stale rather than late.
+        a caller no way to correct a state that is stale rather than late. It
+        writes through :meth:`reset`, the one way past the ordering rule, so
+        the zero-limit guard above is the only difference between them (#104).
         """
         if rate_limits.credit_limit <= 0:
             return
+        if authoritative:
+            self.reset(rate_limits)
+            return
         with self._lock:
             current = self._state
-            if current is not None and not authoritative:
+            if current is not None:
                 if rate_limits.reset_timestamp < current.reset_timestamp:
                     return
                 if (
