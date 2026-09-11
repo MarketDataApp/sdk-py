@@ -464,6 +464,80 @@ def test_response_errmsg_is_bounded(client):
     assert len(str(exc_info.value)) < 1_000
 
 
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        # The JSON envelope: its errmsg, or the raw body when it is not text.
+        (b'{"s": "error", "errmsg": "Bad symbol"}', ("Bad symbol", True)),
+        (b'{"s": "error", "errmsg": ""}', ("", True)),
+        (b'{"s": "error", "errmsg": null}', ('{"s": "error", "errmsg": null}', True)),
+        (b'{"errmsg": ["a", "b"]}', ('{"errmsg": ["a", "b"]}', True)),
+        (b'{"errmsg": {"k": "v"}}', ('{"errmsg": {"k": "v"}}', True)),
+        (b'{"errmsg": 123}', ('{"errmsg": 123}', True)),
+        # JSON without an errmsg, or not an object: not an error envelope.
+        (b'{"s": "no_data"}', ('{"s": "no_data"}', False)),
+        (b"[1, 2]", ("[1, 2]", False)),
+        (b'"errmsg"', ('"errmsg"', False)),
+        (b"42", ("42", False)),
+        (b"null", ("null", False)),
+        # The CSV envelope, with and without its header row (#91).
+        (b's,errmsg\r\nerror,"Bad parameters"\r\n', ("Bad parameters", True)),
+        (b"s,errmsg\r\nerror,\r\n", ("", True)),
+        (b"no_data,Symbol not found.\r\n", ("Symbol not found.", True)),
+        # Anything else is the raw body.
+        (b"<html>error page</html>", ("<html>error page</html>", False)),
+        (b"", ("", False)),
+    ],
+    ids=[
+        "json-errmsg",
+        "json-empty-errmsg",
+        "json-null-errmsg",
+        "json-list-errmsg",
+        "json-object-errmsg",
+        "json-number-errmsg",
+        "json-no-errmsg",
+        "json-list",
+        "json-string",
+        "json-number",
+        "json-null",
+        "csv-envelope",
+        "csv-empty-errmsg",
+        "csv-headerless-envelope",
+        "html",
+        "empty",
+    ],
+)
+def test_error_message_reads_either_envelope_and_says_whether_it_found_one(
+    body, expected
+):
+    """The message and the flag for each kind of body. The flag is what
+    separates "invalid question" from "empty answer" on a 404 (#91)."""
+    request = Request("GET", "https://api.marketdata.app/v1/stocks/quotes/AAPL/")
+    response = Response(404, content=body, request=request)
+
+    assert MarketDataClient._error_message(response) == expected
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"s": "error", "errmsg": "' + b"x" * 1000 + b'"}',
+        b"s,errmsg\r\nerror," + b"x" * 1000 + b"\r\n",
+        b"x" * 1000,
+    ],
+    ids=["json-envelope", "csv-envelope", "raw-body"],
+)
+def test_error_message_is_bounded_on_every_path(body):
+    """Each way out of `_error_message` bounds the message: a long errmsg
+    cannot balloon exception messages and logs any more than a long body."""
+    request = Request("GET", "https://api.marketdata.app/v1/stocks/quotes/AAPL/")
+    response = Response(404, content=body, request=request)
+
+    message, _ = MarketDataClient._error_message(response)
+
+    assert message == "x" * 500 + "..."
+
+
 def test_extract_rate_limits_missing_headers_returns_none(client, caplog):
     request = Request("GET", "https://api.marketdata.app/v1/stocks/quotes/AAPL/")
     response = Response(200, json={}, request=request)

@@ -20,6 +20,7 @@ from marketdata.utils import (
     json_answer_columns,
     merge_csv_responses,
     obfuscate_token,
+    parse_csv_errmsg,
     resume_long_text,
     split_dates_by_timeframe,
     validate_single_param,
@@ -140,7 +141,7 @@ def test_merge_csv_responses_rejects_a_body_that_is_not_this_resource(bodies, re
 
 @pytest.mark.parametrize(
     "second_header",
-    ["t,c", "T,C", "t, c", "﻿t,c"],
+    ["t,c", "T,C", "t, c", "\ufefft,c"],
     ids=["identical", "different-case", "space-after-comma", "bom"],
 )
 def test_merge_csv_responses_compares_headers_the_way_it_validates_them(second_header):
@@ -163,6 +164,28 @@ def test_merge_csv_responses_still_refuses_a_different_column_order():
         merge_csv_responses(responses, COLUMNS)
 
     assert "differs from" in exc_info.value.message
+
+
+def test_merge_csv_responses_drops_a_bom_from_every_body_with_or_without_a_header():
+    """A BOM is not data. Without a header it stayed in the first value of
+    each body, and so in the middle of the merged file. The API sends none
+    today (checked live, with and without headers); a proxy might."""
+    with_header = [
+        _csv_response("\ufefft,c\n1,2\n"),
+        _csv_response("\ufefft,c\n3,4\n"),
+    ]
+    without = [
+        _csv_response("\ufeff1,2\n"),
+        _csv_response("\ufeff3,4\n"),
+    ]
+
+    assert merge_csv_responses(with_header, COLUMNS) == "t,c\r\n1,2\r\n3,4\r\n"
+    assert merge_csv_responses(without, COLUMNS, with_header=False) == (
+        "1,2\r\n3,4\r\n"
+    )
+    # Only at the start of a body: U+FEFF inside a value is data.
+    inside = [_csv_response("1,\ufeff2\n")]
+    assert merge_csv_responses(inside, COLUMNS, with_header=False) == "1,\ufeff2\r\n"
 
 
 def test_merge_csv_responses_without_headers_concatenates_rows_of_one_width():
@@ -277,6 +300,59 @@ def test_column_key_matches_names_the_way_the_api_does():
     assert column_key("Expiration Date") == column_key("Expiration_Date")
     assert column_key("optionSymbol") == column_key("OPTIONSYMBOL")
     assert column_key("t") != column_key("c")
+
+
+# -------------------------------------------------------- parse_csv_errmsg
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("s,errmsg\r\nno_data,Symbol not found.\r\n", "Symbol not found."),
+        (
+            's,errmsg\r\nerror,"Bad parameters, see the docs."\r\n',
+            "Bad parameters, see the docs.",
+        ),
+        ("s,errmsg\nerror,Invalid date\n", "Invalid date"),
+        ("S,ERRMSG\r\nerror,Invalid date\r\n", "Invalid date"),
+        ("s,errmsg\r\nerror,\r\n", ""),
+        ("\ufeffs,errmsg\r\nerror,Invalid date\r\n", "Invalid date"),
+        # `add_headers=False` drops the header row (verified live), so the
+        # values arrive alone and the `s` value is what marks them as an error.
+        ("no_data,Symbol not found.\r\n", "Symbol not found."),
+        ("error,Invalid date\r\n", "Invalid date"),
+        ("\ufeffno_data,Symbol not found.\r\n", "Symbol not found."),
+        # The marker is matched through `column_key`, as the header row is:
+        # normalising one and not the other would drop the message of a 404
+        # and read it as the empty answer again.
+        ("NO_DATA,Symbol not found.\r\n", "Symbol not found."),
+        (" no_data ,Symbol not found.\r\n", "Symbol not found."),
+        ("Error,Invalid date\r\n", "Invalid date"),
+        # The reader is lenient with an unterminated quote, and reading the
+        # message it does recover beats reporting the raw body.
+        ('s,errmsg\r\nerror,"Invalid date', "Invalid date"),
+        # Not the error envelope: a data answer, an HTML page, an empty body,
+        # the no_data placeholder, a header with no row, more than one row.
+        ("t,c\r\n1,2\r\n", None),
+        ("<html>error page</html>", None),
+        ("", None),
+        ('0\r\n""\r\n', None),
+        ("s,errmsg\r\n", None),
+        ("s,errmsg\r\nerror,one\r\nerror,two\r\n", None),
+        ("s,errmsg,extra\r\nerror,one,two\r\n", None),
+        # A headerless data row is not an error, whatever its width.
+        ("1704171600,184.1\r\n", None),
+        ("no_data\r\n", None),
+        # Not an error table: the reader raises on a NUL byte before Python
+        # 3.11 and reads it as data after, and an error envelope is never
+        # this big.
+        ("oops\x00page", None),
+        ("s,errmsg\r\nerror," + "a" * 5000 + "\r\n", None),
+    ],
+)
+def test_parse_csv_errmsg_reads_only_the_api_error_table(body, expected):
+    """Issue #91: `format=csv` renders an error as `s,errmsg` and one row."""
+    assert parse_csv_errmsg(body) == expected
 
 
 # ----------------------------------------------------------- is_no_data

@@ -30,8 +30,20 @@ PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 EXPIRATIONS_URL = "https://api.marketdata.app/v1/options/expirations/AAPL/"
 CANDLES_URL = "https://api.marketdata.app/v1/stocks/candles/H/AAPL/"
 QUOTES_URL = "https://api.marketdata.app/v1/options/quotes/"
+QUOTES_URL_STOCKS = "https://api.marketdata.app/v1/stocks/quotes/"
 ERROR_BODY = {"s": "error", "errmsg": "Bad parameters, please check API documentation."}
 NO_DATA = {"s": "no_data"}
+# The same envelope as the API renders it for `format=csv`: two lines, and the
+# message quoted because it carries a comma (verified live, #91).
+ERROR_CSV = 's,errmsg\r\nerror,"Bad parameters, please check API documentation."\r\n'
+CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
+
+
+def error_response(status, envelope):
+    """The API's error answer for `format=json` or for `format=csv`."""
+    if envelope == "json":
+        return httpx.Response(status, json=ERROR_BODY)
+    return httpx.Response(status, text=ERROR_CSV, headers=CSV_HEADERS)
 
 
 @pytest.fixture(autouse=True)
@@ -52,8 +64,14 @@ def _no_sleep(monkeypatch):
         (418, MarketdataHttpError),
     ],
 )
-def test_status_maps_to_its_exception(respx_mock, client, status, exception_class):
-    respx_mock.get(PRICES_URL).respond(json=ERROR_BODY, status_code=status)
+@pytest.mark.parametrize("envelope", ["json", "csv"])
+def test_status_maps_to_its_exception(
+    respx_mock, client, status, exception_class, envelope
+):
+    """The envelope the API answers with must not change the exception nor its
+    message: the same error arrives as a JSON object or as a two-line CSV
+    table depending on the format asked for, and the SDK reads both (#91)."""
+    respx_mock.get(PRICES_URL).mock(return_value=error_response(status, envelope))
 
     with pytest.raises(exception_class) as exc_info:
         client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
@@ -217,6 +235,130 @@ def test_status_refresh_survives_an_undecodable_body(respx_mock, client):
     )
 
     assert API_STATUS_DATA.refresh(client) is False
+
+
+@pytest.mark.parametrize(
+    ("output_format", "answer"),
+    [
+        (OutputFormat.JSON, {"json": {"s": "no_data", "errmsg": "Symbol not found."}}),
+        (
+            OutputFormat.CSV,
+            {
+                "text": "s,errmsg\r\nno_data,Symbol not found.\r\n",
+                "headers": CSV_HEADERS,
+            },
+        ),
+    ],
+    ids=["json", "csv"],
+)
+def test_an_unknown_symbol_raises_on_every_output_format(
+    respx_mock, client, output_format, answer, tmp_path
+):
+    """Issue #91: `stocks.quotes("ZZZZZZ")` is a 404 with a message, rendered as
+    JSON or as the `s,errmsg` table depending on the format asked for (both
+    verified live). The CSV one used to be read as the empty answer, so the same
+    question raised `NotFoundError` as JSON and wrote a header-only file as
+    CSV."""
+    respx_mock.get(QUOTES_URL_STOCKS).respond(status_code=404, **answer)
+
+    with pytest.raises(NotFoundError) as exc_info:
+        client.stocks.quotes(
+            "ZZZZZZ", output_format=output_format, filename=tmp_path / "out.csv"
+        )
+
+    assert exc_info.value.message == "Symbol not found."
+    assert not (tmp_path / "out.csv").exists()
+
+
+def test_an_unknown_symbol_raises_without_the_header_row(respx_mock, client, tmp_path):
+    """Under `add_headers=False` the API drops the header row from the error
+    table too and sends the values alone (verified live)."""
+    respx_mock.get(QUOTES_URL_STOCKS).respond(
+        text="no_data,Symbol not found.\r\n", status_code=404, headers=CSV_HEADERS
+    )
+
+    with pytest.raises(NotFoundError) as exc_info:
+        client.stocks.quotes(
+            "ZZZZZZ",
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "out.csv",
+            add_headers=False,
+        )
+
+    assert exc_info.value.message == "Symbol not found."
+
+
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [
+        (404, "<html>the proxy ate it</html>"),
+        (200, '0\r\n""\r\n'),
+    ],
+    ids=["404-that-is-not-the-error-table", "the-csv-no-data-placeholder"],
+)
+def test_a_404_without_a_message_is_still_the_empty_answer(
+    respx_mock, client, tmp_path, status, body
+):
+    """The other half of the rule: only the error table makes a 404 an error.
+    A 404 whose body is not one stays an empty result, and so does the CSV
+    placeholder the API sends instead of a 404 (#89)."""
+    respx_mock.get(PRICES_URL).respond(
+        text=body, status_code=status, headers=CSV_HEADERS
+    )
+
+    path = client.stocks.prices(
+        "AAPL", output_format=OutputFormat.CSV, filename=tmp_path / "empty.csv"
+    )
+
+    assert pathlib.Path(path).read_bytes() == b"symbol,mid,change,changepct,updated\r\n"
+
+
+@pytest.mark.parametrize(
+    ("body", "exception_class", "retried"),
+    [
+        ("oops\x00page", InternalError, False),
+        ("<html>" + "a" * 200000, ServerError, True),
+    ],
+    ids=["a-nul-byte", "a-field-past-the-csv-reader-limit"],
+)
+def test_a_body_that_is_not_a_csv_keeps_its_exception_and_its_retries(
+    respx_mock, client, body, exception_class, retried
+):
+    """Reading the CSV envelope must not change what a body the reader cannot
+    parse does: `csv.Error` would replace the SDK's exception and, on a
+    retryable status, `should_retry` would never see it."""
+    status = 500 if exception_class is InternalError else 503
+    route = respx_mock.get(PRICES_URL).respond(
+        text=body, status_code=status, headers=CSV_HEADERS
+    )
+
+    with pytest.raises(exception_class):
+        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    assert route.call_count == (client.max_retries + 1 if retried else 1)
+
+
+@pytest.mark.parametrize(
+    "errmsg",
+    [None, ["a", "b"], {"k": "v"}, 123],
+    ids=["null", "list", "object", "number"],
+)
+def test_an_errmsg_that_is_not_text_still_raises_and_shows_the_body(
+    respx_mock, client, errmsg
+):
+    """An `errmsg` of any type means the API said something, so a 404 carrying
+    it is not the empty answer. The message shown is the raw body rather than
+    Python's repr of the decoded value, which told the reader nothing (a null
+    errmsg used to surface as the message "None")."""
+    body = {"s": "error", "errmsg": errmsg}
+    respx_mock.get(PRICES_URL).respond(json=body, status_code=404)
+
+    with pytest.raises(NotFoundError) as exc_info:
+        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    message = exc_info.value.message
+    assert message.startswith('{"s": "error"') or message.startswith('{"s":"error"')
+    assert "errmsg" in message
 
 
 # ---------------------------------------------------------------- no data
