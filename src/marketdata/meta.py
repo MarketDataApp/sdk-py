@@ -28,7 +28,7 @@ from typing import Any, Iterator
 
 from httpx import Response
 
-from marketdata.internal_settings import VALID_STATUS_CODES
+from marketdata.internal_settings import HEADER_DETECTED_IP, VALID_STATUS_CODES
 from marketdata.logger import get_logger
 from marketdata.types import UserRateLimits
 
@@ -74,6 +74,15 @@ class ResponseMeta:
     whose status is **not** usable. When every response was usable, or none
     was, the last one is the honest answer either way.
 
+    ``detected_ip`` is the address the API saw the call come from, sent as
+    ``X-API-Detected-IP`` on any answer it serves, the empty ``no_data`` one
+    included (#44). The API resolves it for an authenticated account that is
+    bound to one address, which is the ordinary case; it is ``None`` for an
+    account allowed to call from several, for a staff token, for the Sheets
+    add-on, and whenever the address could not be resolved. For a call made of
+    several requests it comes from the same response as ``status_code`` and
+    ``request_id``, falling back to any response that reported one.
+
     The dataclass is frozen, but that is a shallow guarantee: ``rate_limits``
     is a mutable :class:`UserRateLimits`, so its fields can still be
     reassigned. Treat the whole object as read-only.
@@ -83,15 +92,18 @@ class ResponseMeta:
     request_id: str | None
     rate_limits: UserRateLimits | None
     responses: int = 1
+    detected_ip: str | None = None
 
     @classmethod
     def from_response(
         cls, response: Response, rate_limits: UserRateLimits | None
     ) -> ResponseMeta:
+        detected_ip = response.headers.get(HEADER_DETECTED_IP)
         return cls(
             status_code=response.status_code,
             request_id=response.headers.get("cf-ray"),
             rate_limits=rate_limits,
+            detected_ip=(detected_ip.strip() or None) if detected_ip else None,
         )
 
     @classmethod
@@ -133,11 +145,22 @@ class ResponseMeta:
                 reset_time=newest.reset_time,
                 credits_consumed=sum(limits.credits_consumed for limits in known),
             )
+        # The address comes from the same response as `status_code` and
+        # `request_id`, so the three describe one exchange. Falling back to any
+        # response that reported one keeps a call answered from cache, or one
+        # whose speaker carried no header, from reading as "no address": every
+        # request of a call leaves from the same machine. Scanning the whole
+        # list first would make the value depend on which worker thread
+        # finished last, which is not something a caller can reason about.
+        detected_ip = speaker.detected_ip or next(
+            (meta.detected_ip for meta in metas if meta.detected_ip), None
+        )
         return cls(
             status_code=speaker.status_code,
             request_id=speaker.request_id,
             rate_limits=rate_limits,
             responses=len(metas),
+            detected_ip=detected_ip,
         )
 
 

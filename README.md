@@ -155,7 +155,7 @@ print(meta.request_id)                      # the cf-ray id, for support
 print(meta.rate_limits)                     # "Credits used X/Y, remaining: Z, reset at: ISO timestamp"
 ```
 
-`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `status_code` and `request_id` describe one response, so they come from the last one that could have contributed to the result, never from a symbol or chunk that answered "no data" and was dropped from the merge, which matters because `request_id` is what you quote in a support ticket. On the metadata of a call that raised, the same rule points the other way: there they come from the last response that failed, so the id names the request the ticket is about. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data).
+`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `status_code` and `request_id` describe one response, so they come from the last one that could have contributed to the result, never from a symbol or chunk that answered "no data" and was dropped from the merge, which matters because `request_id` is what you quote in a support ticket. On the metadata of a call that raised, the same rule points the other way: there they come from the last response that failed, so the id names the request the ticket is about. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data). `meta.detected_ip` is the address the API saw the call come from, on every answer it serves, the empty one included.
 
 A failed call is billed too, so the exception carries the same metadata a result would:
 
@@ -178,6 +178,26 @@ There is no client-level snapshot: `client.rate_limits` was removed in 2.0 becau
 - `x-api-ratelimit-reset`: Unix timestamp when the credits reset (`reset_time`)
 
 The header names still say `ratelimit`; the SDK exposes them in the product's API-credits terms.
+
+### IP restrictions
+
+For an account that restricts access by IP, the API names the addresses involved and the SDK surfaces both:
+
+```python
+try:
+    prices = client.stocks.prices("AAPL")
+except marketdata.ForbiddenError as exc:
+    print(exc.authorized_ip)                # the address this account is authorized for
+    print(exc.message)                      # says it too, so printing the error is enough
+else:
+    print(marketdata.get_meta(prices).detected_ip)   # the address the call came from
+```
+
+`authorized_ip` comes from `X-API-Authorized-IP` on the 403 and is `None` for a 403 that is not an IP block. `detected_ip` comes from `X-API-Detected-IP`, which the API sends on every answer it serves.
+
+The API resolves the address for an authenticated account that is bound to a single one, which is the ordinary case. It sends no header, so both read `None`, for an account allowed to call from several addresses, for a staff token, for the Sheets add-on, and when it could not resolve the address at all.
+
+The body of the 403 carries more than the header does: the address that was blocked and a link to the troubleshooting guide. Both are on `exc.response.json()`, under `blockedIP` and `troubleshootingGuide`. The SDK reads the header rather than those field names, because the header is what the API asked clients to move to. It does not read the legacy `X-API-BLOCKED-IP`, which the API is removing.
 
 The `reset_time` field is automatically converted to a `datetime.datetime` object for easier use.
 
@@ -438,7 +458,7 @@ One class per kind of failure, mapped from the HTTP status the API answered (SDK
 |---|---|---|
 | 400 | `BadRequestError` | no |
 | 401 | `AuthenticationError` | no, fails immediately |
-| 403 | `ForbiddenError` | no |
+| 403 | `ForbiddenError`, with `authorized_ip` when the block is by IP | no |
 | 404 with an error message | `NotFoundError` | no |
 | 404 with `s: "no_data"` | none: the call returns an **empty result** (see below) | |
 | 429 | `RateLimitError`, with `retry_after` in seconds when the API sent it | no |

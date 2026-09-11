@@ -29,6 +29,8 @@ from datetime import datetime
 from httpx import Request, Response
 from pytz import timezone
 
+from marketdata.internal_settings import HEADER_AUTHORIZED_IP
+
 SUPPORT_CONTEXT_FIELDS = (
     "request_id",
     "request_url",
@@ -138,7 +140,42 @@ class AuthenticationError(MarketdataHttpError):
 
 
 class ForbiddenError(MarketdataHttpError):
-    """403: the token is valid but not allowed (plan or IP restriction)."""
+    """403: the token is valid but not allowed (plan or IP restriction).
+
+    When the API blocks a call because it came from another address, it names
+    the address the account is bound to in ``X-API-Authorized-IP``. That
+    address is on ``authorized_ip`` and in the message (#44), because a caller
+    who reads only the message would otherwise be told "access denied" with no
+    way to know which address to allow. It is ``None`` for a 403 that is not
+    an IP block.
+
+    The body of that 403 carries more than the header does: the address that
+    was blocked and a link to the troubleshooting guide. Both stay on
+    ``response``, since the SDK reads the header the API asked the clients to
+    move to (MarketData-App/api#202) rather than the body's field names.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        request: Request,
+        response: Response | None = None,
+        timestamp: datetime | str | None = None,
+    ):
+        header = (
+            response.headers.get(HEADER_AUTHORIZED_IP) if response is not None else None
+        )
+        # A blank header is not an address: `''` would read as one to a
+        # caller checking `if error.authorized_ip`.
+        authorized_ip = header.strip() if header else None
+        authorized_ip = authorized_ip or None
+        if authorized_ip:
+            sentence = f"This account is authorized for {authorized_ip}."
+            # A 403 whose body carried no `errmsg` leaves the message empty or
+            # the raw body; either way the sentence has to read on its own.
+            message = f"{message.strip()} {sentence}".strip()
+        super().__init__(message, request, response, timestamp)
+        self.authorized_ip = authorized_ip
 
 
 class NotFoundError(MarketdataHttpError):
