@@ -101,14 +101,6 @@ def api_error_handler(
             "`check_status`: the resource builds its own retry adapter and "
             "passes them to get_resource_retry_adapter"
         )
-    """Wrap a resource method: retry it (``retry=True``), log the terminal
-    failure once and attach the response metadata to the result.
-
-    ``retry=False`` is for the resources that issue several requests per call
-    and retry each one on their own with ``get_resource_retry_adapter``: a
-    second retry around the whole call would re-send every healthy request
-    for each failed one (#83).
-    """
     if func is None:
         return lambda f: api_error_handler(
             f, service=service, check_status=check_status, retry=retry

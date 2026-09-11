@@ -546,7 +546,7 @@ if csv_file:
 
 ### `quotes()`
 
-Fetches options quotes for one or more option symbols. This method includes API status checking, automatic retry logic, and supports concurrent requests for multiple symbols (up to 50 concurrent requests by default). Each symbol's request retries on its own, so a failed symbol never re-sends the healthy ones. A symbol whose response body cannot be decoded raises `ParseError`, as in every other method, on every output format; in CSV output the merged file keeps the header the API sent (the requested `columns`, the human-readable names) and every row of every symbol.
+Fetches options quotes for one or more option symbols. This method includes API status checking, automatic retry logic, and supports concurrent requests for multiple symbols (up to 50 concurrent requests by default). Each symbol's request retries on its own, so a failed symbol never re-sends the healthy ones. A symbol whose response body cannot be decoded raises `ParseError`, as in every other method, on every output format; in CSV output the merged file keeps the header the API sent (the requested `columns`, the human-readable names) and every row of every symbol. On the other formats the symbols are merged on the columns the first answer carries, and a symbol whose answer lacks one raises `ParseError` as well, since merging it would put the next symbol's values on its row.
 
 > **Note:** The `symbols` parameter can be passed as the first positional argument or as a keyword argument. All other parameters must be keyword-only.
 

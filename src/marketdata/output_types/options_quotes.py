@@ -1,5 +1,6 @@
 import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from typing import ClassVar
 
 from marketdata.utils import format_timestamp
 
@@ -76,18 +77,30 @@ class OptionsQuotes:
         return self.__repr__()
 
     @staticmethod
+    def answer_keys() -> list[str]:
+        """The keys of this model's columns in an API answer. The status flag
+        ``s`` is not a column."""
+        return [field.name for field in fields(OptionsQuotes) if field.name != "s"]
+
+    @staticmethod
     def join_dicts(dicts: list[dict]) -> dict:
+        """Concatenate the symbols' answers column by column, keeping the
+        columns the first answer carries. Every answer must carry them: a
+        missing one raises ``KeyError`` instead of shifting the rows of the
+        symbols after it. ``quotes()`` checks the answers first, so there it
+        is a ``ParseError`` naming the symbol."""
         data = {
-            field: _join_list([dict.get(field, []) for dict in dicts])
-            for field in OptionsQuotes.__dataclass_fields__
-            if field in dicts[0].keys()
+            key: _join_list([answer[key] for answer in dicts])
+            for key in OptionsQuotes.answer_keys()
+            if key in dicts[0]
         }
-        data["s"] = dicts[0].get("s", "ok")
-        return data
+        return {"s": dicts[0].get("s", "ok"), **data}
 
 
 @dataclass
 class OptionsQuotesHumanReadable:
+    api_model: ClassVar[type] = OptionsQuotes
+
     Symbol: list[str]
     Underlying: list[str]
     Expiration_Date: list[datetime.datetime]
@@ -138,19 +151,21 @@ class OptionsQuotesHumanReadable:
         return self.__repr__()
 
     @staticmethod
+    def answer_keys() -> list[str]:
+        """The keys of this model's columns in an API answer: the field names
+        spelled with the API's spaces (``Expiration Date``)."""
+        return [
+            _to_human_readable_field(field.name)
+            for field in fields(OptionsQuotesHumanReadable)
+        ]
+
+    @staticmethod
     def join_dicts(dicts: list[dict]) -> dict:
-        data = {
-            _to_internal_field(field): _join_list(
-                [dict[_to_human_readable_field(field)] for dict in dicts]
-            )
-            for field in OptionsQuotesHumanReadable.__dataclass_fields__
-            if _to_human_readable_field(field) in dicts[0].keys()
+        """Concatenate the symbols' answers column by column, as
+        :meth:`OptionsQuotes.join_dicts` does, under the model's field
+        names."""
+        return {
+            _to_internal_field(key): _join_list([answer[key] for answer in dicts])
+            for key in OptionsQuotesHumanReadable.answer_keys()
+            if key in dicts[0]
         }
-        return data
-
-
-# The API-named twin of the human-readable model, same fields in the same
-# order: a `columns=` filter written in API names is translated to the
-# human-readable columns by position (#87). Set outside the class so it is
-# not a dataclass field.
-OptionsQuotesHumanReadable.api_model = OptionsQuotes

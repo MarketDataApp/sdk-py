@@ -8,11 +8,14 @@ lives in no single file; these tests pin it.
 
 import importlib
 import pkgutil
-from dataclasses import fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
+from typing import ClassVar
 
 import pytest
 
 import marketdata.output_types as output_types
+from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
+from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.resources.base import model_columns
 from marketdata.utils import column_key
 
@@ -48,7 +51,7 @@ def _columns(model: type) -> list[str]:
 @pytest.mark.parametrize("model", HUMAN_MODELS, ids=lambda m: m.__name__)
 def test_every_human_readable_model_declares_its_api_twin(model):
     """A human-readable model without an `api_model` silently loses the
-    API-name translation: `model_columns` falls back to the model itself, so
+    API-name translation: `model_columns` has no positional map for it, so
     `columns=["t"]` selects nothing and the caller gets every column instead.
     Enumerated by class name so a model added without a twin fails here.
     """
@@ -62,7 +65,9 @@ def test_every_human_readable_model_declares_its_api_twin(model):
 def test_every_api_model_twin_lines_up_with_its_model(human, api):
     """What the positional translation actually relies on: the two models
     expose the same number of columns, so `zip` pairs each API name with the
-    human-readable column at the same position.
+    human-readable column at the same position (`model_columns` zips them
+    with `strict=True`, so a mismatch raises there instead of mapping part of
+    the columns).
 
     Note that equal length is the whole contract, not equal order: the pairs
     are written in the same order everywhere except `MarketStatus`
@@ -71,6 +76,40 @@ def test_every_api_model_twin_lines_up_with_its_model(human, api):
     `column_key`, so the positional map is never consulted for it.
     """
     assert len(_columns(api)) == len(_columns(human))
+
+
+@pytest.mark.parametrize("model", HUMAN_MODELS, ids=lambda m: m.__name__)
+def test_the_api_twin_is_a_class_variable_not_a_column(model):
+    """`api_model` is declared as a `ClassVar` in the class body, so it is not
+    a dataclass field: not a column of `model_columns`, not a date column of
+    the DataFrame handlers, not an argument of the constructor."""
+    handler = get_dataframe_output_handler()(
+        {}, model, UserUniversalAPIParams(output_format=OutputFormat.DATAFRAME)
+    )
+
+    assert "api_model" not in {field.name for field in fields(model)}
+    assert "api_model" not in handler._get_date_columns()
+    assert "api_model" not in handler._get_datetime_columns()
+
+
+def test_model_columns_refuses_a_twin_with_another_column_count():
+    """A twin that does not line up is a mistake in this repository, and a
+    partial map would select the wrong columns without a word, so the zip is
+    strict and the mistake raises."""
+
+    @dataclass
+    class Api:
+        s: str
+        a: int
+        b: int
+
+    @dataclass
+    class Human:
+        api_model: ClassVar[type] = Api
+        A: int
+
+    with pytest.raises(ValueError):
+        model_columns(Human, ["a"])
 
 
 @pytest.mark.parametrize("human, api", PAIRS, ids=lambda m: getattr(m, "__name__", m))

@@ -1,6 +1,6 @@
 import datetime
 from dataclasses import dataclass, fields
-from typing import Any
+from typing import Any, ClassVar
 
 from marketdata.utils import format_timestamp
 
@@ -44,6 +44,8 @@ class OptionsStrikes:
 
 @dataclass
 class OptionsStrikesHumanReadable:
+    api_model: ClassVar[type] = OptionsStrikes
+
     Date: datetime.datetime
 
     def __post_init__(self):
@@ -75,10 +77,3 @@ class OptionsStrikesHumanReadable:
 
     def __str__(self) -> str:
         return self.__repr__()
-
-
-# The API-named twin of the human-readable model, same fields in the same
-# order: a `columns=` filter written in API names is translated to the
-# human-readable columns by position (#87). Set outside the class so it is
-# not a dataclass field.
-OptionsStrikesHumanReadable.api_model = OptionsStrikes

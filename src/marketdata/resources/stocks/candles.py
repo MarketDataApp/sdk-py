@@ -2,7 +2,6 @@ import contextvars
 import datetime
 import itertools
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import fields
 from typing import Annotated, Any
 
 import httpx
@@ -23,8 +22,8 @@ from marketdata.utils import (
     encode_path_segment,
     get_data_records,
     is_no_data,
+    json_answer_columns,
     merge_csv_responses,
-    parse_error,
     parse_json,
     split_dates_by_timeframe,
 )
@@ -133,21 +132,11 @@ def candles(
     def _get_responses_data(responses: list[httpx.Response]) -> dict:
         responses_data = [parse_json(response) for response in responses]
         # Under `columns=` the API sends the requested keys only (#90), so the
-        # merge covers the model fields the first chunk carries, in model order.
-        present = [
-            field.name
-            for field in fields(output_model)
-            if field.name in responses_data[0]
-        ]
-        # A JSON body with none of the fields (a proxy's JSON error page) or a
-        # chunk missing a column the first one carries is not a candle answer;
-        # a silent hole in the merge would read as "no candles" (#82).
-        if not present:
-            raise parse_error(responses[0], "none of this resource's fields")
-        for data, response in zip(responses_data, responses):
-            missing = [name for name in present if name not in data]
-            if missing:
-                raise parse_error(response, f"missing columns {missing!r}")
+        # merge covers the model fields the first chunk carries, in model
+        # order, and every chunk must carry them.
+        present = json_answer_columns(
+            responses, responses_data, model_columns(output_model)
+        )
         return {
             name: list(
                 itertools.chain.from_iterable(data[name] for data in responses_data)
