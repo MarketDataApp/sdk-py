@@ -27,29 +27,51 @@ def to_decimal(value: Any) -> Decimal | None:
     """An amount as a ``Decimal``.
 
     ``None`` stays ``None``: the API sends ``null`` for a price it does not
-    have. An integer is exact as it is. A float goes through its shortest
-    repr, so ``65.1`` becomes ``Decimal("65.1")`` rather than the binary
-    expansion ``Decimal(65.1)`` would give. The API path never hands this a
-    float, since it parses amounts as Decimals in the first place, so that
-    rule is for a model built by hand, numpy scalars included. A ``str`` must
-    be a decimal number.
+    have, and NaN, which is how pandas writes that same missing value, becomes
+    ``None`` too. An infinity is not an amount. An integer is exact as it is.
+    Any other number goes through its shortest repr in its own precision, so
+    ``65.1`` becomes ``Decimal("65.1")`` whether it is a float, a numpy
+    float64 or a float32, rather than the binary expansion ``Decimal(65.1)``
+    would give. The API path never hands this a float, since it parses
+    amounts as Decimals in the first place, so that rule is for a model built
+    by hand. A ``str`` must be a decimal number.
+
+    Raises ``TypeError`` for a value that is not a number and ``ValueError``
+    for one that is not a finite amount.
     """
-    if value is None or isinstance(value, Decimal):
-        return value
+    if value is None:
+        return None
     if isinstance(value, bool):
         raise TypeError(f"an amount cannot be a bool: {value!r}")
-    if isinstance(value, str):
-        try:
-            return Decimal(value)
-        except InvalidOperation:
-            raise ValueError(f"not a decimal number: {value!r}") from None
-    if isinstance(value, numbers.Integral):
+    if isinstance(value, Decimal):
+        amount = value
+    elif isinstance(value, numbers.Integral):
         return Decimal(int(value))
-    if isinstance(value, numbers.Real):
-        # float() first: numpy's float64 is a float whose repr is
-        # "np.float64(65.1)", and a float32 is not a float at all.
+    elif isinstance(value, (str, numbers.Real)):
+        amount = _parse_decimal(value)
+    else:
+        raise TypeError(f"an amount must be a number, not {type(value).__name__}")
+    if amount.is_finite():
+        return amount
+    if amount.is_nan():
+        return None
+    raise ValueError(f"an amount must be finite, not {value!r}")
+
+
+def _parse_decimal(value: str | numbers.Real) -> Decimal:
+    # str() is the shortest repr in the value's own precision: "65.1" for a
+    # float, for a numpy float64 (whose repr is "np.float64(65.1)") and for a
+    # float32, which is not a float at all.
+    try:
+        return Decimal(str(value))
+    except InvalidOperation:
+        if isinstance(value, str):
+            raise ValueError(f"not a decimal number: {value!r}") from None
+    try:
+        # A Real whose str is not a decimal, such as a Fraction.
         return Decimal(repr(float(value)))
-    raise TypeError(f"an amount must be a number, not {type(value).__name__}")
+    except (ArithmeticError, ValueError):
+        raise ValueError(f"not a decimal number: {value!r}") from None
 
 
 def decimal_to_float(value: Any) -> Any:
@@ -92,15 +114,17 @@ def _number_fields(model: type) -> tuple[tuple[str, bool], ...]:
     )
 
 
+def _is_amount(value: Any) -> bool:
+    """Already what a money field holds: ``None`` or a finite ``Decimal``,
+    which is every amount the exact parse produces."""
+    return value is None or (isinstance(value, Decimal) and value.is_finite())
+
+
 def _as_money(value: Any) -> Any:
     if isinstance(value, list):
-        return [
-            item if isinstance(item, Decimal) else to_decimal(item) for item in value
-        ]
+        return [item if _is_amount(item) else to_decimal(item) for item in value]
     if isinstance(value, tuple):
-        return tuple(
-            item if isinstance(item, Decimal) else to_decimal(item) for item in value
-        )
+        return tuple(item if _is_amount(item) else to_decimal(item) for item in value)
     return to_decimal(value)
 
 
@@ -117,12 +141,14 @@ def coerce_numbers(instance: Any) -> None:
     promises: Decimals for the money fields, and for every other field the
     float the plain parse gives in place of any ``Decimal`` the exact parse
     left there. A dataclass does not enforce its annotations, so nothing else
-    would. A field that already holds what it should is left alone, which is
-    every field of most rows."""
+    would. The conversion applies to each amount: the shape of a field (a
+    scalar or a list) is not checked, as it never was. A scalar that already
+    holds the right type, and a list with no ``Decimal`` in a field that is
+    not money, are left alone, which is every field of a record row."""
     for name, money in _number_fields(type(instance)):
         value = getattr(instance, name)
         if money:
-            if value is None or isinstance(value, Decimal):
+            if _is_amount(value):
                 continue
             convert = _as_money
         elif isinstance(value, Decimal) or (
@@ -134,6 +160,6 @@ def coerce_numbers(instance: Any) -> None:
             continue
         try:
             converted = convert(value)
-        except (TypeError, ValueError, ArithmeticError) as exc:
+        except (TypeError, ValueError) as exc:
             raise type(exc)(f"{type(instance).__name__}.{name}: {exc}") from exc
         setattr(instance, name, converted)

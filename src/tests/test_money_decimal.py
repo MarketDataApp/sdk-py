@@ -16,6 +16,7 @@ import pathlib
 import pkgutil
 import typing
 from decimal import Decimal
+from fractions import Fraction
 from unittest.mock import patch
 
 import numpy as np
@@ -69,9 +70,10 @@ DATA_DIR = pathlib.Path(__file__).parent / "data"
 API = "https://api.marketdata.app"
 OPTION = "AAPL271217C00255000"
 
-# More digits than a double holds: a float parse reads it as 65.1, so only a
-# parse that never goes through a float can hand it to the model intact.
-EXACT = "65.10000000000000000001"
+# More digits than a double holds, so a float parse reads it as 65.1 and only
+# a parse that never goes through a float can hand it to the model intact. The
+# trailing zero is the API's own scale, which a normalizing parse would drop.
+EXACT = "65.100000000000000000010"
 
 OPTIONS_MONEY = {
     "strike",
@@ -316,6 +318,26 @@ OTHER_CASES = {
         f"{API}/user/",
         lambda c, **kw: c.utilities.user(**kw),
     ),
+    "options.expirations human": Case(
+        "options_expirations_human_response_200",
+        f"{API}/v1/options/expirations/AAPL/",
+        lambda c, **kw: c.options.expirations("AAPL", use_human_readable=True, **kw),
+    ),
+    "stocks.news human": Case(
+        "stocks_news_human_response_200",
+        f"{API}/v1/stocks/news/AAPL/",
+        lambda c, **kw: c.stocks.news("AAPL", use_human_readable=True, **kw),
+    ),
+}
+
+OTHER_DATE_KEYS = {
+    "markets.status": ("date",),
+    "markets.status human": ("Date",),
+    "options.expirations": ("expirations", "updated"),
+    "options.expirations human": ("Expirations", "Date"),
+    "stocks.news": ("publicationDate", "updated"),
+    "stocks.news human": ("publicationDate", "Date"),
+    "utilities.status": ("updated",),
 }
 
 
@@ -343,21 +365,26 @@ def _holds_decimal(value) -> bool:
 
 
 def _money_holds_decimals_and_nothing_else(result) -> int:
-    """Walk an INTERNAL result: every money value is a Decimal, and no other
-    field holds one. Returns how many money values it checked."""
+    """Walk an INTERNAL result: every money value is a Decimal, no other field
+    holds one, and a field annotated `int` (a size, a count, a day) holds
+    ints, as the plain parse gives them. Returns how many money values it
+    checked."""
     checked = 0
     for model in result if isinstance(result, list) else [result]:
         fixed = {field.name for field in dataclasses.fields(model)}
+        hints = typing.get_type_hints(type(model))
         money = decimal_fields(type(model))
         for name, value in vars(model).items():
+            values = value if isinstance(value, list) else [value]
+            present = [item for item in values if item is not None]
             is_strike_column = isinstance(model, STRIKES_MODELS) and name not in fixed
             if name in money or is_strike_column:
-                values = value if isinstance(value, list) else [value]
-                present = [item for item in values if item is not None]
                 assert all(isinstance(item, Decimal) for item in present), name
                 checked += len(present)
-            else:
-                assert not _holds_decimal(value), name
+                continue
+            assert not _holds_decimal(value), name
+            if name in hints and _mentions(hints[name], int):
+                assert all(type(item) is int for item in present), name
     return checked
 
 
@@ -368,12 +395,13 @@ def _mentions(annotation, target: type) -> bool:
 
 
 def _dates_in(result) -> list:
-    """Every value of every datetime-annotated field of an INTERNAL result."""
+    """Every value of every date-annotated field of an INTERNAL result."""
     dates = []
     for model in result if isinstance(result, list) else [result]:
         hints = typing.get_type_hints(type(model))
         for field in dataclasses.fields(model):
-            if _mentions(hints[field.name], datetime.datetime):
+            hint = hints[field.name]
+            if _mentions(hint, datetime.datetime) or _mentions(hint, datetime.date):
                 value = getattr(model, field.name)
                 dates.extend(value if isinstance(value, list) else [value])
     return dates
@@ -446,6 +474,30 @@ def test_a_resource_with_no_money_returns_no_decimal(respx_mock, client, case):
     assert not _holds_decimal(
         [vars(model) for model in (result if isinstance(result, list) else [result])]
     )
+
+
+@pytest.mark.parametrize("name", OTHER_DATE_KEYS)
+def test_a_resource_with_no_money_reads_a_spreadsheet_date(respx_mock, client, name):
+    """Its models have no conversion, so they read a date only if the parse
+    left it a float. This is the test that fails if one of them is ever
+    switched to the exact parse. options.lookup, utilities.headers and
+    utilities.user carry no number with a fraction, so the parse they use
+    cannot be told apart."""
+    case = OTHER_CASES[name]
+    data = _load_fixture(case.fixture)
+    for key in OTHER_DATE_KEYS[name]:
+        assert key in data, key
+        data[key] = (
+            ["__date__"] * len(data[key]) if isinstance(data[key], list) else "__date__"
+        )
+    body = json.dumps(data).replace('"__date__"', SPREADSHEET_DATE).encode()
+    _respond(respx_mock, case, body)
+
+    result = case.call(client, output_format=OutputFormat.INTERNAL)
+
+    dates = _dates_in(result)
+    assert dates
+    assert all(date == SPREADSHEET_DATETIME for date in dates)
 
 
 def test_a_greek_is_the_float_the_plain_parse_gives(respx_mock, client):
@@ -592,8 +644,50 @@ def test_a_polars_frame_keeps_the_float_parse(respx_mock, client, case):
 
 
 def test_a_float_becomes_the_decimal_it_reads_as():
+    """What the float is, to its last significant digit: the conversion
+    neither rounds a float nor repairs the arithmetic that made it."""
     assert str(to_decimal(65.1)) == "65.1"
     assert to_decimal(65.1) != Decimal(65.1)
+    assert str(to_decimal(0.1 + 0.2)) == "0.30000000000000004"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [float("nan"), np.float64("nan"), Decimal("NaN"), Decimal("sNaN"), "NaN"],
+    ids=["float", "numpy", "Decimal", "signaling", "str"],
+)
+def test_nan_is_a_missing_amount(value):
+    """pandas writes a missing value as NaN; the API writes it as null, which
+    the model holds as None. A Decimal NaN would also raise on any ordering
+    comparison, so sorting candles by price would fail."""
+    assert to_decimal(value) is None
+
+
+@pytest.mark.parametrize(
+    "value", [float("inf"), -np.float64("inf"), Decimal("Infinity"), "-Infinity"]
+)
+def test_an_infinity_is_not_an_amount(value):
+    with pytest.raises(ValueError, match="must be finite"):
+        to_decimal(value)
+
+
+def test_a_model_applies_the_same_rules_to_a_decimal_it_is_given():
+    """A Decimal skips the conversion only when it is already an amount."""
+
+    def price(**money):
+        return StockPrice(
+            s="ok", symbol="AAPL", changepct=0.0, updated=1765478200, **money
+        )
+
+    assert price(mid=Decimal("NaN"), change=Decimal("0.1")).mid is None
+    with pytest.raises(ValueError, match=r"StockPrice\.change: an amount must be"):
+        price(mid=Decimal("1"), change=Decimal("Infinity"))
+
+
+def test_a_rational_whose_str_is_not_a_decimal_goes_through_its_float():
+    assert to_decimal(Fraction(1, 4)) == Decimal("0.25")
+    with pytest.raises(ValueError, match="not a decimal number"):
+        to_decimal(Fraction(10**400, 3))
 
 
 @pytest.mark.parametrize(
@@ -631,25 +725,43 @@ def test_to_decimal_refuses_what_is_not_an_amount(value, error):
     ("value", "expected"),
     [
         (np.float64(65.1), "65.1"),
+        (np.float32(65.1), "65.1"),
         (np.float32(0.5), "0.5"),
         (np.int64(7), "7"),
     ],
 )
 def test_a_numpy_scalar_converts_like_the_number_it_is(value, expected):
     """A model built from DataFrame cells gets numpy scalars. Under numpy 2 a
-    float64's repr is `np.float64(65.1)`, and an int64 is not an `int`."""
+    float64's repr is `np.float64(65.1)`, a float32 is not a float at all,
+    and an int64 is not an `int`."""
     assert str(to_decimal(value)) == expected
 
 
 def test_a_model_built_from_dataframe_cells_holds_decimals():
-    df = pd.DataFrame({"o": [74.06]})
+    """A null price is NaN in a float64 column: it comes back as None, what
+    the model holds for the API's null."""
+    df = pd.DataFrame({"o": [74.06], "c": [None]}, dtype="float64")
 
     candle = StockCandle(
-        t=1577941200, o=df["o"][0], h=df["o"][0], l=df["o"][0], c=df["o"][0], v=1
+        t=1577941200, o=df["o"][0], h=df["o"][0], l=df["o"][0], c=df["c"][0], v=1
     )
 
     assert candle.o == Decimal("74.06")
     assert type(candle.o) is Decimal
+    assert candle.c is None
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda strikes: OptionsStrikes(s="ok", updated=1765478200, **strikes),
+        lambda strikes: OptionsStrikesHumanReadable(Date=1765478200, **strikes),
+    ],
+    ids=["api", "human"],
+)
+def test_a_bad_strike_names_the_expiration_it_was_given_for(build):
+    with pytest.raises(ValueError, match="'2025-12-12': not a decimal number"):
+        build({"2025-12-12": [110, "n/a"]})
 
 
 def test_a_bad_amount_names_the_field_it_was_given_for():
@@ -731,23 +843,49 @@ def test_a_decimal_renders_as_its_digits():
         volume=1,
         updated=1765478200,
     )
-    earnings = StockEarnings(
-        s="ok",
-        symbol=["AAPL"],
-        fiscalYear=[2026],
-        fiscalQuarter=[1],
-        date=[1767157200],
-        reportDate=[1769576400],
-        reportTime=["after close"],
-        currency=["USD"],
-        reportedEPS=[None],
-        estimatedEPS=[Decimal("2.67")],
-        surpriseEPS=[None],
-        surpriseEPSpct=[None],
-        updated=[1765861200],
-    )
-
     assert "Ask: 278.02\n" in str(quote)
-    assert "Estimated EPS: [2.67]\n" in str(earnings)
-    assert "Reported EPS: [None]\n" in str(earnings)
-    assert "Decimal" not in str(quote) + str(earnings)
+    assert "Decimal" not in str(quote)
+
+
+@pytest.mark.parametrize("human", [False, True], ids=["api", "human"])
+def test_the_earnings_lists_render_as_their_digits(human):
+    """The only repr that prints money lists: the list's own repr would show
+    `[Decimal('2.67'), None]`."""
+    if human:
+        earnings = StockEarningsHumanReadable(
+            Symbol=["AAPL", "AAPL"],
+            Fiscal_Year=[2026, 2026],
+            Fiscal_Quarter=[1, 2],
+            Date=[1767157200, 1774929600],
+            Report_Date=[1769576400, 1777435200],
+            Report_Time=["after close", "before open"],
+            Currency=["USD", "USD"],
+            Reported_EPS=[Decimal("1.88"), None],
+            Estimated_EPS=[Decimal("2.67"), None],
+            Surprise_EPS=[Decimal("-0.79"), None],
+            Surprise_EPS_Percent=[-0.2959, None],
+            Updated=[1765861200, 1765861200],
+        )
+    else:
+        earnings = StockEarnings(
+            s="ok",
+            symbol=["AAPL", "AAPL"],
+            fiscalYear=[2026, 2026],
+            fiscalQuarter=[1, 2],
+            date=[1767157200, 1774929600],
+            reportDate=[1769576400, 1777435200],
+            reportTime=["after close", "before open"],
+            currency=["USD", "USD"],
+            reportedEPS=[Decimal("1.88"), None],
+            estimatedEPS=[Decimal("2.67"), None],
+            surpriseEPS=[Decimal("-0.79"), None],
+            surpriseEPSpct=[-0.2959, None],
+            updated=[1765861200, 1765861200],
+        )
+
+    text = str(earnings)
+
+    assert "Reported EPS: [1.88, None]\n" in text
+    assert "Estimated EPS: [2.67, None]\n" in text
+    assert "Surprise EPS: [-0.79, None]\n" in text
+    assert "Decimal" not in text

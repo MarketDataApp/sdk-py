@@ -332,7 +332,7 @@ quote.bid == Decimal("65.1")         # compare with Decimal literals
 float(quote.mid)                     # a float, when a float is what you need
 ```
 
-Mixing `Decimal` and `float` in arithmetic raises `TypeError`, and comparing them compares against the float's binary value, so `Decimal("65.1") == 65.1` is `False`. Use `Decimal` literals, or `int`, which mixes freely. For the same reason `json.dumps(..., default=str)` writes a model's money as strings, and a DataFrame built from models has `object` columns: `OutputFormat.DATAFRAME` is the float path for analysis.
+Mixing `Decimal` and `float` in arithmetic raises `TypeError`, and comparing them compares against the float's binary value, so `Decimal("65.1") == 65.1` is `False`. Use `Decimal` literals, or `int`, which mixes freely. For the same reason `json.dumps(..., default=str)` writes a model's money as strings, and a pandas DataFrame built from models has `object` columns (polars infers its own decimal dtype): `OutputFormat.DATAFRAME` is the float path for analysis.
 
 The other formats are unchanged. A DataFrame never holds a `Decimal`: it keeps the plain parse, so every column has the dtype it always had on both pandas and polars (`float64` for prices with a fraction). A DataFrame is for vectorized analysis, pandas has no decimal dtype, and the same call returning a different dtype depending on which library is installed would be a trap. `OutputFormat.JSON` returns the decoded JSON with standard `float` numbers, and `OutputFormat.CSV` writes the API's text as it came.
 

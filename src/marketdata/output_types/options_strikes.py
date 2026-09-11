@@ -29,7 +29,10 @@ class OptionsStrikes:
     def _to_decimal_list(name: str, v: Any) -> list[Decimal]:
         if not isinstance(v, (list, tuple)):
             raise TypeError(f"extra field '{name}' must be a list of strike prices")
-        return [to_decimal(strike) for strike in v]
+        try:
+            return [to_decimal(strike) for strike in v]
+        except (TypeError, ValueError) as exc:
+            raise type(exc)(f"extra field '{name}': {exc}") from exc
 
     def __repr__(self) -> str:
         extra_kwargs = {
@@ -65,7 +68,10 @@ class OptionsStrikesHumanReadable:
     def _to_decimal_list(name: str, v: Any) -> list[Decimal]:
         if not isinstance(v, (list, tuple)):
             raise TypeError(f"extra field '{name}' must be a list of strike prices")
-        return [to_decimal(strike) for strike in v]
+        try:
+            return [to_decimal(strike) for strike in v]
+        except (TypeError, ValueError) as exc:
+            raise type(exc)(f"extra field '{name}': {exc}") from exc
 
     def __repr__(self) -> str:
         extra_kwargs = {k: v for k, v in self.__dict__.items() if k not in ["Date"]}
