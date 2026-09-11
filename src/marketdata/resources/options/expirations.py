@@ -55,23 +55,25 @@ def expirations(
         else OptionsExpirations
     )
 
+    # When the user explicitly filters columns we must not force
+    # "expirations" into the index: doing so when it is the only requested
+    # column would promote all data into the index and leave an apparently
+    # empty DataFrame. The empty result takes the same index, so a no_data
+    # frame has the shape of a populated one (#84).
+    index_columns = [] if user_universal_params.columns else ["expirations"]
+
     if is_no_data(response):
         return no_data_result(
             user_universal_params,
             output_model,
             as_records=False,
-            index_columns=[],
+            index_columns=index_columns,
             body=parse_json(response),
         )
 
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
         data = parse_json(response)
         handler = get_dataframe_output_handler()
-        # When the user explicitly filters columns we must not force
-        # "expirations" into the index: doing so when it is the only requested
-        # column would promote all data into the index and leave an apparently
-        # empty DataFrame.
-        index_columns = [] if user_universal_params.columns else ["expirations"]
         return handler(data, output_model, user_universal_params).get_result(
             index_columns=index_columns
         )

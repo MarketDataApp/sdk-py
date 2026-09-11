@@ -88,19 +88,6 @@ class OptionsQuotes:
         data["s"] = dicts[0].get("s", "ok")
         return data
 
-    @staticmethod
-    def get_null_dict() -> dict:
-        data = {field: [] for field in OptionsQuotes.__dataclass_fields__}
-        data.pop("s")
-        return data
-
-    @staticmethod
-    def get_null_csv_string(add_headers: bool = False) -> str:
-        text = ",".join([""] * len(OptionsQuotes.__dataclass_fields__))
-        if add_headers:
-            text = ",".join(OptionsQuotes.__dataclass_fields__) + "\n" + text
-        return text
-
 
 @dataclass
 class OptionsQuotesHumanReadable:
@@ -164,27 +151,3 @@ class OptionsQuotesHumanReadable:
             if _to_human_readable_field(field) in dicts[0].keys()
         }
         return data
-
-    @staticmethod
-    def get_null_dict() -> dict:
-        data = {
-            field.replace("_", " "): []
-            for field in OptionsQuotesHumanReadable.__dataclass_fields__
-        }
-        return data
-
-    @staticmethod
-    def get_null_csv_string(add_headers: bool = False) -> str:
-        text = ",".join([""] * len(OptionsQuotesHumanReadable.__dataclass_fields__))
-        if add_headers:
-            text = (
-                ",".join(
-                    [
-                        field.replace("_", " ")
-                        for field in OptionsQuotesHumanReadable.__dataclass_fields__
-                    ]
-                )
-                + "\n"
-                + text
-            )
-        return text

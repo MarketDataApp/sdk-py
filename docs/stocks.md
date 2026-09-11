@@ -316,7 +316,7 @@ print(df)
 
 ### `candles()`
 
-Fetches stock candles (OHLCV data) for a symbol with support for various timeframes and date ranges. This method includes API status checking and automatic retry logic. For intraday resolutions (minutely/hourly), large date ranges are automatically split into year-long chunks and fetched concurrently using up to 50 concurrent requests.
+Fetches stock candles (OHLCV data) for a symbol with support for various timeframes and date ranges. This method includes API status checking and automatic retry logic. For intraday resolutions (minutely/hourly), large date ranges are automatically split into year-long chunks and fetched concurrently using up to 50 concurrent requests. Each chunk's request retries on its own, so a failed chunk never re-sends the others.
 
 > **Note:** The `symbol` parameter can be passed as the first positional argument or as a keyword argument. All other parameters must be keyword-only.
 

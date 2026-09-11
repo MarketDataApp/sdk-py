@@ -7,11 +7,11 @@ from typing import Annotated, Any
 
 import httpx
 
-from marketdata.api_error import api_error_handler
+from marketdata.api_error import api_error_handler, get_resource_retry_adapter
 from marketdata.docs import docs
 from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.input_types.stocks import StocksCandlesInput
-from marketdata.internal_settings import HTTP_TIMEOUT, MAX_CONCURRENT_REQUESTS
+from marketdata.internal_settings import MAX_CONCURRENT_REQUESTS
 from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.stocks_candles import (
     StockCandle,
@@ -28,8 +28,10 @@ from marketdata.utils import (
     split_dates_by_timeframe,
 )
 
+SERVICE = "/v1/stocks/candles/"
 
-@api_error_handler(service="/v1/stocks/candles/")
+
+@api_error_handler(retry=False)
 @docs(exclude_params=["user_universal_params", "input_params"])
 @universal_params(resource_input_type=StocksCandlesInput)
 def candles(
@@ -51,6 +53,11 @@ def candles(
         self.client.default_params, user_universal_params
     )
 
+    # Each chunk retries on its own (#83): a failed request is re-issued
+    # alone and the healthy responses are kept. The decorator does not retry
+    # the whole fan-out (`retry=False`), which would re-send every chunk.
+    retry_adapter = get_resource_retry_adapter(self.client, SERVICE)
+
     def _get_response(
         input_params: StocksCandlesInput,
         from_date: datetime.datetime,
@@ -70,7 +77,7 @@ def candles(
             extra_params=kwargs,
             excluded_params=["symbol", "resolution"],
         )
-        return self.client._make_request(method="GET", url=url)
+        return retry_adapter(self.client._make_request, method="GET", url=url)
 
     if input_params.from_date is not None:
         if input_params.is_intraday:
@@ -99,7 +106,11 @@ def candles(
             )
             for from_date, to_date in year_ranges
         ]
-        responses = [future.result(timeout=HTTP_TIMEOUT) for future in futures]
+        # No deadline on the future: each request is bounded by the HTTP
+        # timeout and its own retries, a chunk on its second attempt outlives
+        # one timeout, and the executor's exit joins every worker anyway, so a
+        # future timeout could only ever surface after they had all finished.
+        responses = [future.result() for future in futures]
     # A chunk with no data (404 no_data) is simply absent from the merge.
     responses = [response for response in responses if not is_no_data(response)]
 
