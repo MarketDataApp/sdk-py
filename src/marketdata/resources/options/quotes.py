@@ -4,9 +4,9 @@ from typing import Annotated, Any
 
 from httpx import Response
 
-from marketdata.api_error import api_error_handler
+from marketdata.api_error import api_error_handler, get_resource_retry_adapter
 from marketdata.docs import docs
-from marketdata.exceptions import MarketdataHttpError, ParseError
+from marketdata.exceptions import MarketdataHttpError
 from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.input_types.options import OptionsQuotesInput
 from marketdata.internal_settings import MAX_CONCURRENT_REQUESTS, VALID_STATUS_CODES
@@ -24,8 +24,10 @@ from marketdata.utils import (
     parse_json,
 )
 
+SERVICE = "/v1/options/quotes/"
 
-@api_error_handler(service="/v1/options/quotes/")
+
+@api_error_handler(retry=False)
 @docs(exclude_params=["user_universal_params", "input_params"])
 @universal_params(resource_input_type=OptionsQuotesInput)
 def quotes(
@@ -45,6 +47,11 @@ def quotes(
         self.client.default_params, user_universal_params
     )
 
+    # Each symbol retries on its own (#83): a failed request is re-issued
+    # alone and the healthy responses are kept. The decorator does not retry
+    # the whole fan-out (`retry=False`), which would re-send every symbol.
+    retry_adapter = get_resource_retry_adapter(self.client, SERVICE)
+
     def _get_response(symbol: str) -> Response:
         url = self._build_url(
             path=f"options/quotes/{encode_path_segment(symbol)}/",
@@ -53,8 +60,7 @@ def quotes(
             extra_params=kwargs,
             excluded_params=["symbols"],
         )
-        response = self.client._make_request(method="GET", url=url)
-        return response
+        return retry_adapter(self.client._make_request, method="GET", url=url)
 
     self.logger.debug("Fetching options quotes...")
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS) as executor:
@@ -103,14 +109,10 @@ def quotes(
         OutputFormat.INTERNAL,
         OutputFormat.JSON,
     ]:
-
-        def _parse_data(response: Response) -> dict:
-            try:
-                return parse_json(response)
-            except ParseError:
-                return OptionsQuotes.get_null_dict()
-
-        data = [_parse_data(response) for response in usable]
+        # A body that is not JSON (a proxy's HTML error page) fails the call
+        # as it does everywhere else (#82); a fabricated empty row would read
+        # as "no options" and break the merge of the healthy symbols.
+        data = [parse_json(response) for response in usable]
         data = output_model.join_dicts(data)
 
         if user_universal_params.output_format == OutputFormat.DATAFRAME:
