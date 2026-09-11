@@ -2,6 +2,7 @@
 
 import random
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 from marketdata.rate_limit_tracker import RateLimitTracker
 from marketdata.types import UserRateLimits
@@ -66,6 +67,22 @@ def test_reset_bypasses_the_ordering_rule():
 
     tracker.reset()
     assert tracker.state is None
+
+
+def test_an_authoritative_update_writes_through_reset():
+    """One way past the ordering rule (#104): an authoritative update applies
+    the zero-limit guard and then writes through `reset`, so a change to how a
+    state is replaced cannot land in one path and not the other, and the tests
+    that seed the tracker through `reset` exercise the write production uses."""
+    tracker = RateLimitTracker()
+    tracker.update(limits(10))
+
+    with patch.object(tracker, "reset", wraps=tracker.reset) as reset:
+        tracker.update(limits(95), authoritative=True)
+        tracker.update(UserRateLimits(0, 0, RESET, 0), authoritative=True)
+
+    reset.assert_called_once_with(limits(95))
+    assert tracker.state == limits(95)
 
 
 def test_concurrent_updates_end_at_the_lowest_balance():
