@@ -1,4 +1,6 @@
+import csv
 import datetime
+import sys
 
 import httpx
 import pytest
@@ -174,6 +176,41 @@ def test_merge_csv_responses_without_headers_concatenates_rows_of_one_width():
         merge_csv_responses(
             responses + [_csv_response("7\n")], COLUMNS, with_header=False
         )
+
+
+# A field past the reader's limit fails on every Python; a NUL byte only
+# before 3.11, which reads it as data.
+UNREADABLE_CSV_FIELDS = [
+    pytest.param("x" * 200_000, id="field-over-the-limit"),
+    pytest.param(
+        "a\x00b",
+        id="nul-byte",
+        marks=pytest.mark.skipif(
+            sys.version_info >= (3, 11), reason="the csv module reads NUL from 3.11 on"
+        ),
+    ),
+]
+
+
+@pytest.mark.parametrize("with_header", [True, False], ids=["header", "no-header"])
+@pytest.mark.parametrize("field", UNREADABLE_CSV_FIELDS)
+def test_merge_csv_responses_turns_a_body_the_csv_module_cannot_read_into_a_parse_error(
+    field, with_header
+):
+    """`csv.Error` is not an SDK exception: a body the reader refuses fails
+    like any other body that is not this resource's answer, and names it."""
+    header = "t,c\n" if with_header else ""
+    responses = [
+        _csv_response(f"{header}1,2\n"),
+        _csv_response(f"{header}{field},3\n"),
+    ]
+
+    with pytest.raises(ParseError) as exc_info:
+        merge_csv_responses(responses, COLUMNS, with_header=with_header)
+
+    assert "unreadable CSV" in exc_info.value.message
+    assert exc_info.value.response is responses[1]
+    assert isinstance(exc_info.value.__cause__, csv.Error)
 
 
 # ----------------------------------------------------- json_answer_columns
