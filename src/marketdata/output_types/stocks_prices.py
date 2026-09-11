@@ -1,5 +1,6 @@
 import datetime
 from dataclasses import dataclass
+from typing import ClassVar
 
 from marketdata.utils import format_timestamp
 
@@ -35,6 +36,8 @@ class StockPrice:
 
 @dataclass
 class StockPricesHumanReadable:
+    api_model: ClassVar[type] = StockPrice
+
     Symbol: str
     Mid: float
     Change_Price: float
@@ -63,10 +66,3 @@ class StockPricesHumanReadable:
         data.pop("Change $")
         data.pop("Change %")
         return cls(**data)
-
-
-# The API-named twin of the human-readable model, same fields in the same
-# order: a `columns=` filter written in API names is translated to the
-# human-readable columns by position (#87). Set outside the class so it is
-# not a dataclass field.
-StockPricesHumanReadable.api_model = StockPrice

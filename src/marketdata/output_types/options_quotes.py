@@ -1,5 +1,6 @@
 import datetime
 from dataclasses import dataclass, fields
+from typing import ClassVar
 
 from marketdata.utils import format_timestamp
 
@@ -98,6 +99,8 @@ class OptionsQuotes:
 
 @dataclass
 class OptionsQuotesHumanReadable:
+    api_model: ClassVar[type] = OptionsQuotes
+
     Symbol: list[str]
     Underlying: list[str]
     Expiration_Date: list[datetime.datetime]
@@ -166,10 +169,3 @@ class OptionsQuotesHumanReadable:
             for key in OptionsQuotesHumanReadable.answer_keys()
             if key in dicts[0]
         }
-
-
-# The API-named twin of the human-readable model, same fields in the same
-# order: a `columns=` filter written in API names is translated to the
-# human-readable columns by position (#87). Set outside the class so it is
-# not a dataclass field.
-OptionsQuotesHumanReadable.api_model = OptionsQuotes

@@ -35,6 +35,11 @@ def model_columns(output_model: type, requested: list[str] | None = None) -> lis
     so ``Expiration Date`` is ``Expiration_Date``) or, on a human-readable
     model, the API name at the same position of its ``api_model`` twin
     (``t`` selects ``Date``), which is how the API filters before renaming.
+    Each human-readable model declares that twin as a ``ClassVar``, and
+    ``test_output_types.py`` pins every pair. A column's own name wins over
+    the positional map, which is what keeps ``MarketStatusHumanReadable``
+    right: its columns are not in its twin's order, and both of its API names
+    already match a column by name.
 
     **Known limit.** The API's endpoint-dependent aliases (``open`` for ``o``,
     ``price``, ``date``) are not mirrored: a name that matches nothing is
@@ -53,11 +58,15 @@ def model_columns(output_model: type, requested: list[str] | None = None) -> lis
     columns = [field.name for field in fields(output_model) if field.name != "s"]
     if not requested:
         return columns
-    api_model = getattr(output_model, "api_model", output_model)
-    api_columns = [field.name for field in fields(api_model) if field.name != "s"]
     by_key = {column_key(name): name for name in columns}
-    if len(api_columns) == len(columns):
-        for api_name, name in zip(api_columns, columns):
+    api_model = getattr(output_model, "api_model", None)
+    if api_model is not None:
+        api_columns = [field.name for field in fields(api_model) if field.name != "s"]
+        # `strict`: a twin with another column count is a mistake in this
+        # repository (test_output_types.py fails on it), and a partial map
+        # would select the wrong columns without a word. The `ValueError` is
+        # deliberately not an SDK exception: no answer of the API can cause it.
+        for api_name, name in zip(api_columns, columns, strict=True):
             by_key.setdefault(column_key(api_name), name)
     selected: list[str] = []
     for name in requested:

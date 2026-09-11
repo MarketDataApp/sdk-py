@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import ClassVar
 
 
 @dataclass
@@ -15,6 +16,8 @@ class OptionsLookup:
 
 @dataclass
 class OptionsLookupHumanReadable:
+    api_model: ClassVar[type] = OptionsLookup
+
     Symbol: str
 
     def __repr__(self) -> str:
@@ -22,10 +25,3 @@ class OptionsLookupHumanReadable:
 
     def __str__(self) -> str:
         return self.__repr__()
-
-
-# The API-named twin of the human-readable model, same fields in the same
-# order: a `columns=` filter written in API names is translated to the
-# human-readable columns by position (#87). Set outside the class so it is
-# not a dataclass field.
-OptionsLookupHumanReadable.api_model = OptionsLookup
