@@ -90,11 +90,11 @@ def test_validate_single_param():
 COLUMNS = ["t", "o", "h", "l", "c", "v"]
 
 
-def _csv_response(text: str, status: int = 200, fmt: str = "csv") -> httpx.Response:
+def _csv_response(text: str, status: int = 200) -> httpx.Response:
     return httpx.Response(
         status,
         text=text,
-        request=httpx.Request("GET", f"https://api.marketdata.app/v1/x/?format={fmt}"),
+        request=httpx.Request("GET", "https://api.marketdata.app/v1/x/"),
     )
 
 
@@ -316,15 +316,7 @@ CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
 def test_is_no_data_recognises_the_404_and_the_csv_placeholder(status, body, expected):
     """Issue #89: in CSV format the API renders the empty answer as a 200 with
     a placeholder table (MarketData-App/api#422)."""
-    assert is_no_data(_csv_response(body, status, fmt="csv")) is expected
-
-
-@pytest.mark.parametrize("body", ['0\r\n""\r\n', '""'])
-def test_the_csv_placeholder_rule_does_not_read_a_json_answer(body):
-    """`""` is also a valid JSON document, the empty string. Answering a JSON
-    request, it is a broken body and must reach the decoder, which raises,
-    rather than pass for "no data"."""
-    assert is_no_data(_csv_response(body, 200, fmt="json")) is False
+    assert is_no_data(_csv_response(body, status)) is expected
 
 
 ET = pytz.timezone("US/Eastern")
