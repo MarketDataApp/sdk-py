@@ -1,12 +1,16 @@
 """The SDK's stream handler (#104): one for the process, however many clients
 are built, and none added by importing the package."""
 
+import contextlib
+import io
 import logging
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 from marketdata.logger import get_logger
+from marketdata.settings import settings
 
 LOGGER_NAME = "marketdata.logger"
 
@@ -66,3 +70,57 @@ def test_a_handler_the_caller_attached_stands_in_for_the_sdks(monkeypatch):
     get_logger()
 
     assert logger.handlers == [mine]
+
+
+def test_the_handler_writes_to_the_stderr_of_the_moment(monkeypatch, capsys):
+    """With one handler for the process, the stream cannot be fixed when it is
+    built: a first client built under a redirected stderr would otherwise take
+    every later line with it (a captured test, `redirect_stderr`)."""
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    redirected = io.StringIO()
+
+    with contextlib.redirect_stderr(redirected):
+        get_logger()
+    logger.warning("after the redirect")
+
+    assert "after the redirect" in capsys.readouterr().err
+    assert redirected.getvalue() == ""
+
+
+def test_the_handler_keeps_the_level_of_the_settings(monkeypatch, capsys):
+    """Each handler used to carry the settings' level, so a caller lowering the
+    logger's own level did not open the SDK's stream to DEBUG. The one handler
+    keeps doing that, and follows the settings each time a client asks."""
+    logger = logging.getLogger(LOGGER_NAME)
+    level = logger.level
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
+    try:
+        get_logger()
+        logger.setLevel(logging.DEBUG)
+        logger.debug("not for the SDK's stream")
+        assert "not for the SDK's stream" not in capsys.readouterr().err
+
+        monkeypatch.setattr(settings, "marketdata_logging_level", "DEBUG")
+        get_logger()
+        logger.debug("now it is")
+        assert "now it is" in capsys.readouterr().err
+    finally:
+        logger.setLevel(level)
+
+
+def test_clients_built_at_once_add_one_handler(monkeypatch):
+    """The check and the add happen under one lock: two clients built at the
+    same moment would otherwise both see no handler and both add one."""
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            list(pool.map(lambda _: get_logger(), range(64)))
+    finally:
+        sys.setswitchinterval(interval)
+
+    assert len(logger.handlers) == 1

@@ -72,19 +72,28 @@ class ResponseMeta:
     matters most for ``request_id``: it is the id to quote in a support
     ticket, and it must name a request that produced part of this result.
 
-    On the metadata of a call that raised, they describe the request the
-    exception is about, which is the one a support ticket is about, so they
-    agree with the exception's own ``status_code`` and ``request_id``. The
-    SDK's HTTP exceptions carry that request's response; when the request got
-    no answer (a transport failure, the pre-flight refusal) there is nothing
-    to describe, and ``status_code`` is ``0`` and ``request_id`` ``None``, as
-    on the exception. No rule over the responses could pick the failed one:
-    they are listed in the order the requests finished, and a sibling that
-    answered later, or an attempt that failed and then recovered, would take
-    its place (#104). An exception that is not about a request (a CSV path
-    that already exists, a decoder error) keeps the rule of a successful call.
-    ``responses`` and the credits cover every response of the call either
-    way: the failure was billed for all of them.
+    On the metadata of a call that raised, three cases (#104):
+
+    - An SDK HTTP exception (``MarketdataHttpError``, ``RateLimitError``)
+      carries the response of the request it is about, the one a support
+      ticket is about, and ``status_code`` and ``request_id`` are read from
+      it, so they agree with the exception's own.
+    - The same exceptions without a response have nothing to describe, and
+      report ``0`` and ``None``, as the exception does: the request got no
+      answer (a transport failure, the pre-flight refusal), or got one the
+      SDK could not read (a body that does not match its
+      ``Content-Encoding``; that response is not recorded, so its credits are
+      not counted either).
+    - Any other exception (a CSV path that already exists, a bare
+      ``KeyError`` from an answer the resource could not use) says nothing
+      about which request caused it, and the rule of a successful call
+      applies: the metadata may then speak for a sibling that answered fine.
+
+    No rule over the responses could pick the failed one: they are listed in
+    the order the requests finished, so a sibling that answered later, or an
+    attempt that failed and then recovered, would take its place.
+    ``responses`` and the credits cover every response the call recorded:
+    the failure was billed for them.
 
     The dataclass is frozen, but that is a shallow guarantee: ``rate_limits``
     is a mutable :class:`UserRateLimits`, so its fields can still be
@@ -145,10 +154,14 @@ class ResponseMeta:
         if isinstance(error, (MarketdataHttpError, RateLimitError)):
             # The exception names the request that failed (#104). Only that
             # response's own fields are read from it; the credits come from
-            # the whole list.
+            # the whole list. Anything but an httpx response there (a caller's
+            # subclass, a test double) falls through to the rule below rather
+            # than raise inside the decorator's `except` and replace the
+            # caller's exception.
             if error.response is None:
                 return cls(status_code=0, request_id=None, rate_limits=None)
-            return cls.from_response(error.response, None)
+            if isinstance(error.response, Response):
+                return cls.from_response(error.response, None)
         # The last response that could have contributed to the result: the
         # same `VALID_STATUS_CODES` the fan-outs use to build their `usable`
         # list. Otherwise a symbol answering 404 `no_data` (recorded, then

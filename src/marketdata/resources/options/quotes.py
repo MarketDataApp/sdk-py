@@ -87,11 +87,15 @@ def quotes(
                 body=parse_json(responses[0]),
             )
         # The API answered, just not with anything usable. Terminal on purpose:
-        # raising a retryable class here would re-run the whole fan-out.
+        # raising a retryable class here would re-run the whole fan-out. The
+        # exception names an answer that is neither usable nor empty, since
+        # its metadata describes that request (#104): the first response could
+        # be a symbol that simply had no data.
+        failed = next(response for response in responses if not is_no_data(response))
         raise MarketdataHttpError(
             message="No responses from API",
-            request=responses[0].request,
-            response=responses[0],
+            request=failed.request,
+            response=failed,
         )
 
     if user_universal_params.output_format in [

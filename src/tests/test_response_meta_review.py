@@ -144,9 +144,9 @@ def test_an_authoritative_update_skips_the_ordering_rule():
 def test_a_partial_fan_out_failure_reports_the_request_that_failed(
     load_json, respx_mock, client
 ):
-    """The rule that keeps a dropped `no_data` from labelling a result points
-    the other way on a failure: the id has to name the request that failed,
-    which is the one a support ticket is about."""
+    """The metadata of a failure names the request that failed, as the
+    exception does: that is the request a support ticket is about, not the
+    sibling that came back fine."""
     respx_mock.get(CALL_URL).respond(
         json=load_json("options_quotes_response_200"),
         status_code=200,
@@ -371,10 +371,57 @@ def test_a_failure_without_a_response_has_no_speaker(error):
     assert merged.rate_limits.credits_consumed == 3
 
 
+def test_a_response_without_a_cf_ray_gives_no_request_id():
+    """The exception reads a missing `cf-ray` as the sentinel `"N/A"`; the
+    metadata reads it as `None`, as on a successful call."""
+    error = BadRequestError(
+        "bad", request=REQUEST, response=httpx.Response(400, request=REQUEST)
+    )
+
+    merged = ResponseMeta.merge([ResponseMeta(400, None, None)], error=error)
+
+    assert error.request_id == "N/A"
+    assert _speaker(merged) == (400, None)
+
+
+def test_a_response_that_is_not_an_httpx_response_does_not_break_the_merge():
+    """The merge runs inside the decorator's `except`: were it to raise there,
+    the caller would get that error instead of their own. A `response` of
+    another type (a caller's subclass, a test double) falls back to the rule
+    of a successful call."""
+    error = BadRequestError("bad", request=REQUEST, response=_response(400, "bad-1"))
+    error.response = object()
+    metas = [ResponseMeta(200, "ok-1", None), ResponseMeta(404, "empty-1", None)]
+
+    assert _speaker(ResponseMeta.merge(metas, error=error)) == (200, "ok-1")
+
+
+def test_the_no_usable_answer_error_names_the_answer_that_is_not_empty(
+    respx_mock, client
+):
+    """`options.quotes` raises its own `MarketdataHttpError` when no symbol
+    answered with anything usable. It used to hand over the first response,
+    which can be a symbol that simply had no data, and the metadata now reads
+    the exception's response."""
+    respx_mock.get(CALL_URL).respond(
+        json={"s": "no_data"}, status_code=404, headers={"cf-ray": "empty-1"}
+    )
+    respx_mock.get(PUT_URL).mock(
+        side_effect=later(httpx.Response(204, headers={"cf-ray": "odd-1"}))
+    )
+
+    with pytest.raises(marketdata.MarketdataHttpError) as exc_info:
+        client.options.quotes(SYMBOLS, output_format=OutputFormat.JSON)
+
+    assert exc_info.value.message == "No responses from API"
+    assert (exc_info.value.status_code, exc_info.value.request_id) == (204, "odd-1")
+    assert _speaker(get_meta(exc_info.value)) == (204, "odd-1")
+
+
 def test_an_exception_not_about_a_request_keeps_the_rule_of_a_success():
-    """A CSV path that already exists, a decoder error: every request answered,
-    so neither an empty symbol nor an attempt that failed and recovered is what
-    went wrong, and the metadata speaks for the last usable response."""
+    """A CSV path that already exists: every request answered, so neither an
+    empty symbol nor an attempt that failed and recovered is what went wrong,
+    and the metadata speaks for the last usable response."""
     metas = [
         ResponseMeta(200, "ok-1", None),
         ResponseMeta(503, "down-1", None),
