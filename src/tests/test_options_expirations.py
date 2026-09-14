@@ -191,8 +191,8 @@ def test_options_expirations_optional_updated():
 
 
 def test_get_options_expirations_columns_filter_dataframe_pandas(respx_mock, client):
-    """Issue #23: requesting `columns=["expirations"]` makes the API return
-    only that column. The result must NOT be an empty DataFrame with the data
+    """Issue #23: a `columns` filter narrows the answer the API sends, and a
+    one-column answer must NOT come back as an empty DataFrame with the data
     silently moved into the index.
     """
     with patch(
@@ -200,7 +200,7 @@ def test_get_options_expirations_columns_filter_dataframe_pandas(respx_mock, cli
         ["pandas"],
     ):
         expiration_timestamps = [1764910800, 1765515600, 1766120400]
-        # Server-side column filtering: only the requested column comes back.
+        # Server-side column filtering: only the columns it kept come back.
         partial_data = {
             "s": "ok",
             "expirations": expiration_timestamps,
@@ -292,6 +292,34 @@ def test_get_options_expirations_partial_response_internal(respx_mock, client):
     assert expirations.s == "ok"
     assert expirations.expirations == expected_expirations
     assert expirations.updated is None
+
+
+def test_get_options_expirations_internal_ignores_a_column_filter(respx_mock, client):
+    """Issue #34: `columns` is applied by the API, so honouring it here would
+    hand the model an answer without the fields it requires. The INTERNAL path
+    drops the filter instead, and the object comes back whole.
+    """
+    expiration_timestamps = [1764910800, 1765515600, 1766120400]
+    respx_mock.get("https://api.marketdata.app/v1/options/expirations/AAPL/").respond(
+        json={
+            "s": "ok",
+            "expirations": expiration_timestamps,
+            "updated": 1764910800,
+        },
+        status_code=200,
+    )
+
+    expirations = client.options.expirations(
+        symbol="AAPL", output_format=OutputFormat.INTERNAL, columns=["updated"]
+    )
+
+    assert "columns" not in respx_mock.calls.last.request.url.params
+    assert isinstance(expirations, OptionsExpirations)
+    assert expirations.s == "ok"
+    assert expirations.expirations == [
+        datetime.datetime.fromtimestamp(ts, tz=ET) for ts in expiration_timestamps
+    ]
+    assert expirations.updated == datetime.datetime.fromtimestamp(1764910800, tz=ET)
 
 
 def test_get_options_expirations_response_200_csv(respx_mock, client):
