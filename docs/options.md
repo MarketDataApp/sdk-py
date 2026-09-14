@@ -38,7 +38,7 @@ Fetches available expiration dates for a given symbol. This method includes API 
   - `DateFormat.TIMESTAMP`: ISO timestamp format
   - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
   - `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
-- `columns` (list[str], optional): List of column names to include in the response
+- `columns` (list[str], optional): List of column names to include in the response. The API applies it to the answer it sends, so it is ignored when `output_format=OutputFormat.INTERNAL`, which needs the whole answer to build its model
 - `add_headers` (bool, optional): Whether to add headers to the response
 - `use_human_readable` (bool, optional): Whether to use human-readable format
 - `mode` (Mode, optional): The data feed mode to use (`Mode.LIVE`, `Mode.CACHED`, `Mode.DELAYED`)
@@ -175,7 +175,7 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   - `DateFormat.TIMESTAMP`: ISO timestamp format
   - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
   - `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
-- `columns` (list[str], optional): List of column names to include in the response
+- `columns` (list[str], optional): List of column names to include in the response. The API applies it to the answer it sends, so it is ignored when `output_format=OutputFormat.INTERNAL`, which needs the whole answer to build its model
 - `add_headers` (bool, optional): Whether to add headers to the response
 - `use_human_readable` (bool, optional): Whether to use human-readable format
 - `mode` (Mode, optional): The data feed mode to use (`Mode.LIVE`, `Mode.CACHED`, `Mode.DELAYED`)
@@ -436,7 +436,7 @@ Fetches the option symbol for a given lookup string. The lookup string should co
   - `DateFormat.TIMESTAMP`: ISO timestamp format
   - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
   - `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
-- `columns` (list[str], optional): List of column names to include in the response
+- `columns` (list[str], optional): List of column names to include in the response. The API applies it to the answer it sends, so it is ignored when `output_format=OutputFormat.INTERNAL`, which needs the whole answer to build its model
 - `add_headers` (bool, optional): Whether to add headers to the response
 - `use_human_readable` (bool, optional): Whether to use human-readable format
 - `mode` (Mode, optional): The data feed mode to use (`Mode.LIVE`, `Mode.CACHED`, `Mode.DELAYED`)
@@ -565,7 +565,7 @@ Fetches options quotes for one or more option symbols. This method includes API 
   - `DateFormat.TIMESTAMP`: ISO timestamp format
   - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
   - `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
-- `columns` (list[str], optional): List of column names to include in the response
+- `columns` (list[str], optional): List of column names to include in the response. The API applies it to the answer it sends, so it is ignored when `output_format=OutputFormat.INTERNAL`, which needs the whole answer to build its model
 - `add_headers` (bool, optional): Whether to add headers to the response
 - `use_human_readable` (bool, optional): Whether to use human-readable format
 - `mode` (Mode, optional): The data feed mode to use (`Mode.LIVE`, `Mode.CACHED`, `Mode.DELAYED`)
@@ -718,7 +718,7 @@ Fetches available strike prices for a given symbol. This method includes API sta
   - `DateFormat.TIMESTAMP`: ISO timestamp format
   - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
   - `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
-- `columns` (list[str], optional): List of column names to include in the response
+- `columns` (list[str], optional): List of column names to include in the response. The API applies it to the answer it sends, so it is ignored when `output_format=OutputFormat.INTERNAL`, which needs the whole answer to build its model
 - `add_headers` (bool, optional): Whether to add headers to the response
 - `use_human_readable` (bool, optional): Whether to use human-readable format
 - `mode` (Mode, optional): The data feed mode to use (`Mode.LIVE`, `Mode.CACHED`, `Mode.DELAYED`)
