@@ -31,7 +31,7 @@ class MarketdataHttpError(BaseMarketdataException): ...  # request + response at
 class BadRequestError(MarketdataHttpError): ...        # 400
 class AuthenticationError(MarketdataHttpError): ...    # 401, never retried
 class ForbiddenError(MarketdataHttpError): ...         # 403
-class NotFoundError(MarketdataHttpError): ...          # 404 with errmsg; 404 no_data is an empty result
+class NotFoundError(MarketdataHttpError): ...          # 404 with errmsg (JSON or CSV envelope); 404 no_data is an empty result
 class InternalError(MarketdataHttpError): ...          # 500; the API failed, never retried
 class ServerError(MarketdataHttpError): ...            # 501 to 599; unavailable, retried
 class NetworkError(MarketdataHttpError): ...           # connection failure / timeout; retried

@@ -9,6 +9,12 @@ import pytz
 from httpx import Response
 
 from marketdata.exceptions import ParseError
+from marketdata.internal_settings import VALID_STATUS_CODES
+
+# Every timestamp the SDK renders is US/Eastern. One constant, so the zone a
+# naive value is read in and the zone it is rendered in agree by construction
+# rather than because two literals happen to match.
+DEFAULT_TIMEZONE = pytz.timezone("US/Eastern")
 
 
 def parse_json(response: Response) -> Any:
@@ -28,19 +34,127 @@ def parse_json(response: Response) -> Any:
         ) from exc
 
 
+# The API's CSV rendering of the empty answer (MarketData-App/api#422): a
+# one-column table named "0" with one empty cell, the cell alone under
+# ``add_headers=False``. Compared on the non-blank lines of the body. The
+# second shape is also what a one-column, one-row answer with a null value
+# renders as under ``add_headers=False``; the API itself reports an all-null
+# answer as ``no_data`` on the JSON path, so reading it as empty agrees.
+_CSV_NO_DATA_BODIES = (["0", '""'], ['""'])
+
+
 def is_no_data(response: Response) -> bool:
-    """True for the API's 404 ``no_data`` answer.
+    """True for the API's empty answer to a valid question.
 
     ``MarketDataClient._raise_for_status`` lets exactly one 404 through: the
-    one without an ``errmsg``, which is an empty answer to a valid question.
+    one without an ``errmsg``. In CSV format the same answer arrives as a
+    ``200`` whose body is a placeholder table, because the API drops the
+    status when it renders it (MarketData-App/api#422, #89); that rule can go
+    once the API answers ``404`` for CSV too.
     """
-    return response.status_code == 404
+    if response.status_code == 404:
+        return True
+    if response.status_code not in VALID_STATUS_CODES or len(response.content) > 16:
+        return False
+    return [line for line in response.text.splitlines() if line] in _CSV_NO_DATA_BODIES
+
+
+def column_key(name: str) -> str:
+    """A column name the way the API matches it: case-insensitive and without
+    spaces, so the human-readable ``Expiration Date`` equals the model's
+    ``Expiration_Date``. The API's aliases (``open`` for ``o``, ``price``,
+    ``date``) are endpoint-dependent and are not mirrored here."""
+    return name.strip().lower().replace(" ", "").replace("_", "")
+
+
+# The API renders an error in CSV as a two-line table with these columns, the
+# same envelope the JSON path sends as ``{"s": ..., "errmsg": ...}``. Under
+# ``add_headers=False`` it drops the header row and sends the values alone, so
+# that shape is recognised by its ``s`` value instead (both verified live).
+_CSV_ERROR_HEADER = ["s", "errmsg"]
+_CSV_ERROR_STATUSES = ("error", "no_data")
+# The headerless shape is recognised by its `s` value, matched through the same
+# `column_key` the header row uses: normalising one and not the other would let
+# a differently spelled marker slip through, and a 404 whose message was lost
+# reads as the empty answer again, which is the bug of #91.
+_CSV_ERROR_STATUS_KEYS = {column_key(status) for status in _CSV_ERROR_STATUSES}
+# An error envelope is a short table. A body larger than this is a page, not a
+# message, and is reported as the raw body it is.
+_CSV_ERROR_MAX_LENGTH = 4096
+
+
+def _csv_rows(text: str) -> list[list[str]]:
+    """The rows of a CSV body, blank lines dropped and a BOM taken off.
+
+    The error envelope and the fan-out merge both read a body through here, so
+    the two cannot drift apart. It is not every CSV the SDK touches: the body
+    of a single-request CSV answer is written to file unread, and
+    ``is_no_data`` matches the placeholder line by line.
+
+    The text is read with ``newline=""``, as the ``csv`` module prescribes, so
+    a body whose lines end in a lone CR reads as rows instead of raising, and
+    a quoted value keeps the line endings it carries.
+
+    ``csv.Error`` (a field past the reader's size limit, or a NUL byte before
+    Python 3.11) propagates: each caller decides what an unreadable body means.
+    """
+    # Before the parse, so a BOM does not break the quoting of the first value,
+    # and after it, for a body that starts with blank lines.
+    rows = [
+        row for row in csv.reader(StringIO(text.lstrip("\ufeff"), newline="")) if row
+    ]
+    if rows:
+        rows[0][0] = rows[0][0].lstrip("\ufeff")  # a BOM is not data
+    return rows
+
+
+def parse_csv_errmsg(text: str) -> str | None:
+    """The ``errmsg`` of the API's CSV error table, or ``None`` for any other
+    body (#91).
+
+    ``format=csv`` renders an error as ``s,errmsg`` and one row, so a client
+    that only decodes JSON reads an error as a body it cannot understand. On
+    a 404 that is the difference between "the symbol does not exist" and "no
+    data for a valid question".
+
+    Never raises: a body the reader refuses (a field past its size limit, or
+    a NUL byte before Python 3.11) is simply not an error table, and the
+    caller reports it as the raw body.
+    Letting ``csv.Error`` out here would replace the SDK's exception for that
+    request, and a retryable status would stop being retried.
+    """
+    if len(text) > _CSV_ERROR_MAX_LENGTH:
+        return None
+    try:
+        rows = _csv_rows(text)
+    except csv.Error:
+        return None
+
+    if len(rows) == 2:
+        if [column_key(name) for name in rows[0]] != _CSV_ERROR_HEADER:
+            return None
+        row = rows[1]
+    elif len(rows) == 1 and column_key(rows[0][0]) in _CSV_ERROR_STATUS_KEYS:
+        row = rows[0]
+    else:
+        return None
+    return row[1] if len(row) == len(_CSV_ERROR_HEADER) else None
+
+
+def parse_error(response: Response, reason: str) -> ParseError:
+    """A ``ParseError`` for a body the API answered but the SDK cannot use."""
+    return ParseError(
+        f"Response body is not a valid answer of this resource ({reason}): "
+        f"{resume_long_text(response.text, max_length=200)!r}",
+        request=response.request,
+        response=response,
+    )
 
 
 def format_timestamp(
     value: str | int | float | datetime.datetime | None,
 ) -> datetime.datetime:
-    default_tz = pytz.timezone("US/Eastern")
+    default_tz = DEFAULT_TIMEZONE
 
     if isinstance(value, datetime.datetime):
         return value
@@ -90,32 +204,121 @@ def validate_single_param(param: str, value: Any) -> Any:
     return value
 
 
-def merge_csv_texts(csv_texts: list[str], headers: list[str]) -> str:
-    rows_out = []
+def csv_header(columns: list[str]) -> str:
+    """The header row of a CSV file, rendered by the same writer that renders
+    a merged fan-out body, so an empty answer and a populated one quote and
+    terminate their header identically."""
+    output = StringIO()
+    csv.writer(output).writerow(columns)
+    return output.getvalue()
 
-    def _validate(rows: list[list[str]]) -> bool:
-        return all(len(row) == len(headers) for row in rows)
 
-    for text in csv_texts:
-        reader = csv.reader(StringIO(text))
+def merge_csv_responses(
+    responses: list[Response], known_columns: list[str], *, with_header: bool = True
+) -> str:
+    """Merge the CSV bodies of a fan-out into one CSV text (#86).
 
+    The header comes from the answers, never from the model: under
+    ``columns=`` the API sends the requested columns only, and under
+    ``use_human_readable`` their human-readable names. Every body must carry
+    the same header, made of this resource's column names, and every row must
+    be as wide as it; anything else (an HTML error page, a truncated body,
+    a body the ``csv`` module cannot read, two symbols answering with
+    different columns) raises ``ParseError`` naming the offending response. Headers are compared through ``column_key``,
+    the same way they are validated, so two answers spelling the same column
+    differently (case, a space after the comma) still merge; a different
+    *order* is refused, because merging misaligned rows would corrupt the
+    data. The file keeps the first answer's spelling. With ``with_header=False``
+    (``add_headers=False``) the bodies carry no header, so only the row width
+    is checked, against the first row seen. Either way a BOM at the start of
+    a body is not data, and is dropped.
+    """
+    known = {column_key(name) for name in known_columns}
+    header: list[str] | None = None
+    header_key: list[str] | None = None
+    width: int | None = None
+    rows_out: list[list[str]] = []
+
+    for response in responses:
         try:
-            incoming_header = next(reader)
-        except StopIteration:
-            continue
-
-        if incoming_header != headers:
-            continue
-
-        rows = list(reader)
-        if _validate(rows):
-            rows_out.extend(rows)
+            rows = _csv_rows(response.text)
+        except csv.Error as exc:
+            # A field past the reader's limit, or a NUL byte before Python
+            # 3.11. `csv.Error` is not an SDK exception, and the body is not
+            # this resource's answer either.
+            raise parse_error(response, f"unreadable CSV: {exc}") from exc
+        if with_header:
+            if not rows:
+                raise parse_error(response, "no header row")
+            incoming, rows = rows[0], rows[1:]
+            unknown = [name for name in incoming if column_key(name) not in known]
+            if unknown:
+                raise parse_error(response, f"unknown columns {unknown!r}")
+            incoming_key = [column_key(name) for name in incoming]
+            if header is None:
+                header, header_key, width = incoming, incoming_key, len(incoming)
+            elif incoming_key != header_key:
+                raise parse_error(
+                    response, f"header {incoming!r} differs from {header!r}"
+                )
+        for row in rows:
+            if width is None:
+                width = len(row)
+            if len(row) != width:
+                raise parse_error(response, f"row {row!r} does not have {width} values")
+        rows_out.extend(rows)
 
     output = StringIO()
     writer = csv.writer(output)
-    writer.writerow(headers)
+    if header is not None:
+        writer.writerow(header)
     writer.writerows(rows_out)
     return output.getvalue()
+
+
+def json_answer_columns(
+    responses: list[Response], answers: list[Any], keys: list[str]
+) -> list[str]:
+    """The columns a fan-out merges from its decoded JSON answers (#90).
+
+    They are the ``keys`` (the model's columns) that any answer carries, keys
+    the model does not know being left out. Since every answer must carry
+    them all, a successful merge has the first answer's columns in the first
+    answer's order: under ``columns=`` the API sends the requested columns
+    only, in the order they were requested, which is also the order of the
+    empty result and of every single-request resource. Every answer must be a
+    JSON object
+    carrying all of them as lists of one length, since the merge concatenates
+    column by column and a missing or short column would shift every later
+    row into the wrong symbol or chunk. Anything else raises ``ParseError``
+    naming the offending response: a body that is not an object (``null``, a
+    list), answers with none of the keys (a proxy's JSON error page), an
+    answer missing a column another one carries, whichever it is, or a column
+    that is not a list of the same length as the others. A merge with no
+    columns would read as "no data" (#82).
+    """
+    for response, answer in zip(responses, answers, strict=True):
+        if not isinstance(answer, dict):
+            raise parse_error(response, "not a JSON object")
+    known = set(keys)
+    columns: list[str] = []
+    for answer in answers:
+        for key in answer:
+            if key in known and key not in columns:
+                columns.append(key)
+    if not columns:
+        raise parse_error(responses[0], "none of this resource's fields")
+    for response, answer in zip(responses, answers):
+        missing = [key for key in columns if key not in answer]
+        if missing:
+            raise parse_error(response, f"missing columns {missing!r}")
+        not_lists = [key for key in columns if not isinstance(answer[key], list)]
+        if not_lists:
+            raise parse_error(response, f"columns {not_lists!r} are not lists")
+        lengths = {key: len(answer[key]) for key in columns}
+        if len(set(lengths.values())) > 1:
+            raise parse_error(response, f"columns of different lengths {lengths!r}")
+    return columns
 
 
 _ONE_DAY = datetime.timedelta(days=1)

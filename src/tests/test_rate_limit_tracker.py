@@ -77,3 +77,28 @@ def test_concurrent_updates_end_at_the_lowest_balance():
         list(pool.map(lambda remaining: tracker.update(limits(remaining)), balances))
 
     assert tracker.state.credits_remaining == 1
+
+
+def test_discard_forgets_the_state_it_was_given():
+    tracker = RateLimitTracker()
+    state = limits(0)
+    tracker.reset(state)
+
+    tracker.discard(state)
+
+    assert tracker.state is None
+
+
+def test_discard_keeps_a_state_recorded_in_the_meantime():
+    """The pre-flight check drops an exhausted state once its window has reset
+    (#42). If an answer recorded a fresher state in between, dropping it would
+    throw away a real "no credits left" and let the next request out."""
+    tracker = RateLimitTracker()
+    stale = limits(0)
+    tracker.reset(stale)
+    fresh = limits(0, reset=RESET + 60)
+    tracker.update(fresh)
+
+    tracker.discard(stale)
+
+    assert tracker.state is fresh
