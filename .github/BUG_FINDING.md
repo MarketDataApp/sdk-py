@@ -71,7 +71,7 @@ Familiarize yourself with the main components:
   — then the client logs `"No token provided, starting in demo mode"` and skips it.
 - Resources (`resources/`) — each method is a plain function attached to a resource class:
   `stocks` (`prices`, `quotes`, `candles`, `earnings`, `news`), `options` (`chain`,
-  `expirations`, `strikes`, `quotes`, `lookup`), `funds` (`candles`), `markets`
+  `expirations`, `quotes`, `lookup`), `funds` (`candles`), `markets`
   (`status`).
 - The decorator stack on every resource method, outermost first:
   `@api_error_handler(service=...)` → `@docs(...)` →
