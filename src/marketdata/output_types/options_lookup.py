@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import ClassVar
 
 
 @dataclass
@@ -15,6 +16,8 @@ class OptionsLookup:
 
 @dataclass
 class OptionsLookupHumanReadable:
+    api_model: ClassVar[type] = OptionsLookup
+
     Symbol: str
 
     def __repr__(self) -> str:
