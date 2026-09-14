@@ -1,6 +1,7 @@
 import datetime
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import ClassVar
 
 from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
@@ -38,6 +39,8 @@ class StockPrice:
 
 @dataclass
 class StockPricesHumanReadable:
+    api_model: ClassVar[type] = StockPrice
+
     Symbol: str
     Mid: Decimal
     Change_Price: Decimal

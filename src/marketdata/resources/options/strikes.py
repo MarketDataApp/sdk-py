@@ -55,7 +55,7 @@ def strikes(
             output_model,
             as_records=False,
             index_columns=[],
-            body=parse_json(response),
+            response=response,
         )
 
     if user_universal_params.output_format == OutputFormat.DATAFRAME:

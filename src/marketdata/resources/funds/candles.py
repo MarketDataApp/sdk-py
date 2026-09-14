@@ -57,7 +57,7 @@ def candles(
             output_model,
             as_records=True,
             index_columns=["t", "Date"],
-            body=parse_json(response),
+            response=response,
         )
 
     if user_universal_params.output_format == OutputFormat.DATAFRAME:

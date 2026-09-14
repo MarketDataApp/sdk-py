@@ -2,6 +2,9 @@ from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
+from httpx import Response
+
+from marketdata.exceptions import ParseError
 from marketdata.input_types.base import (
     BaseInputType,
     OutputFormat,
@@ -10,7 +13,12 @@ from marketdata.input_types.base import (
 from marketdata.internal_settings import GLOBAL_EXCLUDED_PARAMS
 from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.settings import settings
-from marketdata.utils import validate_single_param
+from marketdata.utils import (
+    column_key,
+    csv_header,
+    parse_json,
+    validate_single_param,
+)
 
 if TYPE_CHECKING:
     from marketdata.client import MarketDataClient
@@ -18,10 +26,54 @@ if TYPE_CHECKING:
 NO_DATA_BODY = {"s": "no_data"}
 
 
-def _model_columns(output_model: type) -> list[str]:
+def model_columns(output_model: type, requested: list[str] | None = None) -> list[str]:
+    """The columns a result of ``output_model`` carries: every field but the
+    API's status flag ``s``, or, under a ``columns=`` filter, the requested
+    ones in request order, without duplicates (#87).
+
+    A requested name matches a column of the model (case and spaces aside,
+    so ``Expiration Date`` is ``Expiration_Date``) or, on a human-readable
+    model, the API name at the same position of its ``api_model`` twin
+    (``t`` selects ``Date``), which is how the API filters before renaming.
+    Each human-readable model declares that twin as a ``ClassVar``, and
+    ``test_output_types.py`` pins every pair. A column's own name wins over
+    the positional map, which is what keeps ``MarketStatusHumanReadable``
+    right: its columns are not in its twin's order, and both of its API names
+    already match a column by name.
+
+    **Known limit.** The API's endpoint-dependent aliases (``open`` for ``o``,
+    ``price``, ``date``) are not mirrored: a name that matches nothing is
+    ignored, and a filter that matches nothing leaves the full set rather than
+    a frame with no columns. The API *does* resolve its own aliases, so for
+    such a filter the empty result and a populated one no longer have the same
+    shape: ``stocks.candles(columns=["open"])`` answers with the single column
+    ``o`` and no index, while the empty frame keeps every model column and the
+    ``t`` index. That is the one case #87 does not cover, pinned by
+    ``test_status_mapping.py::test_an_api_alias_column_filter_does_not_keep_the_no_data_shape``.
+    Mirroring the aliases would mean tracking a table the API changes per
+    endpoint (``price`` even depends on whether the market is open).
+    """
     if not is_dataclass(output_model):  # pragma: no cover - every model is one
         return []
-    return [field.name for field in fields(output_model) if field.name != "s"]
+    columns = [field.name for field in fields(output_model) if field.name != "s"]
+    if not requested:
+        return columns
+    by_key = {column_key(name): name for name in columns}
+    api_model = getattr(output_model, "api_model", None)
+    if api_model is not None:
+        api_columns = [field.name for field in fields(api_model) if field.name != "s"]
+        # `strict`: a twin with another column count is a mistake in this
+        # repository (test_output_types.py fails on it), and a partial map
+        # would select the wrong columns without a word. The `ValueError` is
+        # deliberately not an SDK exception: no answer of the API can cause it.
+        for api_name, name in zip(api_columns, columns, strict=True):
+            by_key.setdefault(column_key(api_name), name)
+    selected: list[str] = []
+    for name in requested:
+        match = by_key.get(column_key(name))
+        if match is not None and match not in selected:
+            selected.append(match)
+    return selected or columns
 
 
 def no_data_result(
@@ -30,7 +82,7 @@ def no_data_result(
     *,
     as_records: bool,
     index_columns: list[str] | None = None,
-    body: dict | None = None,
+    response: Response | None = None,
 ):
     """The empty result for a 404 ``no_data`` answer (SDK requirements §9.1).
 
@@ -38,11 +90,14 @@ def no_data_result(
     format gets its natural empty value: a DataFrame with the model's columns
     and no rows, ``[]`` for list-shaped models and ``None`` for single-object
     models, the API's ``{"s": "no_data"}`` body as JSON, and a header-only CSV.
+    The DataFrame and the CSV header carry the requested columns under a
+    ``columns=`` filter, as a populated answer does (#87).
     """
     output_format = user_universal_params.output_format
+    columns = model_columns(output_model, user_universal_params.columns)
 
     if output_format == OutputFormat.DATAFRAME:
-        empty = {column: [] for column in _model_columns(output_model)}
+        empty = {column: [] for column in columns}
         handler = get_dataframe_output_handler()
         return handler(empty, output_model, user_universal_params).get_result(
             index_columns=index_columns or []
@@ -52,11 +107,32 @@ def no_data_result(
         return [] if as_records else None
 
     if output_format == OutputFormat.JSON:
-        return body if body is not None else dict(NO_DATA_BODY)
+        # Only the JSON output echoes the API's body; a CSV placeholder body
+        # (#89) is not JSON, so nothing is decoded on the other formats.
+        #
+        # A body that does not decode falls back to the canonical one rather
+        # than raising: the status already classified this answer as empty, and
+        # the other three output formats return their empty value for it. A
+        # `ParseError` only here would make the output format decide whether a
+        # call raises, which is exactly what #91 forbids. Reached when
+        # something between the client and the API answers the 404 (a CDN, a
+        # proxy, a gateway with no body).
+        if response is None:
+            return dict(NO_DATA_BODY)
+        try:
+            body = parse_json(response)
+        except ParseError:
+            return dict(NO_DATA_BODY)
+        # The CSV placeholder `""` (#89) is also a JSON document, the empty
+        # string, and reaches here whatever format was asked for: only an
+        # object is the API's body to echo.
+        return body if isinstance(body, dict) else dict(NO_DATA_BODY)
 
     if output_format == OutputFormat.CSV:
-        header = ",".join(_model_columns(output_model))
-        return user_universal_params.write_file(header + "\r\n")
+        # The caller who asked for no header gets an empty file, not a header.
+        if user_universal_params.add_headers is False:
+            return user_universal_params.write_file("")
+        return user_universal_params.write_file(csv_header(columns))
 
     # Unreachable: the output format was validated by the Pydantic model.
     raise ValueError(f"Invalid output format: {output_format}")  # pragma: no cover

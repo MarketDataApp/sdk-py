@@ -1,7 +1,7 @@
 import datetime
 from dataclasses import dataclass, fields
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 
 from marketdata.output_types.money import decimal_to_float, to_decimal
 from marketdata.utils import format_timestamp
@@ -49,6 +49,8 @@ class OptionsStrikes:
 
 @dataclass
 class OptionsStrikesHumanReadable:
+    api_model: ClassVar[type] = OptionsStrikes
+
     Date: datetime.datetime
 
     def __post_init__(self):

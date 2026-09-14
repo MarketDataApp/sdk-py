@@ -1,6 +1,7 @@
 import datetime
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import ClassVar
 
 from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
@@ -63,6 +64,8 @@ class OptionsChain:
 
 @dataclass
 class OptionsChainHumanReadable:
+    api_model: ClassVar[type] = OptionsChain
+
     Symbol: list[str]
     Underlying: list[str]
     Expiration_Date: list[datetime.datetime]
