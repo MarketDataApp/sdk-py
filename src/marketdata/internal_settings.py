@@ -12,6 +12,11 @@ MAX_RETRY_ATTEMPTS = 3
 INITIAL_RETRY_DELAY = 1.0
 HTTP_TIMEOUT = 60
 VALID_STATUS_CODES = [200, 203]
+# The longest credit window the API bills over is a day, so a reset time older
+# than that is a value the SDK could not read rather than a window that closed
+# (#42).
+MAX_CREDIT_WINDOW_SECONDS = 24 * 60 * 60
+
 # The API's IP headers (#44). httpx matches header names case-insensitively,
 # so the lowercase spelling reads them whatever case the API sends. The legacy
 # `X-API-BLOCKED-IP` carries whichever of the two applies and is deliberately
@@ -34,8 +39,6 @@ def read_header(response: Response | None, name: str) -> str | None:
         return None
     value = response.headers.get(name)
     return (value or "").strip() or None
-
-
 GLOBAL_EXCLUDED_PARAMS = ["output_format", "filename"]
 REFRESH_API_STATUS_INTERVAL = datetime.timedelta(minutes=4, seconds=30)
 CACHE_VALIDITY_INTERVAL = datetime.timedelta(minutes=5)

@@ -35,6 +35,13 @@ def _reset_api_status_data():
     API_STATUS_DATA.__init__()
 
 
+def use_real_header_extraction(client):
+    """Undo the instance-level patch of ``_extract_rate_limits`` below, so a
+    test reads the credit headers its mocked answers really carry."""
+    client.__dict__.pop("_extract_rate_limits", None)
+    return client
+
+
 @pytest.fixture
 def client(respx_mock):
 
