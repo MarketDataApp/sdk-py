@@ -2,6 +2,7 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import httpx
 import pytest
 import pytz
 
@@ -272,6 +273,219 @@ def test_options_quotes_no_one_good_status_code(respx_mock, client):
     assert exc_info.value.message == "No responses from API"
 
 
+# ------------------------------------------------- merging the JSON answers
+
+THIRD_URL = "https://api.marketdata.app/v1/options/quotes/AAPL271217C00260000/"
+THREE_SYMBOLS = ["AAPL271217C00255000", "AAPL271217P00255000", "AAPL271217C00260000"]
+
+
+def _answer_three_symbols(respx_mock, first: dict, second: dict, third: dict):
+    for url, body in ((CALL_URL, first), (PUT_URL, second), (THIRD_URL, third)):
+        respx_mock.get(url).respond(json=body, status_code=200)
+
+
+@pytest.mark.parametrize(
+    "output_format", [OutputFormat.DATAFRAME, OutputFormat.JSON, OutputFormat.INTERNAL]
+)
+@pytest.mark.parametrize(
+    ("use_human_readable", "symbol_key", "bid_key"),
+    [(False, "optionSymbol", "bid"), (True, "Symbol", "Bid")],
+)
+@pytest.mark.parametrize("lacking", [1, 0], ids=["second-symbol", "first-symbol"])
+def test_options_quotes_symbol_missing_a_column_is_a_parse_error(
+    respx_mock, client, output_format, use_human_readable, symbol_key, bid_key, lacking
+):
+    """The review of #92: one symbol's answer lacks the bid. The merge padded
+    that column with nothing, so the third symbol's bid landed on the second
+    symbol's row, and the human-readable merge raised a bare `KeyError`; when
+    the first symbol was the one lacking it, the bid vanished for every
+    symbol without a word. Any answer lacking a column another one carries
+    now fails the call naming that symbol, the rule the chunks of
+    `stocks.candles` follow (#90). The answers have the shape the API gives
+    under `columns=`: the requested keys only."""
+    answers = [
+        {symbol_key: [name], bid_key: [price]}
+        for name, price in (("A", 1.0), ("B", 2.0), ("C", 3.0))
+    ]
+    del answers[lacking][bid_key]
+    _answer_three_symbols(respx_mock, *answers)
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=THREE_SYMBOLS,
+            output_format=output_format,
+            use_human_readable=use_human_readable,
+            columns=["optionSymbol", "bid"],
+        )
+
+    assert exc_info.value.request_url.startswith((CALL_URL, PUT_URL)[lacking])
+    assert f"missing columns {[bid_key]!r}" in exc_info.value.message
+
+
+@pytest.mark.parametrize(
+    ("bid", "reason"),
+    [([], "different lengths"), ("2.5", "are not lists"), (None, "are not lists")],
+    ids=["empty", "a-string", "null"],
+)
+def test_options_quotes_symbol_with_a_broken_column_is_a_parse_error(
+    respx_mock, client, bid, reason
+):
+    """A column that is there but empty, or not a list, shifts the rows the
+    same way: an empty bid put the third symbol's bid on the second symbol's
+    row, and a string was split into its characters."""
+    _answer_three_symbols(
+        respx_mock,
+        {"optionSymbol": ["A"], "bid": [1.0]},
+        {"optionSymbol": ["B"], "bid": bid},
+        {"optionSymbol": ["C"], "bid": [3.0]},
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=THREE_SYMBOLS,
+            output_format=OutputFormat.JSON,
+            columns=["optionSymbol", "bid"],
+        )
+
+    assert exc_info.value.request_url.startswith(PUT_URL)
+    assert reason in exc_info.value.message
+
+
+@pytest.mark.parametrize(
+    ("use_human_readable", "bid_key", "symbol_key", "merged"),
+    [
+        (False, "bid", "optionSymbol", ["bid", "optionSymbol", "s"]),
+        (True, "Bid", "Symbol", ["Bid", "Symbol"]),
+    ],
+    ids=["api-names", "human-readable"],
+)
+def test_options_quotes_keeps_the_order_the_columns_were_requested_in(
+    respx_mock, client, use_human_readable, bid_key, symbol_key, merged
+):
+    """Checked live: under `columns=bid,optionSymbol` the API answers
+    `{"bid": [...], "optionSymbol": [...]}`, in request order and with no
+    status flag, and the human-readable answer keeps that order. The merge
+    keeps it too, which is the order of the empty result (#87) and of every
+    single-request resource; the flag the SDK adds to an API-named answer
+    comes after the columns, where it always went for such an answer."""
+    _answer_three_symbols(
+        respx_mock,
+        *[
+            {bid_key: [price], symbol_key: [name]}
+            for name, price in (("A", 1.0), ("B", 2.0), ("C", 3.0))
+        ],
+    )
+
+    result = client.options.quotes(
+        symbols=THREE_SYMBOLS,
+        output_format=OutputFormat.JSON,
+        use_human_readable=use_human_readable,
+        columns=["bid", "optionSymbol"],
+    )
+
+    assert list(result) == merged
+    assert result[bid_key] == [1.0, 2.0, 3.0]
+
+
+@pytest.mark.parametrize("handler", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("use_human_readable", "bid_key", "symbol_key"),
+    [(False, "bid", "optionSymbol"), (True, "Bid", "Symbol")],
+    ids=["api-names", "human-readable"],
+)
+def test_options_quotes_frame_has_the_columns_of_the_empty_one(
+    respx_mock, client, handler, use_human_readable, bid_key, symbol_key
+):
+    """The populated frame and the empty one (#87) list the same columns in
+    the same order, on both models and both frame libraries."""
+    route = respx_mock.get(CALL_URL).mock(
+        side_effect=[
+            httpx.Response(200, json={bid_key: [1.0], symbol_key: ["A"]}),
+            httpx.Response(404, json={"s": "no_data"}),
+        ]
+    )
+    arguments = dict(
+        symbols=THREE_SYMBOLS[0],
+        output_format=OutputFormat.DATAFRAME,
+        use_human_readable=use_human_readable,
+        columns=["bid", "optionSymbol"],
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [handler]):
+        populated = client.options.quotes(**arguments)
+        empty = client.options.quotes(**arguments)
+
+    assert route.call_count == 2
+    assert list(populated.columns) == list(empty.columns)
+
+
+def test_options_quotes_merges_the_requested_columns_row_by_row(respx_mock, client):
+    _answer_three_symbols(
+        respx_mock,
+        {"s": "ok", "optionSymbol": ["A"], "bid": [1.0]},
+        {"s": "ok", "optionSymbol": ["B"], "bid": [2.0]},
+        {"s": "ok", "optionSymbol": ["C"], "bid": [3.0]},
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        frame = client.options.quotes(
+            symbols=THREE_SYMBOLS,
+            output_format=OutputFormat.DATAFRAME,
+            columns=["optionSymbol", "bid"],
+        )
+
+    assert frame["bid"].to_dict() == {"A": 1.0, "B": 2.0, "C": 3.0}
+
+
+@pytest.mark.parametrize(
+    "body", ["null", "[]", '"ok"'], ids=["null", "array", "string"]
+)
+@pytest.mark.parametrize("use_human_readable", [False, True])
+def test_options_quotes_symbol_answering_a_json_non_object_is_a_parse_error(
+    load_json, respx_mock, client, body, use_human_readable
+):
+    """A body that decodes to something other than an object used to fail
+    with an `AttributeError` from inside the merge."""
+    fixture = (
+        "options_quotes_human_response_200"
+        if use_human_readable
+        else "options_quotes_response_200"
+    )
+    respx_mock.get(CALL_URL).respond(json=load_json(fixture), status_code=200)
+    respx_mock.get(PUT_URL).respond(text=body, status_code=200)
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=THREE_SYMBOLS[:2],
+            output_format=OutputFormat.JSON,
+            use_human_readable=use_human_readable,
+        )
+
+    assert exc_info.value.request_url.startswith(PUT_URL)
+    assert "not a JSON object" in exc_info.value.message
+
+
+@pytest.mark.parametrize("use_human_readable", [False, True])
+def test_options_quotes_answer_without_any_column_is_a_parse_error(
+    respx_mock, client, use_human_readable
+):
+    """A JSON body with none of the resource's columns (a proxy's JSON error
+    page) is not an answer of this resource. Merged, it gave a result with no
+    rows, which reads as "no options" (#82)."""
+    respx_mock.get(CALL_URL).respond(
+        json={"s": "ok", "error": "upstream timeout"}, status_code=200
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=THREE_SYMBOLS[0],
+            output_format=OutputFormat.JSON,
+            use_human_readable=use_human_readable,
+        )
+
+    assert "none of this resource's fields" in exc_info.value.message
+
+
 def test_get_options_quotes_response_200_dataframe_pandas(
     load_json, respx_mock, client
 ):
@@ -419,19 +633,217 @@ def test_get_options_quotes_status_offline(respx_mock, client):
         )
 
 
-def test_get_options_quotes_response_200_csv(respx_mock, client):
-    respx_mock.get(
-        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
-    ).respond(
-        text="AS RECEIVED FROM API",
-        status_code=200,
+# ------------------------------------------------------------------- CSV
+
+CALL_URL = "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
+PUT_URL = "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+CSV_HEADER = (
+    "optionSymbol,underlying,expiration,side,strike,firstTraded,dte,updated,bid,"
+    "bidSize,mid,ask,askSize,last,openInterest,volume,inTheMoney,intrinsicValue,"
+    "extrinsicValue,underlyingPrice,iv,delta,gamma,theta,vega"
+)
+CALL_ROW = (
+    "AAPL271217C00255000,AAPL,1828818000,call,255,1686663000,822,1765396196,65.1,"
+    "29,65.75,66.4,84,64.97,588,0,true,23.7344,42.0156,278.7344,0.2975,0.7188,"
+    "0.0029,-0.0403,1.3368"
+)
+PUT_ROW = CALL_ROW.replace("AAPL271217C00255000", "AAPL271217P00255000").replace(
+    ",call,", ",put,"
+)
+CSV_PLACEHOLDER = '0\r\n""\r\n'
+
+
+def test_get_options_quotes_response_200_csv(respx_mock, client, tmp_path):
+    """The file is the API's CSV as received: its header, its rows."""
+    respx_mock.get(CALL_URL).respond(
+        text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n", status_code=200
     )
+
     output = client.options.quotes(
         symbols="AAPL271217C00255000",
         output_format=OutputFormat.CSV,
-        filename="test.csv",
+        filename=tmp_path / "test.csv",
     )
-    assert pathlib.Path(output).read_text() != ""
+
+    assert pathlib.Path(output).read_bytes() == (
+        f"{CSV_HEADER}\r\n{CALL_ROW}\r\n".encode()
+    )
+
+
+def test_options_quotes_csv_merges_every_symbol_under_the_api_header(
+    respx_mock, client, tmp_path
+):
+    respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\n{CALL_ROW}\n")
+    respx_mock.get(PUT_URL).respond(text=f"{CSV_HEADER}\n{PUT_ROW}\n")
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+    )
+
+    assert pathlib.Path(output).read_bytes() == (
+        f"{CSV_HEADER}\r\n{CALL_ROW}\r\n{PUT_ROW}\r\n".encode()
+    )
+
+
+def test_options_quotes_csv_keeps_the_requested_columns(respx_mock, client, tmp_path):
+    """Issue #86: under `columns=` the API answers with the requested columns
+    only; the merge used to drop every row because the header did not match
+    the model's field list."""
+    respx_mock.get(CALL_URL).respond(
+        text="optionSymbol,bid,ask\r\nAAPL271217C00255000,85.25,87.95\r\n"
+    )
+    respx_mock.get(PUT_URL).respond(
+        text="optionSymbol,bid,ask\r\nAAPL271217P00255000,1.1,1.2\r\n"
+    )
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+        columns=["optionSymbol", "bid", "ask"],
+    )
+
+    assert pathlib.Path(output).read_bytes() == (
+        b"optionSymbol,bid,ask\r\n"
+        b"AAPL271217C00255000,85.25,87.95\r\n"
+        b"AAPL271217P00255000,1.1,1.2\r\n"
+    )
+
+
+def test_options_quotes_csv_keeps_the_human_readable_rows(respx_mock, client, tmp_path):
+    """Issue #86: the human-readable header (`Symbol`, names with spaces)
+    never matched the model's field list, so the file was header-only."""
+    body = "Symbol,Underlying,Expiration Date,Bid,Ask\r\nAAPL271217C00255000,AAPL,1829077200,85.25,87.95\r\n"
+    respx_mock.get(CALL_URL).respond(text=body)
+
+    output = client.options.quotes(
+        symbols="AAPL271217C00255000",
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+        use_human_readable=True,
+    )
+
+    assert pathlib.Path(output).read_bytes() == body.encode()
+
+
+@pytest.mark.parametrize("use_human_readable", [False, True])
+def test_options_quotes_csv_undecodable_symbol_body_is_a_parse_error(
+    respx_mock, client, tmp_path, use_human_readable
+):
+    """Issue #86 (the CSV half of #82): an HTML page from one symbol fails the
+    call instead of vanishing from the file."""
+    good_body = (
+        "Symbol,Bid,Ask\r\nAAPL271217C00255000,85.25,87.95\r\n"
+        if use_human_readable
+        else f"{CSV_HEADER}\r\n{CALL_ROW}\r\n"
+    )
+    respx_mock.get(CALL_URL).respond(text=good_body)
+    respx_mock.get(PUT_URL).respond(text="<html>error page</html>")
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+            use_human_readable=use_human_readable,
+        )
+
+    assert exc_info.value.request_url.startswith(PUT_URL)
+    assert not (tmp_path / "test.csv").exists()
+
+
+def test_options_quotes_csv_body_the_csv_module_cannot_read_is_a_parse_error(
+    respx_mock, client, tmp_path
+):
+    """Issue #86: a field past the csv reader's limit escaped as a raw
+    `csv.Error`, which is not an SDK exception."""
+    respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
+    respx_mock.get(PUT_URL).respond(
+        text=f"{CSV_HEADER}\r\n{'x' * 200_000},{PUT_ROW}\r\n"
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+        )
+
+    assert "unreadable CSV" in exc_info.value.message
+    assert exc_info.value.request_url.startswith(PUT_URL)
+    assert not (tmp_path / "test.csv").exists()
+
+
+def test_options_quotes_csv_leaves_out_a_symbol_with_no_data(
+    respx_mock, client, tmp_path
+):
+    """Issue #89: the API's CSV placeholder for an empty symbol is a 200; it
+    must be skipped like a JSON 404 no_data, not merged, not an error."""
+    respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
+    respx_mock.get(PUT_URL).respond(text=CSV_PLACEHOLDER)
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+    )
+
+    assert pathlib.Path(output).read_bytes() == (
+        f"{CSV_HEADER}\r\n{CALL_ROW}\r\n".encode()
+    )
+
+
+def test_options_quotes_csv_with_every_symbol_empty_is_a_header_only_file(
+    respx_mock, client, tmp_path
+):
+    respx_mock.get(CALL_URL).respond(text=CSV_PLACEHOLDER)
+    respx_mock.get(PUT_URL).respond(text=CSV_PLACEHOLDER)
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+    )
+
+    assert pathlib.Path(output).read_bytes() == f"{CSV_HEADER}\r\n".encode()
+
+
+def test_options_quotes_csv_without_headers_and_every_symbol_empty_is_an_empty_file(
+    respx_mock, client, tmp_path
+):
+    """Under `add_headers=False` the API's placeholder is the lone empty cell,
+    and the empty file must not gain a header the caller declined."""
+    respx_mock.get(CALL_URL).respond(text='""\r\n')
+    respx_mock.get(PUT_URL).respond(text='""\r\n')
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+        add_headers=False,
+    )
+
+    assert pathlib.Path(output).read_bytes() == b""
+
+
+def test_options_quotes_csv_without_headers_concatenates_the_rows(
+    respx_mock, client, tmp_path
+):
+    respx_mock.get(CALL_URL).respond(text=f"{CALL_ROW}\r\n")
+    respx_mock.get(PUT_URL).respond(text=f"{PUT_ROW}\r\n")
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+        add_headers=False,
+    )
+
+    assert pathlib.Path(output).read_bytes() == (
+        f"{CALL_ROW}\r\n{PUT_ROW}\r\n".encode()
+    )
 
 
 def test_options_quotes_join_dicts():
@@ -450,6 +862,7 @@ def test_options_quotes_join_dicts():
         },
     ]
     joined = OptionsQuotes.join_dicts(dicts)
+    assert list(joined)[0] == "s"
     assert joined["s"] == "ok"
     assert joined["optionSymbol"] == ["AAPL271217C00255000", "AAPL271217C00255000"]
     assert joined["underlying"] == ["AAPL", "AAPL"]
@@ -484,6 +897,62 @@ def test_options_quotes_human_readable_join_dicts():
         "Underlying": ["AAPL", "AAPL"],
         "Expiration_Date": [1829077200, 1829077200],
     }
+
+
+@pytest.mark.parametrize(
+    ("model", "dicts"),
+    [
+        (
+            OptionsQuotes,
+            [{"s": "ok", "optionSymbol": ["A"], "bid": [1.0]}, {"optionSymbol": ["B"]}],
+        ),
+        (
+            OptionsQuotesHumanReadable,
+            [{"Symbol": ["A"], "Bid": [1.0]}, {"Symbol": ["B"]}],
+        ),
+    ],
+)
+def test_options_quotes_join_dicts_refuses_to_shift_the_rows(model, dicts):
+    """Called on its own, a merge that cannot line the rows up raises rather
+    than padding the missing column with nothing. The API-named merge used to
+    pad it; the human-readable one already raised, and is pinned here so the
+    two keep agreeing."""
+    with pytest.raises(KeyError):
+        model.join_dicts(dicts)
+
+
+def test_options_quotes_join_dicts_follows_the_keys_it_is_given():
+    """`quotes()` hands over the columns it checked, in the order the API sent
+    them. Under `columns=` the API sends no status flag, and the one the SDK
+    adds goes after the columns, where the merge always put it for such an
+    answer; an answer that carries the flag keeps it first."""
+    filtered = [
+        {"bid": [1.0], "optionSymbol": ["A"]},
+        {"bid": [2.0], "optionSymbol": ["B"]},
+    ]
+    full = [{"s": "ok", **answer} for answer in filtered]
+
+    joined = OptionsQuotes.join_dicts(filtered, ["bid", "optionSymbol"])
+
+    assert list(joined) == ["bid", "optionSymbol", "s"]
+    assert joined == {"bid": [1.0, 2.0], "optionSymbol": ["A", "B"], "s": "ok"}
+    assert list(OptionsQuotes.join_dicts(full, ["bid", "optionSymbol"])) == [
+        "s",
+        "bid",
+        "optionSymbol",
+    ]
+
+
+def test_options_quotes_answer_keys_are_the_keys_the_api_sends(load_json):
+    """The one naming rule behind both the check and the merge: the API model's
+    field names, and the human-readable names spelled with the API's spaces.
+    Checked against real answers, so a key the API spells differently from the
+    rule shows up here rather than as a rejected symbol."""
+    api_answer = load_json("options_quotes_response_200")
+    human_answer = load_json("options_quotes_human_response_200")
+
+    assert OptionsQuotes.answer_keys() == [key for key in api_answer if key != "s"]
+    assert OptionsQuotesHumanReadable.answer_keys() == list(human_answer)
 
 
 def test_options_quotes_input_date_range_aliases_on_wire(load_json, respx_mock, client):

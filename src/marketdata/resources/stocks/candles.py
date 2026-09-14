@@ -2,7 +2,6 @@ import contextvars
 import datetime
 import itertools
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import fields
 from typing import Annotated, Any
 
 import httpx
@@ -18,12 +17,13 @@ from marketdata.output_types.stocks_candles import (
     StockCandlesHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.resources.base import BaseResource, model_columns, no_data_result
 from marketdata.utils import (
     encode_path_segment,
     get_data_records,
     is_no_data,
-    merge_csv_texts,
+    json_answer_columns,
+    merge_csv_responses,
     parse_json,
     split_dates_by_timeframe,
 )
@@ -111,7 +111,8 @@ def candles(
         # one timeout, and the executor's exit joins every worker anyway, so a
         # future timeout could only ever surface after they had all finished.
         responses = [future.result() for future in futures]
-    # A chunk with no data (404 no_data) is simply absent from the merge.
+    # A chunk with no data (a 404 no_data, or its CSV placeholder, #89) is
+    # simply absent from the merge.
     responses = [response for response in responses if not is_no_data(response)]
 
     output_model = (
@@ -128,16 +129,19 @@ def candles(
             index_columns=["t", "Date"],
         )
 
-    def _get_responses_data(responses: list[httpx.Response]) -> list[dict]:
+    def _get_responses_data(responses: list[httpx.Response]) -> dict:
         responses_data = [parse_json(response) for response in responses]
-        result = {}
-        for field in fields(output_model):
-            result[field.name] = list(
-                itertools.chain.from_iterable(
-                    [responses_data[i][field.name] for i in range(len(responses_data))]
-                )
+        # Under `columns=` the API sends the requested keys only (#90), in
+        # request order, and every chunk must carry the same ones.
+        present = json_answer_columns(
+            responses, responses_data, model_columns(output_model)
+        )
+        return {
+            name: list(
+                itertools.chain.from_iterable(data[name] for data in responses_data)
             )
-        return result
+            for name in present
+        }
 
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
         data = _get_responses_data(responses)
@@ -156,9 +160,15 @@ def candles(
         return data
 
     elif user_universal_params.output_format == OutputFormat.CSV:
-        field_names = [field.name for field in fields(output_model)]
-        data = merge_csv_texts([response.text for response in responses], field_names)
-        return user_universal_params.write_file(data)
+        # The header comes from the answers (#86): under `columns=` or
+        # `use_human_readable` it is not the model's field list, and a body
+        # that is not a CSV of this resource fails the call.
+        csv_text = merge_csv_responses(
+            responses,
+            model_columns(output_model),
+            with_header=user_universal_params.add_headers is not False,
+        )
+        return user_universal_params.write_file(csv_text)
 
     # This line should never be reached due to the universal_params decorator validating the output format
     # but we add it to satisfy the type checker and avoid coverage errors.
