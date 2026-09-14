@@ -39,6 +39,8 @@ def read_header(response: Response | None, name: str) -> str | None:
         return None
     value = response.headers.get(name)
     return (value or "").strip() or None
+
+
 GLOBAL_EXCLUDED_PARAMS = ["output_format", "filename"]
 REFRESH_API_STATUS_INTERVAL = datetime.timedelta(minutes=4, seconds=30)
 CACHE_VALIDITY_INTERVAL = datetime.timedelta(minutes=5)
