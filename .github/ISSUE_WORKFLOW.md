@@ -359,6 +359,12 @@ Closing due to inactivity. If you can provide the requested information, feel fr
 10. [ ] **Open a PR** against `main`. The required checks are `test (3.10)`,
         `test (3.11)` and `test (3.12)`.
 
+> **Stacking a PR on another PR?** Retarget it to `main` as soon as a reviewer
+> approves it. Do not wait for its base to merge. A PR merged into a base branch that
+> has already merged puts its work on a branch nothing points at, and the work never
+> reaches `main`. **Automatically delete head branches** is on, so GitHub retargets a
+> stacked PR when its base merges — retargeting early keeps the work off that race.
+
 Examples:
 
 - `fix(options): send days_to_expiration as dte so the filter is applied (closes #30)`

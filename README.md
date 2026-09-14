@@ -136,6 +136,7 @@ client = MarketDataClient(token="your_token_here", logger=custom_logger)
 - The library version is automatically detected from the installed package
 - All requests include an `Authorization: Bearer {token}` header
 - The client uses `httpx.Client` for HTTP requests with automatic connection pooling
+- Every request has the same fixed timeout, and it is not configurable: 2 seconds to open the connection, and 99 seconds each to write the request, wait for a free connection, and read a chunk of the answer. Those bound operations rather than the call, so a server that keeps trickling bytes can hold a request open longer; to give up sooner, cancel the call from your own code
 
 ### Credits and Response Metadata
 
@@ -155,7 +156,7 @@ print(meta.request_id)                      # the cf-ray id, for support
 print(meta.rate_limits)                     # "Credits used X/Y, remaining: Z, reset at: ISO timestamp"
 ```
 
-`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `status_code` and `request_id` describe one response, so they come from the last one that could have contributed to the result, never from a symbol or chunk that answered "no data" and was dropped from the merge, which matters because `request_id` is what you quote in a support ticket. On the metadata of a call that raised, the same rule points the other way: there they come from the last response that failed, so the id names the request the ticket is about. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data).
+`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `status_code` and `request_id` describe one response, so they come from the last one that could have contributed to the result, never from a symbol or chunk that answered "no data" and was dropped from the merge, which matters because `request_id` is what you quote in a support ticket. On the metadata of a call that raised, the same rule points the other way: there they come from the last response that failed, so the id names the request the ticket is about. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data). `meta.detected_ip` is the address the API saw the call come from, on every answer it serves, the empty one included.
 
 A failed call is billed too, so the exception carries the same metadata a result would:
 
@@ -178,6 +179,28 @@ There is no client-level snapshot: `client.rate_limits` was removed in 2.0 becau
 - `x-api-ratelimit-reset`: Unix timestamp when the credits reset (`reset_time`)
 
 The header names still say `ratelimit`; the SDK exposes them in the product's API-credits terms.
+
+The `reset_time` field is automatically converted to a `datetime.datetime` object for easier use. It always carries an offset: a value that arrives without one is read as US/Eastern, the timezone the SDK renders every timestamp in.
+
+### IP restrictions
+
+For an account that restricts access by IP, the API names the addresses involved and the SDK surfaces both:
+
+```python
+try:
+    prices = client.stocks.prices("AAPL")
+except marketdata.ForbiddenError as exc:
+    print(exc.authorized_ip)                # the address this account is authorized for
+    print(exc.message)                      # says it too, so printing the error is enough
+else:
+    print(marketdata.get_meta(prices).detected_ip)   # the address the call came from
+```
+
+`authorized_ip` comes from `X-API-Authorized-IP` on the 403 and is `None` for a 403 that is not an IP block. `detected_ip` comes from `X-API-Detected-IP`, which the API sends on every answer it serves.
+
+The API resolves the address for an authenticated account that is bound to a single one, which is the ordinary case. It sends no header, so both read `None`, for an account allowed to call from several addresses, for a staff token, for the Sheets add-on, and when it could not resolve the address at all.
+
+The body of the 403 carries more than the header does: the address that was blocked and a link to the troubleshooting guide. Both are on `exc.response.json()`, under `blockedIP` and `troubleshootingGuide`. The SDK reads the header rather than those field names, because the header is what the API asked clients to move to. It does not read the legacy `X-API-BLOCKED-IP`, which the API is removing.
 
 The `reset_time` field is automatically converted to a `datetime.datetime` object for easier use.
 
@@ -409,7 +432,10 @@ All exception classes are importable from `marketdata` as well as from `marketda
 
 ### `RateLimitError`
 
-Raised when API rate limits are exceeded (before retry logic):
+Raised when the account has no API credits left, from two places that a caller can tell apart by `error.response`:
+
+- **The API answered `429`.** `error.response` is the answer, and `error.retry_after` carries the seconds it asked for, when it sent a `Retry-After` header.
+- **The SDK refused to send the request.** `error.response` is `None` and the request fields read `N/A`. This happens only when the last answer said there were no credits left and that window has not reset yet; `error.retry_after` is the number of seconds until it does. An unknown balance never refuses a request, and neither does an exhausted balance whose window has already reset.
 
 ```python
 from marketdata import MarketDataClient
@@ -432,7 +458,7 @@ One class per kind of failure, mapped from the HTTP status the API answered (SDK
 |---|---|---|
 | 400 | `BadRequestError` | no |
 | 401 | `AuthenticationError` | no, fails immediately |
-| 403 | `ForbiddenError` | no |
+| 403 | `ForbiddenError`, with `authorized_ip` when the block is by IP | no |
 | 404 with an error message | `NotFoundError` | no |
 | 404 with `s: "no_data"` | none: the call returns an **empty result** (see below) | |
 | 429 | `RateLimitError`, with `retry_after` in seconds when the API sent it | no |
@@ -444,7 +470,9 @@ One class per kind of failure, mapped from the HTTP status the API answered (SDK
 
 A `500` means the API itself failed on your request, so retrying would not help; `501` and above mean the API was unavailable or a gateway answered for it, which is why only those are retried. The two are separate classes: catching one never catches the other.
 
-All HTTP classes derive from `MarketdataHttpError` and keep the underlying `httpx` objects on `request` and `response`. `RateLimitError` is also raised by the pre-flight credit check, before any request goes out; in that case its request fields read `N/A`.
+The output format you asked for never changes which exception a request raises, nor its message: the API sends the error as `{"s": ..., "errmsg": ...}` for JSON and as an `s,errmsg` table for CSV, and the SDK reads both.
+
+All HTTP classes derive from `MarketdataHttpError` and keep the underlying `httpx` objects on `request` and `response`. `RateLimitError` is also raised by the pre-flight credit check, before any request goes out; in that case `response` is `None`, its request fields read `N/A`, and `retry_after` is the number of seconds until the balance resets.
 
 ### No data is not an error
 
@@ -452,12 +480,16 @@ When the API has no data for a valid question (candles over a weekend, news for 
 
 | Output format | Empty result |
 |---|---|
-| `DATAFRAME` | a DataFrame with the model's columns and no rows |
+| `DATAFRAME` | a DataFrame with the model's columns and no rows; under `columns=`, the requested ones (names of the model, or API names under `use_human_readable=True`; the API's aliases such as `open` or `price` are not translated) |
 | `INTERNAL` | `[]` for list-shaped resources (`prices`, `quotes`, `candles`, `news`, `markets.status`, `utilities.status`), `None` for single-object ones (`earnings`, `options.chain`, `options.expirations`, `options.lookup`, `options.quotes`, `utilities.headers`, `utilities.user`) |
 | `JSON` | the API's `{"s": "no_data"}` body |
-| `CSV` | a file with the header row only |
+| `CSV` | a file with the header row only (the requested columns under `columns=`; an empty file under `add_headers=False`) |
 
-For the fan-out calls, a chunk (`stocks.candles`) or a symbol (`options.quotes`) with no data is simply absent from the merged result; the whole call is empty only when every part is.
+For the fan-out calls, a chunk (`stocks.candles`) or a symbol (`options.quotes`) with no data is simply absent from the merged result; the whole call is empty only when every part is. In CSV output the merged file keeps the header the API sent (the requested columns, the human-readable names) and every row of every part; a part whose body is not a CSV of that resource raises `ParseError`. On the other formats the parts are merged on the model's columns among those the API sent, in the order it sent them (the request order under `columns=`), and a part that lacks one of them, carries one that is not a list as long as its others, or whose body is not a JSON object of that resource, raises `ParseError` too: merged, it would put the next part's values on its rows.
+
+The API renders the CSV empty answer as a `200` with a placeholder body instead of a `404` (MarketData-App/api#422); the SDK recognises it, so CSV output behaves as above.
+
+**One `columns=` case where the empty and the populated shapes still differ.** The API resolves its own column aliases (`open` for `o`, `price`, `date`), which the SDK does not mirror, because the accepted set depends on the endpoint. Asking for one of those (`stocks.candles(columns=["open"])`) gets a populated frame with the single column the API sent and an empty frame with every model column, so the two cannot be concatenated. Filter on the names the model exposes (or the API names of its twin under `use_human_readable=True`) and both shapes have the same columns in the same order. Under `use_human_readable=True` the names are still spelled differently (the API's `Expiration Date` in a populated result, the model's `Expiration_Date` in an empty one), and on polars an empty frame cannot come first in `pl.concat`; both are #107.
 
 ### `ValueError`
 
@@ -567,7 +599,7 @@ The SDK includes automatic retry logic for handling transient errors: availabili
 - **Default retry attempts**: 3
 - **Backoff strategy**: Exponential with multiplier 0.5, minimum wait 0.5 seconds, maximum wait 5 seconds
 - **Retried failures**: any HTTP status code greater than 500 (502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout, ...) and any connection failure or timeout. A 500 (`InternalError`), every 4xx and a 429 are not retried.
-- **Default timeout**: 60 seconds per request
+- **Request timeout**: 99 seconds, with a 2 second connect timeout, the same for every request and not configurable (SDK requirements §10)
 
 ### How It Works
 
@@ -577,7 +609,7 @@ The retry wraps one request. In the calls made of several requests, `stocks.cand
 
 **One failed request fails the whole call, and the healthy ones are still billed.** The requests run in parallel and the call waits for all of them, so when one symbol or chunk ends in a terminal error the others have already been sent, charged and possibly retried. The exception carries that cost: `marketdata.get_meta(exc).rate_limits.credits_consumed` is what the failed call actually spent.
 
-How long that wait can be, with the default three retries: the error surfaces once the slowest sibling finishes its own ladder, so about 7 seconds of backoff (1 + 2 + 4) when the siblings answer quickly, longer if the API sends `Retry-After`, and up to four HTTP timeouts (about 4 minutes at the 60-second default) if they hang instead of answering. Sibling requests keep being sent and billed during that time. Shortening it means cancelling the pending requests, which is [#98](https://github.com/MarketDataApp/sdk-py/issues/98).
+How long that wait can be, with the default three retries: the error surfaces once the slowest sibling finishes its own ladder, so about 7 seconds of backoff (1 + 2 + 4) when the siblings answer quickly, longer if the API sends `Retry-After`, and up to four HTTP timeouts (about 6 and a half minutes at the fixed 99 seconds) if they hang instead of answering. Sibling requests keep being sent and billed during that time. Shortening it means cancelling the pending requests, which is [#98](https://github.com/MarketDataApp/sdk-py/issues/98).
 
 **Important:** Resource methods either return the requested result (DataFrame, list of objects, dict, or the CSV filename) or raise. There is no error return value; see [Error Handling](#error-handling).
 
@@ -834,10 +866,10 @@ See the specific resource documentation for details on concurrent request behavi
 
 Rate limits are tracked via response headers and updated after each request:
 
-- Rate limit information is extracted from response headers after every API call
-- The `UserRateLimits` object is updated automatically
-- Rate limit checking happens before each request (unless `check_rate_limits=False`)
-- If rate limits are exhausted, a `RateLimitError` is raised before making the request
+- Rate limit information is extracted from response headers after every API call, error answers included
+- The private tracker keeps the newest state it has seen; out-of-order answers do not move it backwards
+- The check runs before each request (unless `check_rate_limits=False`, which is how the `/user/` call at start-up and the service-status refresh go out)
+- The request is refused only when the balance is known to be zero in a window that has not reset yet. An unknown balance and an exhausted window that has already reset both let the request through, because the tracker is only fed by answers: refusing on those would mean the state could never change
 
 ## Development
 
