@@ -5,6 +5,7 @@ carries whichever of the two applies, is deliberately not read: the API is
 removing it (MarketData-App/api#202)."""
 
 import pytest
+from httpx import Request
 
 from marketdata.exceptions import ForbiddenError
 from marketdata.input_types.base import OutputFormat
@@ -51,6 +52,15 @@ def test_a_403_that_is_not_an_ip_block_carries_no_address(respx_mock, client):
     error = exc_info.value
     assert error.authorized_ip is None
     assert error.message == BLOCKED["errmsg"]
+
+
+def test_a_403_built_without_a_response_carries_no_address():
+    """`response` is optional on the public constructor, and a request that
+    never got an answer leaves it `None`. Nothing to read is not an address."""
+    error = ForbiddenError("Access denied.", Request("GET", PRICES_URL))
+
+    assert error.authorized_ip is None
+    assert error.message == "Access denied."
 
 
 def test_the_legacy_blocked_ip_header_is_not_read(respx_mock, client):
