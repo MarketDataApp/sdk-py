@@ -538,6 +538,21 @@ def test_error_message_is_bounded_on_every_path(body):
     assert message == "x" * 500 + "..."
 
 
+def test_error_message_bounds_a_body_whose_errmsg_is_not_a_string():
+    """The envelope carries an `errmsg` that is not text, so the message is the
+    raw body. That way out bounds it too, and the 404 still counts as an error
+    rather than the empty answer."""
+    request = Request("GET", "https://api.marketdata.app/v1/stocks/quotes/AAPL/")
+    body = b'{"s": "error", "errmsg": null, "pad": "' + b"x" * 1000 + b'"}'
+    response = Response(404, content=body, request=request)
+
+    message, has_errmsg = MarketDataClient._error_message(response)
+
+    assert has_errmsg is True
+    assert message.startswith('{"s": "error", "errmsg": null')
+    assert len(message) == 503 and message.endswith("...")
+
+
 def test_extract_rate_limits_missing_headers_returns_none(client, caplog):
     request = Request("GET", "https://api.marketdata.app/v1/stocks/quotes/AAPL/")
     response = Response(200, json={}, request=request)

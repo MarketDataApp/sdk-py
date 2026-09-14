@@ -183,9 +183,23 @@ def test_merge_csv_responses_drops_a_bom_from_every_body_with_or_without_a_heade
     assert merge_csv_responses(without, COLUMNS, with_header=False) == (
         "1,2\r\n3,4\r\n"
     )
-    # Only at the start of a body: U+FEFF inside a value is data.
-    inside = [_csv_response("1,\ufeff2\n")]
-    assert merge_csv_responses(inside, COLUMNS, with_header=False) == "1,\ufeff2\r\n"
+    # A BOM does not break the quoting of the first value either.
+    quoted = [_csv_response('\ufeff"1",2\n')]
+    assert merge_csv_responses(quoted, COLUMNS, with_header=False) == "1,2\r\n"
+    # Only at the start of a body: a U+FEFF inside a value, or at the start of a
+    # later row, is data.
+    inside = [_csv_response("1,\ufeff2\n\ufeff3,4\n")]
+    assert merge_csv_responses(inside, COLUMNS, with_header=False) == (
+        "1,\ufeff2\r\n\ufeff3,4\r\n"
+    )
+
+
+def test_merge_csv_responses_reads_a_body_whose_lines_end_in_a_lone_cr():
+    """Old Mac line endings are rows, not a body the reader refuses. The merged
+    file is written with the standard CRLF, as every merge is."""
+    responses = [_csv_response("t,c\r1,2\r"), _csv_response("t,c\r3,4\r")]
+
+    assert merge_csv_responses(responses, COLUMNS) == "t,c\r\n1,2\r\n3,4\r\n"
 
 
 def test_merge_csv_responses_without_headers_concatenates_rows_of_one_width():
@@ -322,6 +336,14 @@ def test_column_key_matches_names_the_way_the_api_does():
         ("no_data,Symbol not found.\r\n", "Symbol not found."),
         ("error,Invalid date\r\n", "Invalid date"),
         ("\ufeffno_data,Symbol not found.\r\n", "Symbol not found."),
+        # A BOM does not break the quoting of the first value, and one that
+        # follows a blank line is dropped after the parse instead.
+        ('\ufeff"no_data","Symbol not found."\r\n', "Symbol not found."),
+        ("\r\n\ufeffno_data,Symbol not found.\r\n", "Symbol not found."),
+        # Lines ending in a lone CR (old Mac style) are rows, not one line the
+        # reader refuses. The API sends CRLF; something in between may not.
+        ("s,errmsg\rerror,Invalid date\r", "Invalid date"),
+        ("no_data,Symbol not found.\r", "Symbol not found."),
         # The marker is matched through `column_key`, as the header row is:
         # normalising one and not the other would drop the message of a 404
         # and read it as the empty answer again.
@@ -353,6 +375,19 @@ def test_column_key_matches_names_the_way_the_api_does():
 def test_parse_csv_errmsg_reads_only_the_api_error_table(body, expected):
     """Issue #91: `format=csv` renders an error as `s,errmsg` and one row."""
     assert parse_csv_errmsg(body) == expected
+
+
+def test_parse_csv_errmsg_reports_no_table_when_the_reader_refuses_the_body():
+    """A body the reader refuses is not an error table: letting `csv.Error` out
+    of here would replace the SDK's exception for that request, and a retryable
+    status would stop being retried. The NUL byte above only raises before
+    Python 3.11, and an envelope is capped well under the reader's field size
+    limit, so the limit is lowered here to reach the branch on every version."""
+    limit = csv.field_size_limit(16)
+    try:
+        assert parse_csv_errmsg("s,errmsg\r\nerror," + "a" * 32 + "\r\n") is None
+    finally:
+        csv.field_size_limit(limit)
 
 
 # ----------------------------------------------------------- is_no_data

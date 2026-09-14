@@ -288,6 +288,29 @@ def test_an_unknown_symbol_raises_without_the_header_row(respx_mock, client, tmp
     assert exc_info.value.message == "Symbol not found."
 
 
+def test_an_unknown_symbol_raises_with_lone_cr_line_endings(
+    respx_mock, client, tmp_path
+):
+    """A body whose lines end in a bare CR is still the error table. The API
+    sends CRLF; a proxy that rewrote the endings used to make the reader refuse
+    the body, and the 404 read as the empty answer again, the bug of #91."""
+    respx_mock.get(QUOTES_URL_STOCKS).respond(
+        text="s,errmsg\rno_data,Symbol not found.\r",
+        status_code=404,
+        headers=CSV_HEADERS,
+    )
+
+    with pytest.raises(NotFoundError) as exc_info:
+        client.stocks.quotes(
+            "ZZZZZZ",
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "out.csv",
+        )
+
+    assert exc_info.value.message == "Symbol not found."
+    assert not (tmp_path / "out.csv").exists()
+
+
 @pytest.mark.parametrize(
     ("status", "body"),
     [

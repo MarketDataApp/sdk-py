@@ -79,14 +79,25 @@ _CSV_ERROR_MAX_LENGTH = 4096
 
 
 def _csv_rows(text: str) -> list[list[str]]:
-    """The rows of a CSV body, blank lines dropped and a BOM stripped from
-    the first value: the one way the SDK reads the API's CSV, shared by the
-    error envelope and the fan-out merge so the two cannot drift apart.
+    """The rows of a CSV body, blank lines dropped and a BOM taken off.
+
+    The error envelope and the fan-out merge both read a body through here, so
+    the two cannot drift apart. It is not every CSV the SDK touches: the body
+    of a single-request CSV answer is written to file unread, and
+    ``is_no_data`` matches the placeholder line by line.
+
+    The text is read with ``newline=""``, as the ``csv`` module prescribes, so
+    a body whose lines end in a lone CR reads as rows instead of raising, and
+    a quoted value keeps the line endings it carries.
 
     ``csv.Error`` (a field past the reader's size limit, or a NUL byte before
     Python 3.11) propagates: each caller decides what an unreadable body means.
     """
-    rows = [row for row in csv.reader(StringIO(text)) if row]
+    # Before the parse, so a BOM does not break the quoting of the first value,
+    # and after it, for a body that starts with blank lines.
+    rows = [
+        row for row in csv.reader(StringIO(text.lstrip("\ufeff"), newline="")) if row
+    ]
     if rows:
         rows[0][0] = rows[0][0].lstrip("\ufeff")  # a BOM is not data
     return rows
@@ -101,8 +112,9 @@ def parse_csv_errmsg(text: str) -> str | None:
     a 404 that is the difference between "the symbol does not exist" and "no
     data for a valid question".
 
-    Never raises: a body the reader refuses (a NUL byte, before Python 3.11)
-    is simply not an error table, and the caller reports it as the raw body.
+    Never raises: a body the reader refuses (a field past its size limit, or
+    a NUL byte before Python 3.11) is simply not an error table, and the
+    caller reports it as the raw body.
     Letting ``csv.Error`` out here would replace the SDK's exception for that
     request, and a retryable status would stop being retried.
     """
