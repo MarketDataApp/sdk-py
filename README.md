@@ -332,7 +332,7 @@ The date format to use in the response. Defaults to `DateFormat.UNIX`. Available
 ### `columns` (list[str], optional)
 Specify which columns to include in the response. If not provided, all available columns are returned.
 
-The API applies the filter to the answer it sends, so a filtered answer arrives without the fields the `INTERNAL` models require (`s` among them, which the API drops as soon as `columns` is given). `output_format=OutputFormat.INTERNAL` therefore ignores the filter and asks for the whole answer; every other output format hands you exactly the columns you asked for.
+The API applies the filter to the answer it sends, so a filtered answer arrives without the fields the `INTERNAL` models require, `s` included unless you list it among the columns. `output_format=OutputFormat.INTERNAL` therefore ignores the filter and asks for the whole answer; every other output format hands you exactly the columns you asked for.
 
 ### `add_headers` (bool, optional)
 Whether to include headers in the response. Uses API alias `headers`.
