@@ -11,6 +11,11 @@ from httpx import Response
 from marketdata.exceptions import ParseError
 from marketdata.internal_settings import VALID_STATUS_CODES
 
+# Every timestamp the SDK renders is US/Eastern. One constant, so the zone a
+# naive value is read in and the zone it is rendered in agree by construction
+# rather than because two literals happen to match.
+DEFAULT_TIMEZONE = pytz.timezone("US/Eastern")
+
 
 def parse_json(response: Response) -> Any:
     """Decode the response body, or raise ``ParseError`` with support context.
@@ -149,7 +154,7 @@ def parse_error(response: Response, reason: str) -> ParseError:
 def format_timestamp(
     value: str | int | float | datetime.datetime | None,
 ) -> datetime.datetime:
-    default_tz = pytz.timezone("US/Eastern")
+    default_tz = DEFAULT_TIMEZONE
 
     if isinstance(value, datetime.datetime):
         return value
