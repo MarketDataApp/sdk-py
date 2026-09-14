@@ -28,7 +28,11 @@ from typing import Any, Iterator
 
 from httpx import Response
 
-from marketdata.internal_settings import HEADER_DETECTED_IP, VALID_STATUS_CODES
+from marketdata.internal_settings import (
+    HEADER_DETECTED_IP,
+    VALID_STATUS_CODES,
+    read_header,
+)
 from marketdata.logger import get_logger
 from marketdata.types import UserRateLimits
 
@@ -98,12 +102,11 @@ class ResponseMeta:
     def from_response(
         cls, response: Response, rate_limits: UserRateLimits | None
     ) -> ResponseMeta:
-        detected_ip = response.headers.get(HEADER_DETECTED_IP)
         return cls(
             status_code=response.status_code,
             request_id=response.headers.get("cf-ray"),
             rate_limits=rate_limits,
-            detected_ip=(detected_ip.strip() or None) if detected_ip else None,
+            detected_ip=read_header(response, HEADER_DETECTED_IP),
         )
 
     @classmethod

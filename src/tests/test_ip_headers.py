@@ -4,7 +4,6 @@ names the address the call came from. The legacy `X-API-BLOCKED-IP`, which
 carries whichever of the two applies, is deliberately not read: the API is
 removing it (MarketData-App/api#202)."""
 
-import httpx
 import pytest
 
 from marketdata.exceptions import ForbiddenError
@@ -20,13 +19,6 @@ AUTHORIZED_IP = "203.0.113.7"
 DETECTED_IP = "198.51.100.24"
 OTHER_IP = "198.51.100.99"
 PRICES_BODY = {"s": "ok", "symbol": ["AAPL"], "mid": [1.0]}
-
-
-def _quote(load_json, detected_ip=None, status_code=200):
-    headers = {"x-api-detected-ip": detected_ip} if detected_ip else {}
-    return httpx.Response(
-        status_code, json=load_json("options_quotes_response_200"), headers=headers
-    )
 
 
 # ------------------------------------------------------------ the 403 block
@@ -115,7 +107,10 @@ def test_the_sentence_reads_on_its_own_when_the_api_sent_no_message(respx_mock, 
 def test_an_ip_block_on_one_symbol_of_a_fan_out_still_names_the_address(
     load_json, respx_mock, client
 ):
-    respx_mock.get(CALL_URL).mock(return_value=_quote(load_json, DETECTED_IP))
+    respx_mock.get(CALL_URL).respond(
+        json=load_json("options_quotes_response_200"),
+        headers={"x-api-detected-ip": DETECTED_IP},
+    )
     respx_mock.get(PUT_URL).respond(
         json=BLOCKED, status_code=403, headers={"X-API-Authorized-IP": AUTHORIZED_IP}
     )
@@ -191,8 +186,14 @@ def test_the_merged_address_comes_from_the_response_that_speaks_for_the_call():
 def test_a_fan_out_reports_the_address_its_responses_agree_on(
     load_json, respx_mock, client
 ):
-    respx_mock.get(CALL_URL).mock(return_value=_quote(load_json, DETECTED_IP))
-    respx_mock.get(PUT_URL).mock(return_value=_quote(load_json, DETECTED_IP))
+    respx_mock.get(CALL_URL).respond(
+        json=load_json("options_quotes_response_200"),
+        headers={"x-api-detected-ip": DETECTED_IP},
+    )
+    respx_mock.get(PUT_URL).respond(
+        json=load_json("options_quotes_response_200"),
+        headers={"x-api-detected-ip": DETECTED_IP},
+    )
 
     quotes = client.options.quotes(SYMBOLS, output_format=OutputFormat.JSON)
 
@@ -206,8 +207,11 @@ def test_the_merge_falls_back_to_any_response_that_reported_an_address(
 ):
     """A speaker without the header says nothing rather than "no address":
     every request of a call leaves from the same machine."""
-    respx_mock.get(CALL_URL).mock(return_value=_quote(load_json, DETECTED_IP))
-    respx_mock.get(PUT_URL).mock(return_value=_quote(load_json))
+    respx_mock.get(CALL_URL).respond(
+        json=load_json("options_quotes_response_200"),
+        headers={"x-api-detected-ip": DETECTED_IP},
+    )
+    respx_mock.get(PUT_URL).respond(json=load_json("options_quotes_response_200"))
 
     quotes = client.options.quotes(SYMBOLS, output_format=OutputFormat.JSON)
 

@@ -29,7 +29,7 @@ from datetime import datetime
 from httpx import Request, Response
 from pytz import timezone
 
-from marketdata.internal_settings import HEADER_AUTHORIZED_IP
+from marketdata.internal_settings import HEADER_AUTHORIZED_IP, read_header
 
 SUPPORT_CONTEXT_FIELDS = (
     "request_id",
@@ -162,13 +162,7 @@ class ForbiddenError(MarketdataHttpError):
         response: Response | None = None,
         timestamp: datetime | str | None = None,
     ):
-        header = (
-            response.headers.get(HEADER_AUTHORIZED_IP) if response is not None else None
-        )
-        # A blank header is not an address: `''` would read as one to a
-        # caller checking `if error.authorized_ip`.
-        authorized_ip = header.strip() if header else None
-        authorized_ip = authorized_ip or None
+        authorized_ip = read_header(response, HEADER_AUTHORIZED_IP)
         if authorized_ip:
             sentence = f"This account is authorized for {authorized_ip}."
             # A 403 whose body carried no `errmsg` leaves the message empty or
