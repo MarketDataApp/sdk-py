@@ -2,7 +2,7 @@ import datetime
 import os
 import time
 from dataclasses import fields
-from logging import Logger
+from logging import DEBUG, ERROR, Logger
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -251,6 +251,23 @@ def test_exhausted_credits_refuse_the_request_until_the_window_resets(
     assert client._rate_limits.state is state
 
 
+def test_a_refusal_writes_the_one_error_line_a_failure_gets(respx_mock, client, caplog):
+    """`api_error_handler` writes one ERROR line per terminal failure (SDK
+    requirements §7) and a pre-flight refusal passes through it like any other.
+    Logging the refusal here too made alerting that counts ERROR records read
+    one refusal as two."""
+    client._rate_limits.reset(_exhausted(time.time() + 3600))
+    respx_mock.get(PRICES_URL).respond(json={"s": "ok"}, status_code=200)
+
+    with caplog.at_level(DEBUG, logger="marketdata"):
+        with pytest.raises(RateLimitError):
+            client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+
+    errors = [record for record in caplog.records if record.levelno == ERROR]
+    assert len(errors) == 1
+    assert errors[0].getMessage().startswith("prices failed: No API credits left")
+
+
 def test_exhausted_credits_of_a_window_that_reset_are_dropped(respx_mock, client):
     """Issue #42: `reset_time` was stored and never consulted, so one exhausted
     window refused every later request for the life of the client."""
@@ -318,14 +335,23 @@ def test_a_real_answer_that_reports_no_credits_left_refuses_the_next_call(
     assert exc_info.value.retry_after == pytest.approx(300, abs=2)
 
 
-def test_a_naive_reset_time_is_read_in_the_zone_the_sdk_renders(respx_mock, client):
+def test_a_naive_reset_time_is_read_in_the_zone_the_sdk_renders(
+    respx_mock, client, monkeypatch
+):
     """A `reset_time` that arrives without an offset is US/Eastern, the zone
     every timestamp in the SDK is rendered in. Reading it as UTC moved it by
-    hours, which is a refusal that is early or late by that much."""
-    eastern_in_an_hour = datetime.datetime.now(
-        pytz.timezone("US/Eastern")
-    ) + datetime.timedelta(hours=1)
-    client._rate_limits.reset(_exhausted(eastern_in_an_hour.replace(tzinfo=None)))
+    hours, which is a refusal that is early or late by that much.
+
+    The wall time and the clock it is measured against are both fixed. Built
+    from `now()`, the test read the machine's calendar: on the night the clocks
+    go back, the hour it added landed on a wall time that happens twice, which
+    is a value this state refuses outright.
+    """
+    eastern = pytz.timezone("US/Eastern")
+    reset_wall_time = datetime.datetime(2030, 6, 15, 12, 0, 0)
+    an_hour_before = eastern.localize(reset_wall_time).timestamp() - 3600
+    monkeypatch.setattr("time.time", lambda: an_hour_before)
+    client._rate_limits.reset(_exhausted(reset_wall_time))
     route = respx_mock.get(PRICES_URL).respond(json={"s": "ok"}, status_code=200)
 
     with pytest.raises(RateLimitError) as exc_info:
@@ -333,6 +359,24 @@ def test_a_naive_reset_time_is_read_in_the_zone_the_sdk_renders(respx_mock, clie
 
     assert not route.called
     assert exc_info.value.retry_after == pytest.approx(3600, abs=2)
+
+
+def test_a_reset_time_a_dst_change_repeats_is_refused_rather_than_moved(client):
+    """01:30 on the night the clocks go back is two instants an hour apart, and
+    the same wall time in the spring is none. Reading either as one moves the
+    refusal by an hour without saying so, so the state refuses it and names
+    what to pass instead."""
+    for wall_time in (
+        datetime.datetime(2026, 11, 1, 1, 30),  # happens twice
+        datetime.datetime(2026, 3, 8, 2, 30),  # never happens
+    ):
+        with pytest.raises(ValueError, match="daylight-saving"):
+            _exhausted(wall_time)
+
+    aware = pytz.timezone("US/Eastern").localize(
+        datetime.datetime(2026, 11, 1, 1, 30), is_dst=True
+    )
+    assert _exhausted(aware).reset_time == aware
 
 
 def test_a_reset_time_the_client_cannot_read_lets_the_request_through(
@@ -344,12 +388,18 @@ def test_a_reset_time_the_client_cannot_read_lets_the_request_through(
     than dropped, since only its reset time is unreadable."""
     state = _exhausted(60)
     client._rate_limits.reset(state)
-    route = respx_mock.get(PRICES_URL).respond(json={"s": "ok"}, status_code=200)
 
+    # Before the request, so the kept state is the check's doing. Asserted
+    # after the answer, the `client` fixture's own credit headers are what
+    # decide it: they describe a later window with a higher balance, which
+    # the tracker rejects as a late answer whatever this check did.
+    client._check_rate_limits(raise_error=True)
+    assert client._rate_limits.state is state
+
+    route = respx_mock.get(PRICES_URL).respond(json={"s": "ok"}, status_code=200)
     client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
 
     assert route.call_count == 1
-    assert client._rate_limits.state is state
 
 
 def test_a_429_leaves_the_pre_flight_speaking_for_the_next_call(respx_mock, client):

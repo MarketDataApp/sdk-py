@@ -133,23 +133,25 @@ class MarketDataClient:
         if state is None or state.credits_remaining > 0:
             return
 
+        reset_at = state.reset_time.isoformat()
         seconds_to_reset = state.reset_timestamp - time.time()
         if seconds_to_reset < -MAX_CREDIT_WINDOW_SECONDS:
             self.logger.warning(
                 "Ignoring a credit state whose reset time is not a time this "
-                f"client can read: {state.reset_time.isoformat()}"
+                f"client can read: {reset_at}"
             )
             return
         if seconds_to_reset <= 0:
             self._rate_limits.discard(state)
             return
 
-        self.logger.error(
-            f"No API credits left; the limit resets at {state.reset_time.isoformat()}"
-        )
+        # No log here: `api_error_handler` writes the one ERROR line every
+        # terminal failure gets (SDK requirements §7), and this refusal passes
+        # through it like any other. Logging again made alerting that counts
+        # ERROR records read one refusal as two.
         raise RateLimitError(
-            "No API credits left until the limit resets at "
-            f"{state.reset_time.isoformat()}: the request was not sent",
+            f"No API credits left until the limit resets at {reset_at}: "
+            "the request was not sent",
             retry_after=seconds_to_reset,
         )
 

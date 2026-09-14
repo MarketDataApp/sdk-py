@@ -33,7 +33,11 @@ class UserRateLimits:
     credits_consumed: int            # API credits consumed
 
     def __post_init__(self):
-        self.reset_time = format_timestamp(self.reset_time)
+        # One instant, settled once: a value that arrived without an offset is
+        # US/Eastern, the zone the SDK renders every timestamp in. A wall time
+        # a daylight-saving change repeats or skips names no single instant,
+        # so it raises `ValueError` rather than landing an hour away.
+        self.reset_time = localize_if_naive(format_timestamp(self.reset_time))
 
     def __repr__(self) -> str:
         return (
@@ -126,7 +130,7 @@ def _check_rate_limits(self, raise_error: bool = True):
 **Rationale**:
 - **Fail early**: Prevent requests that would be rejected by the server
 - **Configurable**: `raise_error` flag allows skipping checks for specific requests (e.g., status checks)
-- **Logging**: Errors are logged for debugging
+- **Logging**: the refusal is not logged here. `api_error_handler` writes the one ERROR line every terminal failure gets (SDK requirements §7), and this one passes through it; logging again made alerting that counts ERROR records read one refusal as two
 - **Only a refusal it can justify (v2.0, #42)**: the check runs before the request and the tracker is fed by answers, so refusing on a state it cannot judge is self-perpetuating. An unknown balance used to raise, which is what kept it unknown, and an exhausted window kept refusing after the API had reset it, because `reset_time` was recorded and never read. Both let the request through now; only a known zero balance in a window that has not reset yet refuses, and it says how long until it does (`retry_after`).
 
 ### 5. Request-scoped metadata, no public snapshot (v2.0, #49)

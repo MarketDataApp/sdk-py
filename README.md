@@ -179,7 +179,7 @@ There is no client-level snapshot: `client.rate_limits` was removed in 2.0 becau
 
 The header names still say `ratelimit`; the SDK exposes them in the product's API-credits terms.
 
-The `reset_time` field is automatically converted to a `datetime.datetime` object for easier use.
+The `reset_time` field is automatically converted to a `datetime.datetime` object for easier use. It always carries an offset: a value that arrives without one is read as US/Eastern, the timezone the SDK renders every timestamp in.
 
 ### Resources
 
