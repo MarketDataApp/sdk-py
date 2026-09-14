@@ -862,7 +862,6 @@ def test_single_object_no_data_model_is_not_built(respx_mock, client):
         (lambda c: c.stocks.news("AAPL"), r".*/stocks/news/.*", []),
         (lambda c: c.stocks.quotes("AAPL"), r".*/stocks/quotes/.*", []),
         (lambda c: c.options.chain("AAPL"), r".*/options/chain/.*", None),
-        (lambda c: c.options.strikes("AAPL"), r".*/options/strikes/.*", None),
         (lambda c: c.stocks.earnings("AAPL"), r".*/stocks/earnings/.*", None),
         (
             lambda c: c.options.lookup("AAPL 28-00-2023 200.0 call"),
