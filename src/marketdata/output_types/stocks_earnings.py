@@ -1,5 +1,6 @@
 import datetime
 from dataclasses import dataclass
+from typing import ClassVar
 
 from marketdata.utils import format_timestamp
 
@@ -56,6 +57,8 @@ class StockEarnings:
 
 @dataclass
 class StockEarningsHumanReadable:
+    api_model: ClassVar[type] = StockEarnings
+
     Symbol: list[str]
     Fiscal_Year: list[int]
     Fiscal_Quarter: list[int]
