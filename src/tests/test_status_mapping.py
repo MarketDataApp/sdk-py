@@ -430,11 +430,7 @@ def test_every_resource_no_data_dataframe_has_the_shape_of_a_populated_one(
     DataFrame must be usable in place of a populated one (same index name,
     same columns), whatever the resource. `options.expirations` was the one
     that differed. Under `columns=` the empty frame still carries every model
-    column (#87).
-
-    `options.strikes` is left out on purpose: its columns are the expiration
-    dates of the answer itself, so no empty frame can match a populated one;
-    the resource is deprecated and goes away in #73."""
+    column (#87)."""
     respx_mock.get(url__regex=url_pattern).mock(
         side_effect=[
             httpx.Response(200, json=load_json(fixture)),
@@ -469,7 +465,6 @@ def test_single_object_no_data_model_is_not_built(respx_mock, client):
         (lambda c: c.stocks.news("AAPL"), r".*/stocks/news/.*", []),
         (lambda c: c.stocks.quotes("AAPL"), r".*/stocks/quotes/.*", []),
         (lambda c: c.options.chain("AAPL"), r".*/options/chain/.*", None),
-        (lambda c: c.options.strikes("AAPL"), r".*/options/strikes/.*", None),
         (lambda c: c.stocks.earnings("AAPL"), r".*/stocks/earnings/.*", None),
         (
             lambda c: c.options.lookup("AAPL 28-00-2023 200.0 call"),
