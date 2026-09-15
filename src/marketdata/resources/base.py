@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
@@ -16,6 +18,7 @@ from marketdata.settings import settings
 from marketdata.utils import (
     column_key,
     csv_header,
+    parse_error,
     parse_json,
     validate_single_param,
 )
@@ -74,6 +77,24 @@ def model_columns(output_model: type, requested: list[str] | None = None) -> lis
         if match is not None and match not in selected:
             selected.append(match)
     return selected or columns
+
+
+@contextmanager
+def model_errors(response: Response) -> Iterator[None]:
+    """Turn a model refusing a value into a ``ParseError``.
+
+    A model raises ``TypeError`` or ``ValueError`` for a value it cannot
+    hold: a price that is not a number, a date it cannot read. Those are the
+    right answers for a model a caller builds by hand, and the wrong ones
+    here, where the value came off the wire: a caller who wrote
+    ``except BaseMarketdataException`` does not catch a built-in, so the
+    output format decided whether a call raised, which #91 forbids (#50
+    review).
+    """
+    try:
+        yield
+    except (TypeError, ValueError) as exc:
+        raise parse_error(response, str(exc)) from exc
 
 
 def no_data_result(

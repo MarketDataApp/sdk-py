@@ -1,5 +1,6 @@
 import csv
 import datetime
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from io import StringIO
 from typing import Any
@@ -17,17 +18,48 @@ from marketdata.internal_settings import VALID_STATUS_CODES
 DEFAULT_TIMEZONE = pytz.timezone("US/Eastern")
 
 
-def parse_json(response: Response) -> Any:
+def _exact_number(text: str) -> Decimal:
+    """One JSON number as a ``Decimal``, or ``InvalidOperation``.
+
+    Whether an exponent past what a ``Decimal`` holds raises or decodes as
+    ``NaN`` is decided by a trap on the caller's thread-local context, which
+    a library cannot own. JSON has no literal for NaN, so a ``NaN`` here can
+    only be that overflow, and it is raised whatever the caller set (#50
+    review).
+    """
+    number = Decimal(text)
+    if number.is_nan():
+        raise InvalidOperation(f"number out of range: {text!r}")
+    return number
+
+
+def parse_json(response: Response, *, exact: bool = False) -> Any:
     """Decode the response body, or raise ``ParseError`` with support context.
 
     Every resource decodes through here so an undecodable body is one SDK
     exception (SDK requirements §6.1) instead of a bare ``JSONDecodeError``.
+
+    ``exact=True`` decodes every number with a fraction as a ``Decimal`` built
+    from the digits in the body, never through a float. It is for the
+    ``OutputFormat.INTERNAL`` path of a resource with money fields, whose
+    models give the numbers that are not money back their floats (#50).
     """
     try:
+        if exact:
+            return response.json(parse_float=_exact_number)
         return response.json()
     except ValueError as exc:  # json.JSONDecodeError is a ValueError
         raise ParseError(
             "Response body is not valid JSON: "
+            f"{resume_long_text(response.text, max_length=200)!r}",
+            request=response.request,
+            response=response,
+        ) from exc
+    except ArithmeticError as exc:
+        # decimal.InvalidOperation: a number whose exponent is past what a
+        # Decimal can hold, where the float parse would have read `inf`.
+        raise ParseError(
+            "Response body has a number out of range: "
             f"{resume_long_text(response.text, max_length=200)!r}",
             request=response.request,
             response=response,
