@@ -2,11 +2,19 @@
 response the metadata of a failed call speaks for, and an exception's ability
 to carry that metadata at all."""
 
+import time
+
 import httpx
 import pytest
 
 import marketdata
-from marketdata.exceptions import BadRequestError, ServerError
+from marketdata.exceptions import (
+    BadRequestError,
+    NetworkError,
+    ParseError,
+    RateLimitError,
+    ServerError,
+)
 from marketdata.input_types.base import OutputFormat
 from marketdata.meta import ResponseMeta, attach_meta, get_meta
 from marketdata.rate_limit_tracker import RateLimitTracker
@@ -136,9 +144,9 @@ def test_an_authoritative_update_skips_the_ordering_rule():
 def test_a_partial_fan_out_failure_reports_the_request_that_failed(
     load_json, respx_mock, client
 ):
-    """The rule that keeps a dropped `no_data` from labelling a result points
-    the other way on a failure: the id has to name the request that failed,
-    which is the one a support ticket is about."""
+    """The metadata of a failure names the request that failed, as the
+    exception does: that is the request a support ticket is about, not the
+    sibling that came back fine."""
     respx_mock.get(CALL_URL).respond(
         json=load_json("options_quotes_response_200"),
         status_code=200,
@@ -205,15 +213,225 @@ def test_a_successful_call_still_speaks_for_a_usable_response(
     assert (meta.status_code, meta.request_id) == (200, "ok-1")
 
 
-def test_merging_for_a_failure_falls_back_to_the_last_response():
-    """A transport failure records no response of its own, so there is no
-    failing status to point at and the last answer is the honest speaker."""
+# The review of #88 (#104): the responses are recorded in the order the
+# requests finished, so no rule over that list can tell which one failed. The
+# exception can: the metadata of a failure describes the request it is about.
+
+
+def later(response: httpx.Response, delay: float = 0.2):
+    """Answer after the other requests of the call, so this response is
+    recorded last: the order in which a rule over the list went wrong."""
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        time.sleep(delay)
+        return response
+
+    return answer
+
+
+def _speaker(meta: ResponseMeta) -> tuple[int, str | None]:
+    return meta.status_code, meta.request_id
+
+
+def test_a_failure_names_the_request_that_failed_not_a_later_empty_symbol(
+    respx_mock, client
+):
+    respx_mock.get(CALL_URL).respond(
+        json={"s": "error", "errmsg": "Bad parameters"},
+        status_code=400,
+        headers={"cf-ray": "bad-1"},
+    )
+    respx_mock.get(PUT_URL).mock(
+        side_effect=later(
+            httpx.Response(404, json={"s": "no_data"}, headers={"cf-ray": "empty-1"})
+        )
+    )
+
+    with pytest.raises(BadRequestError) as exc_info:
+        client.options.quotes(SYMBOLS, output_format=OutputFormat.JSON)
+
+    meta = get_meta(exc_info.value)
+    assert meta.responses == 2
+    assert _speaker(meta) == (400, "bad-1")
+
+
+def test_a_failure_names_the_request_that_failed_not_a_later_server_error(
+    respx_mock, client
+):
+    client.max_retries = 0
+    respx_mock.get(CALL_URL).respond(
+        json={"s": "error", "errmsg": "Bad parameters"},
+        status_code=400,
+        headers={"cf-ray": "bad-1"},
+    )
+    respx_mock.get(PUT_URL).mock(
+        side_effect=later(httpx.Response(503, json={}, headers={"cf-ray": "down-1"}))
+    )
+
+    with pytest.raises(BadRequestError) as exc_info:
+        client.options.quotes(SYMBOLS, output_format=OutputFormat.JSON)
+
+    assert _speaker(get_meta(exc_info.value)) == (400, "bad-1")
+
+
+def test_an_undecodable_chunk_is_named_even_though_every_status_was_usable(
+    respx_mock, client
+):
+    """Every answer is a 200, so no status says which one broke the call; only
+    the `ParseError` does."""
+    starts = iter(["html", "ok"])
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if next(starts) == "html":
+            return httpx.Response(200, text="<html>", headers={"cf-ray": "html-1"})
+        time.sleep(0.2)
+        return httpx.Response(
+            200, json={"s": "ok", "t": [1], "c": [1.0]}, headers={"cf-ray": "ok-1"}
+        )
+
+    respx_mock.get(url__regex=r".*/stocks/candles/H/AAPL/.*").mock(side_effect=answer)
+
+    with pytest.raises(ParseError) as exc_info:
+        client.stocks.candles(
+            "AAPL",
+            resolution="H",
+            from_date="2023-01-01",
+            to_date="2024-06-01",
+            output_format=OutputFormat.JSON,
+        )
+
+    assert exc_info.value.request_id == "html-1"
+    assert _speaker(get_meta(exc_info.value)) == (200, "html-1")
+
+
+def test_a_request_that_got_no_answer_lends_the_failure_no_sibling_id(
+    respx_mock, client
+):
+    """A transport failure has no response, so its metadata has no status and
+    no id to report, as the exception itself says (`0` and `N/A`); the credits
+    of the sibling that did answer are still reported."""
+    client.max_retries = 0
+    respx_mock.get(CALL_URL).mock(side_effect=httpx.ConnectTimeout("timed out"))
+    respx_mock.get(PUT_URL).mock(
+        side_effect=later(
+            httpx.Response(200, json={"s": "ok"}, headers={"cf-ray": "ok-1"})
+        )
+    )
+
+    with pytest.raises(NetworkError) as exc_info:
+        client.options.quotes(SYMBOLS, output_format=OutputFormat.JSON)
+
+    meta = get_meta(exc_info.value)
+    assert (exc_info.value.status_code, exc_info.value.request_id) == (0, "N/A")
+    assert _speaker(meta) == (0, None)
+    assert meta.responses == 1
+    assert meta.rate_limits.credits_consumed == 1
+
+
+REQUEST = httpx.Request("GET", CALL_URL)
+
+
+def _response(status: int, ray: str) -> httpx.Response:
+    return httpx.Response(status, json={}, headers={"cf-ray": ray}, request=REQUEST)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_the_exceptions_response_speaks_whatever_the_order(reverse):
+    metas = [
+        ResponseMeta(400, "bad-1", None),
+        ResponseMeta(404, "empty-1", None),
+        ResponseMeta(503, "down-1", None),
+        ResponseMeta(200, "ok-1", None),
+    ]
+    if reverse:
+        metas.reverse()
+    error = BadRequestError("bad", request=REQUEST, response=_response(400, "bad-1"))
+
+    merged = ResponseMeta.merge(metas, error=error)
+
+    assert _speaker(merged) == (400, "bad-1")
+    assert merged.responses == 4
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        NetworkError("timed out", request=REQUEST),
+        RateLimitError("Rate limit exceeded"),
+    ],
+    ids=["transport-failure", "pre-flight"],
+)
+def test_a_failure_without_a_response_has_no_speaker(error):
+    limits = UserRateLimits(100, 90, RESET, 3)
+    metas = [ResponseMeta(200, "ok-1", limits), ResponseMeta(503, "down-1", None)]
+
+    merged = ResponseMeta.merge(metas, error=error)
+
+    assert _speaker(merged) == (0, None)
+    assert merged.rate_limits.credits_consumed == 3
+
+
+def test_a_response_without_a_cf_ray_gives_no_request_id():
+    """The exception reads a missing `cf-ray` as the sentinel `"N/A"`; the
+    metadata reads it as `None`, as on a successful call."""
+    error = BadRequestError(
+        "bad", request=REQUEST, response=httpx.Response(400, request=REQUEST)
+    )
+
+    merged = ResponseMeta.merge([ResponseMeta(400, None, None)], error=error)
+
+    assert error.request_id == "N/A"
+    assert _speaker(merged) == (400, None)
+
+
+def test_a_response_that_is_not_an_httpx_response_does_not_break_the_merge():
+    """The merge runs inside the decorator's `except`: were it to raise there,
+    the caller would get that error instead of their own. A `response` of
+    another type (a caller's subclass, a test double) falls back to the rule
+    of a successful call."""
+    error = BadRequestError("bad", request=REQUEST, response=_response(400, "bad-1"))
+    error.response = object()
+    metas = [ResponseMeta(200, "ok-1", None), ResponseMeta(404, "empty-1", None)]
+
+    assert _speaker(ResponseMeta.merge(metas, error=error)) == (200, "ok-1")
+
+
+def test_the_no_usable_answer_error_names_the_answer_that_is_not_empty(
+    respx_mock, client
+):
+    """`options.quotes` raises its own `MarketdataHttpError` when no symbol
+    answered with anything usable. It used to hand over the first response,
+    which can be a symbol that simply had no data, and the metadata now reads
+    the exception's response."""
+    respx_mock.get(CALL_URL).respond(
+        json={"s": "no_data"}, status_code=404, headers={"cf-ray": "empty-1"}
+    )
+    respx_mock.get(PUT_URL).mock(
+        side_effect=later(httpx.Response(204, headers={"cf-ray": "odd-1"}))
+    )
+
+    with pytest.raises(marketdata.MarketdataHttpError) as exc_info:
+        client.options.quotes(SYMBOLS, output_format=OutputFormat.JSON)
+
+    assert exc_info.value.message == "No responses from API"
+    assert (exc_info.value.status_code, exc_info.value.request_id) == (204, "odd-1")
+    assert _speaker(get_meta(exc_info.value)) == (204, "odd-1")
+
+
+def test_an_exception_not_about_a_request_keeps_the_rule_of_a_success():
+    """A CSV path that already exists: every request answered, so neither an
+    empty symbol nor an attempt that failed and recovered is what went wrong,
+    and the metadata speaks for the last usable response."""
     metas = [
         ResponseMeta(200, "ok-1", None),
+        ResponseMeta(503, "down-1", None),
         ResponseMeta(200, "ok-2", None),
+        ResponseMeta(404, "empty-1", None),
     ]
 
-    assert ResponseMeta.merge(metas, failed=True).request_id == "ok-2"
+    merged = ResponseMeta.merge(metas, error=FileExistsError("mine.csv"))
+
+    assert _speaker(merged) == (200, "ok-2")
 
 
 # --------------------------------- an exception that can carry the metadata
