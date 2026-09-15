@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A CSV empty answer that arrives with a byte order mark in front of the API's placeholder is recognised as the empty answer, on every resource and on both fan-outs. It used to read as data: the placeholder was written into the file, and a chunk or a symbol carrying one failed the whole call with `ParseError: unknown columns ['0']`. Every CSV reader in the SDK now takes a leading mark off through one constant; inside a value it is still data. The API sends none, verified live on data, on an empty answer and on an error envelope, so this is for a proxy that adds one (#109)
 - `options.quotes()` no longer hides a per-symbol body that cannot be decoded (an HTML error page from a proxy or a captive portal) behind a fabricated empty row that read as "no options"; it raises `ParseError` with the URL, the status and a body excerpt, as every other method does (#82, CSV output in #86)
 - `stocks.candles()` and `options.quotes()` retry each request on its own instead of the whole call: a failed chunk or symbol is re-issued alone, the healthy responses are kept, and one unreachable symbol no longer re-sends (and re-bills) every other symbol on each attempt (#83)
 - `options.expirations()` returns a `no_data` DataFrame with the same index as a populated one (`expirations` index, `updated` column), so concatenating results across symbols keeps the index name and gains no stray `expirations` column (#84)

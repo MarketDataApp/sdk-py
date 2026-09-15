@@ -40,6 +40,12 @@ def parse_json(response: Response) -> Any:
 # second shape is also what a one-column, one-row answer with a null value
 # renders as under ``add_headers=False``; the API itself reports an all-null
 # answer as ``no_data`` on the JSON path, so reading it as empty agrees.
+# A byte order mark is not data, wherever the SDK meets one. The API sends
+# none on any CSV answer, verified live on data, on an empty answer and on an
+# error envelope; a proxy or a spreadsheet-friendly gateway in between is what
+# adds one (#93, #109).
+BOM = chr(0xFEFF)
+
 _CSV_NO_DATA_BODIES = (["0", '""'], ['""'])
 
 
@@ -56,7 +62,12 @@ def is_no_data(response: Response) -> bool:
         return True
     if response.status_code not in VALID_STATUS_CODES or len(response.content) > 16:
         return False
-    return [line for line in response.text.splitlines() if line] in _CSV_NO_DATA_BODIES
+    # A BOM is not data. Every other CSV reader takes one off (`_csv_rows`,
+    # #93); this is the one that matched the placeholder with it attached, so
+    # a body a proxy had marked read as rows and the fan-outs failed on it
+    # (#109). Only a leading one: inside a value it is data.
+    body = response.text.lstrip(BOM)
+    return [line for line in body.splitlines() if line] in _CSV_NO_DATA_BODIES
 
 
 def column_key(name: str) -> str:
@@ -100,11 +111,9 @@ def _csv_rows(text: str) -> list[list[str]]:
     """
     # Before the parse, so a BOM does not break the quoting of the first value,
     # and after it, for a body that starts with blank lines.
-    rows = [
-        row for row in csv.reader(StringIO(text.lstrip("\ufeff"), newline="")) if row
-    ]
+    rows = [row for row in csv.reader(StringIO(text.lstrip(BOM), newline="")) if row]
     if rows:
-        rows[0][0] = rows[0][0].lstrip("\ufeff")  # a BOM is not data
+        rows[0][0] = rows[0][0].lstrip(BOM)  # a BOM is not data
     return rows
 
 
