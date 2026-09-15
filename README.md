@@ -152,11 +152,11 @@ meta = marketdata.get_meta(prices)          # ResponseMeta
 print(meta.rate_limits.credits_consumed)    # what this call cost
 print(meta.rate_limits.credits_remaining)   # the balance after it
 print(meta.rate_limits.reset_time)          # datetime of the next reset
-print(meta.request_id)                      # the cf-ray id, for support
+print(meta.request_id)                      # the cf-ray id, for support, or None
 print(meta.rate_limits)                     # "Credits used X/Y, remaining: Z, reset at: ISO timestamp"
 ```
 
-`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `status_code` and `request_id` describe one response, so they come from the last one that could have contributed to the result, never from a symbol or chunk that answered "no data" and was dropped from the merge, which matters because `request_id` is what you quote in a support ticket. On the metadata of a call that raised, the same rule points the other way: there they come from the last response that failed, so the id names the request the ticket is about. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data). `meta.detected_ip` is the address the API saw the call come from, on every answer it serves, the empty one included.
+`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `status_code` and `request_id` describe one response, so they come from the last one that could have contributed to the result, never from a symbol or chunk that answered "no data" and was dropped from the merge, which matters because `request_id` is what you quote in a support ticket; it is `None` when the answer carried no usable `cf-ray`. On the metadata of a call that raised, the same rule points the other way: there they come from the last response that failed, so the id names the request the ticket is about. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data). `meta.detected_ip` is the address the API saw the call come from, on every answer it serves, the empty one included.
 
 A failed call is billed too, so the exception carries the same metadata a result would:
 
@@ -421,7 +421,7 @@ Connection failures and undecodable bodies are wrapped (`NetworkError`, `ParseEr
 
 ### `BaseMarketdataException` and `support_info`
 
-Every SDK exception exposes the same six attributes, `request_id` (the `cf-ray` header), `request_url`, `status_code`, `timestamp` (US/Eastern), `message` and `exception_type`, as plain attributes, as a `support_context` dict and as the formatted `support_info` block. Failures that never reached the API (validation, the rate-limit pre-flight) report `N/A` and `0` for the request fields, and so does an answer that carried no usable `cf-ray`.
+Every SDK exception exposes the same six attributes, `request_id` (the `cf-ray` header), `request_url`, `status_code`, `timestamp` (US/Eastern), `message` and `exception_type`, as plain attributes, as a `support_context` dict and as the formatted `support_info` block. Failures that never reached the API (validation, the rate-limit pre-flight) report `N/A` and `0` for the request fields. An answer that carried no usable `cf-ray` reports `N/A` for `request_id` alone; the status and the URL are the real ones.
 
 ```
 --- MARKET DATA SUPPORT INFO ---

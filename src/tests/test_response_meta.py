@@ -586,7 +586,11 @@ def test_merge_of_nothing_is_a_value_error():
     to surface as a bare IndexError."""
     with pytest.raises(ValueError, match="empty list"):
         ResponseMeta.merge([])
-@pytest.mark.parametrize("sent, reason", [("", "blank"), ("   ", "spaces")])
+
+
+@pytest.mark.parametrize(
+    "sent, reason", [("", "blank"), ("   ", "spaces"), (None, "absent")]
+)
 def test_a_request_id_the_api_sent_blank_reads_as_no_id(
     respx_mock, real_headers, sent, reason
 ):
@@ -594,10 +598,13 @@ def test_a_request_id_the_api_sent_blank_reads_as_no_id(
     blank `cf-ray` is a value it does not have: `""` would read as an id to
     a caller pasting it into a ticket (#114)."""
     client = real_headers
+    headers = credit_headers(1, 99)
+    if sent is None:
+        del headers["cf-ray"]
+    else:
+        headers["cf-ray"] = sent
     respx_mock.get(PRICES_URL).respond(
-        json=prices_body(),
-        status_code=200,
-        headers=credit_headers(1, 99, request_id=sent),
+        json=prices_body(), status_code=200, headers=headers
     )
 
     result = client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)

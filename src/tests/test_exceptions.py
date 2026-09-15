@@ -194,6 +194,8 @@ def test_validation_errors_raise_before_any_request(respx_mock, client):
     assert not [
         c for c in respx_mock.calls if c.request.url.path.startswith("/v1/stocks/")
     ]
+
+
 @pytest.mark.parametrize(
     "headers, reason",
     [
@@ -223,8 +225,10 @@ def test_a_request_id_keeps_the_spacing_the_api_sent_inside_it():
     ticket, so nothing inside it is rewritten."""
     error = RateLimitError(
         "Rate limit exceeded",
-        response=Response(429, headers={"cf-ray": "  8a1b-SJC  "}, request=REQUEST),
+        response=Response(
+            429, headers={"cf-ray": "  8a1b 2c3d-SJC  "}, request=REQUEST
+        ),
         timestamp="2025-02-21 12:00:00",
     )
 
-    assert error.request_id == "8a1b-SJC"
+    assert error.request_id == "8a1b 2c3d-SJC"

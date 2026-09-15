@@ -50,9 +50,11 @@ def read_header(response: Response | None, name: str) -> str | None:
 
     A header the API sent blank is nothing: ``''`` would read as an address to
     a caller checking ``if error.authorized_ip``, or as a request id to a
-    caller pasting one into a ticket. Every site that reads a header goes
-    through here, so "missing", "blank" and "spaces" are one answer rather
-    than three (#44, #114).
+    caller pasting one into a ticket. The sites that report a header's value
+    to the caller read it here, so "missing", "blank" and "spaces" are one
+    answer rather than three (#44, #114). The numeric headers are not among
+    them: the credit headers and ``Retry-After`` are parsed where they are
+    used, and a blank one is already a failed ``int()`` there.
 
     What each caller makes of that answer stays with the caller: the support
     block renders an absent id as ``N/A`` (§6.3) and ``ResponseMeta`` reports
