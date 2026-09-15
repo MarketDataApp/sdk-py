@@ -40,6 +40,11 @@ def parse_json(response: Response) -> Any:
 # second shape is also what a one-column, one-row answer with a null value
 # renders as under ``add_headers=False``; the API itself reports an all-null
 # answer as ``no_data`` on the JSON path, so reading it as empty agrees.
+# A byte order mark is not data, wherever the SDK meets one. The API is not
+# what puts it there: a proxy or a spreadsheet-friendly gateway in between is
+# (#93, #109).
+BOM = chr(0xFEFF)
+
 _CSV_NO_DATA_BODIES = (["0", '""'], ['""'])
 
 
@@ -56,7 +61,16 @@ def is_no_data(response: Response) -> bool:
         return True
     if response.status_code not in VALID_STATUS_CODES or len(response.content) > 16:
         return False
-    return [line for line in response.text.splitlines() if line] in _CSV_NO_DATA_BODIES
+    # A BOM is not data. This was the one CSV reader that matched the
+    # placeholder with one attached, so a body a proxy had marked read as
+    # rows and the fan-outs failed on it (#109). Only what opens the body,
+    # however many marks that is, since `lstrip` takes a set of characters:
+    # one after a blank line is not a byte order mark, and one inside a value
+    # is data. `_csv_rows` goes further and strips the first value after
+    # the parse as well, which the error path needs and this comparison does
+    # not.
+    body = response.text.lstrip(BOM)
+    return [line for line in body.splitlines() if line] in _CSV_NO_DATA_BODIES
 
 
 def column_key(name: str) -> str:
@@ -87,9 +101,12 @@ def _csv_rows(text: str) -> list[list[str]]:
     """The rows of a CSV body, blank lines dropped and a BOM taken off.
 
     The error envelope and the fan-out merge both read a body through here, so
-    the two cannot drift apart. It is not every CSV the SDK touches: the body
-    of a single-request CSV answer is written to file unread, and
-    ``is_no_data`` matches the placeholder line by line.
+    the two cannot drift apart. It is not every CSV the SDK touches: the ten
+    resources that answer from one request write the body to file unread, and
+    ``is_no_data`` matches the placeholder line by line. ``stocks.candles`` and
+    ``options.quotes`` are not among them: their CSV goes through the merge
+    even when a single request answered it, so their file is re-rendered
+    rather than passed along.
 
     The text is read with ``newline=""``, as the ``csv`` module prescribes, so
     a body whose lines end in a lone CR reads as rows instead of raising, and
@@ -100,11 +117,9 @@ def _csv_rows(text: str) -> list[list[str]]:
     """
     # Before the parse, so a BOM does not break the quoting of the first value,
     # and after it, for a body that starts with blank lines.
-    rows = [
-        row for row in csv.reader(StringIO(text.lstrip("\ufeff"), newline="")) if row
-    ]
+    rows = [row for row in csv.reader(StringIO(text.lstrip(BOM), newline="")) if row]
     if rows:
-        rows[0][0] = rows[0][0].lstrip("\ufeff")  # a BOM is not data
+        rows[0][0] = rows[0][0].lstrip(BOM)  # a BOM is not data
     return rows
 
 

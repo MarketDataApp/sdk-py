@@ -651,6 +651,11 @@ CALL_ROW = (
 PUT_ROW = CALL_ROW.replace("AAPL271217C00255000", "AAPL271217P00255000").replace(
     ",call,", ",put,"
 )
+# A byte order mark built here rather than imported from `utils`: a test that
+# takes the mark from the code under test cannot tell a wrong constant from a
+# right one, because the body and the strip move together (#109).
+BOM = chr(0xFEFF)
+
 CSV_PLACEHOLDER = '0\r\n""\r\n'
 
 
@@ -777,13 +782,14 @@ def test_options_quotes_csv_body_the_csv_module_cannot_read_is_a_parse_error(
     assert not (tmp_path / "test.csv").exists()
 
 
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
 def test_options_quotes_csv_leaves_out_a_symbol_with_no_data(
-    respx_mock, client, tmp_path
+    respx_mock, client, tmp_path, mark
 ):
     """Issue #89: the API's CSV placeholder for an empty symbol is a 200; it
     must be skipped like a JSON 404 no_data, not merged, not an error."""
     respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
-    respx_mock.get(PUT_URL).respond(text=CSV_PLACEHOLDER)
+    respx_mock.get(PUT_URL).respond(text=mark + CSV_PLACEHOLDER)
 
     output = client.options.quotes(
         symbols=["AAPL271217C00255000", "AAPL271217P00255000"],

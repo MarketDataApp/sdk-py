@@ -442,6 +442,10 @@ CSV_BODY = (
     "1704171600,185.6,186.88,182.36,184.1,82488674\r\n"
     "1704258000,182.69,184.34,181.91,182.72,58414460\r\n"
 )
+# Built here, not imported from `utils`: a test that takes the mark from the
+# code under test cannot tell a wrong constant from a right one (#109).
+BOM = chr(0xFEFF)
+
 CSV_PLACEHOLDER = '0\r\n""\r\n'
 TWO_CHUNKS = dict(from_date="2023-01-01", to_date="2024-06-01")
 CHUNK_STARTS = ["2023-01-01", "2024-01-01"]
@@ -542,12 +546,16 @@ def test_stocks_candles_csv_chunk_the_csv_module_cannot_read_is_a_parse_error(
     assert not (tmp_path / "test.csv").exists()
 
 
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
 def test_stocks_candles_csv_leaves_out_a_chunk_with_no_data(
-    respx_mock, client, tmp_path
+    respx_mock, client, tmp_path, mark
 ):
-    """Issue #89: the API's CSV placeholder for an empty chunk is a 200."""
+    """Issue #89: the API's CSV placeholder for an empty chunk is a 200.
+
+    With a byte order mark in front of it the whole call used to fail with
+    `ParseError: unknown columns ['0']` (#109)."""
     respx_mock.get(HOURLY_URL).mock(
-        side_effect=by_chunk(dict(text=CSV_PLACEHOLDER), dict(text=CSV_BODY))
+        side_effect=by_chunk(dict(text=mark + CSV_PLACEHOLDER), dict(text=CSV_BODY))
     )
 
     output = client.stocks.candles(
