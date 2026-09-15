@@ -40,10 +40,9 @@ def parse_json(response: Response) -> Any:
 # second shape is also what a one-column, one-row answer with a null value
 # renders as under ``add_headers=False``; the API itself reports an all-null
 # answer as ``no_data`` on the JSON path, so reading it as empty agrees.
-# A byte order mark is not data, wherever the SDK meets one. The API sends
-# none on any CSV answer, verified live on data, on an empty answer and on an
-# error envelope; a proxy or a spreadsheet-friendly gateway in between is what
-# adds one (#93, #109).
+# A byte order mark is not data, wherever the SDK meets one. The API is not
+# what puts it there: a proxy or a spreadsheet-friendly gateway in between is
+# (#93, #109).
 BOM = chr(0xFEFF)
 
 _CSV_NO_DATA_BODIES = (["0", '""'], ['""'])
@@ -62,10 +61,13 @@ def is_no_data(response: Response) -> bool:
         return True
     if response.status_code not in VALID_STATUS_CODES or len(response.content) > 16:
         return False
-    # A BOM is not data. Every other CSV reader takes one off (`_csv_rows`,
-    # #93); this is the one that matched the placeholder with it attached, so
-    # a body a proxy had marked read as rows and the fan-outs failed on it
-    # (#109). Only a leading one: inside a value it is data.
+    # A BOM is not data. This was the one CSV reader that matched the
+    # placeholder with one attached, so a body a proxy had marked read as
+    # rows and the fan-outs failed on it (#109). Only a mark that opens the
+    # body: one after a blank line is not a byte order mark, and one inside a
+    # value is data. `_csv_rows` goes further and strips the first value after
+    # the parse as well, which the error path needs and this comparison does
+    # not.
     body = response.text.lstrip(BOM)
     return [line for line in body.splitlines() if line] in _CSV_NO_DATA_BODIES
 

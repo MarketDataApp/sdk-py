@@ -20,7 +20,6 @@ from marketdata.output_types.options_quotes import (
     OptionsQuotes,
     OptionsQuotesHumanReadable,
 )
-from marketdata.utils import BOM
 
 
 def test_options_quotes_str():
@@ -652,6 +651,11 @@ CALL_ROW = (
 PUT_ROW = CALL_ROW.replace("AAPL271217C00255000", "AAPL271217P00255000").replace(
     ",call,", ",put,"
 )
+# A byte order mark built here rather than imported from `utils`: a test that
+# takes the mark from the code under test cannot tell a wrong constant from a
+# right one, because the body and the strip move together (#109).
+BOM = chr(0xFEFF)
+
 CSV_PLACEHOLDER = '0\r\n""\r\n'
 
 

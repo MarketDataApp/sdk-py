@@ -9,7 +9,6 @@ import pytz
 from marketdata.exceptions import ParseError
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.utils import (
-    BOM,
     check_is_date,
     column_key,
     dict_to_csv,
@@ -393,6 +392,10 @@ def test_parse_csv_errmsg_reports_no_table_when_the_reader_refuses_the_body():
 
 # ----------------------------------------------------------- is_no_data
 
+# Built here, not imported: a test that takes the mark from the code under
+# test cannot tell a wrong constant from a right one (#109).
+BOM = chr(0xFEFF)
+
 CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
 
 
@@ -414,7 +417,7 @@ CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
         (203, BOM + '0\r\n""\r\n', True),
         # Inside a value it is data, not a mark.
         (200, '0\r\n"' + BOM + '"\r\n', False),
-        (200, "t,c\r\n" + BOM + "1,2\r\n", False),
+        (200, "0\r\n" + BOM + '""\r\n', False),
     ],
 )
 def test_is_no_data_recognises_the_404_and_the_csv_placeholder(status, body, expected):

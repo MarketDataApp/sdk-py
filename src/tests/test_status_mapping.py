@@ -25,7 +25,6 @@ from marketdata.exceptions import (
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.options_expirations import OptionsExpirations
 from marketdata.output_types.stocks_candles import StockCandle
-from marketdata.utils import BOM
 
 PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 EXPIRATIONS_URL = "https://api.marketdata.app/v1/options/expirations/AAPL/"
@@ -704,6 +703,11 @@ def test_an_api_alias_column_filter_does_not_keep_the_no_data_shape(
     assert list(empty.columns) == ["o", "h", "l", "c", "v"]
     assert list(empty.index.names) == ["t"]
 
+
+# A byte order mark built here rather than imported from `utils`: a test that
+# takes the mark from the code under test cannot tell a wrong constant from a
+# right one, because the body and the strip move together (#109).
+BOM = chr(0xFEFF)
 
 CSV_PLACEHOLDER = '0\r\n""\r\n'
 
