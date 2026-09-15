@@ -421,7 +421,7 @@ Connection failures and undecodable bodies are wrapped (`NetworkError`, `ParseEr
 
 ### `BaseMarketdataException` and `support_info`
 
-Every SDK exception exposes the same six attributes, `request_id` (the `cf-ray` header), `request_url`, `status_code`, `timestamp` (US/Eastern), `message` and `exception_type`, as plain attributes, as a `support_context` dict and as the formatted `support_info` block. Failures that never reached the API (validation, the rate-limit pre-flight) report `N/A` and `0` for the request fields.
+Every SDK exception exposes the same six attributes, `request_id` (the `cf-ray` header), `request_url`, `status_code`, `timestamp` (US/Eastern), `message` and `exception_type`, as plain attributes, as a `support_context` dict and as the formatted `support_info` block. Failures that never reached the API (validation, the rate-limit pre-flight) report `N/A` and `0` for the request fields, and so does an answer that carried no usable `cf-ray`.
 
 ```
 --- MARKET DATA SUPPORT INFO ---

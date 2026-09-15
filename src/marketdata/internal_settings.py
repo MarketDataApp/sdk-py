@@ -39,17 +39,24 @@ MAX_CREDIT_WINDOW_SECONDS = 24 * 60 * 60
 # not read: the API is removing it (MarketData-App/api#202).
 HEADER_DETECTED_IP = "x-api-detected-ip"
 HEADER_AUTHORIZED_IP = "x-api-authorized-ip"
+# Cloudflare sits in front of the API and stamps this on every answer it
+# serves. It is the id support looks a ticket up by, so the SDK reports it
+# under its own name (#12).
+HEADER_REQUEST_ID = "cf-ray"
 
 
 def read_header(response: Response | None, name: str) -> str | None:
     """One header's value, or ``None`` when there is nothing to read.
 
     A header the API sent blank is nothing: ``''`` would read as an address to
-    a caller checking ``if error.authorized_ip``. The rule lives here so the
-    two sites that read an IP header, and anything that joins them, answer the
-    same way. ``_request_id`` in ``exceptions.py`` keeps its own reading: it
-    answers ``N/A`` rather than ``None``, and changing what it makes of a blank
-    ``cf-ray`` is a change to the support block, not a cleanup (#114).
+    a caller checking ``if error.authorized_ip``, or as a request id to a
+    caller pasting one into a ticket. Every site that reads a header goes
+    through here, so "missing", "blank" and "spaces" are one answer rather
+    than three (#44, #114).
+
+    What each caller makes of that answer stays with the caller: the support
+    block renders an absent id as ``N/A`` (§6.3) and ``ResponseMeta`` reports
+    it as ``None``, the way it reports every other value it does not have.
     """
     if response is None:
         return None

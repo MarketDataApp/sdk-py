@@ -556,6 +556,26 @@ def test_client_pre_and_post_request_logs(client, respx_mock):
             )
 
 
+@pytest.mark.parametrize("headers, reason", [({"cf-ray": ""}, "blank"), ({}, "absent")])
+def test_the_response_log_line_says_n_a_when_there_is_no_request_id(
+    client, respx_mock, headers, reason
+):
+    """The log line is read by a person looking for the id to quote. Without
+    one it used to print the word `None`, or a gap where a blank header was,
+    neither of which is an id (#114)."""
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json={}, status_code=200, headers=headers
+    )
+    client = MarketDataClient(token="test")
+
+    with patch.object(client.logger, "log") as logged:
+        client.stocks.prices(symbols="AAPL")
+
+    message = logged.call_args.args[1]
+    assert " N/A " in message, reason
+    assert "None" not in message
+
+
 def test_client_max_retries_default(client):
     assert client.max_retries == 3
 

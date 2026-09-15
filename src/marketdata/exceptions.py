@@ -29,7 +29,11 @@ from datetime import datetime
 from httpx import Request, Response
 from pytz import timezone
 
-from marketdata.internal_settings import HEADER_AUTHORIZED_IP, read_header
+from marketdata.internal_settings import (
+    HEADER_AUTHORIZED_IP,
+    HEADER_REQUEST_ID,
+    read_header,
+)
 
 SUPPORT_CONTEXT_FIELDS = (
     "request_id",
@@ -100,9 +104,13 @@ class BaseMarketdataException(Exception):
 
 
 def _request_id(response: Response | None) -> str:
-    if response is None:
-        return NOT_AVAILABLE
-    return response.headers.get("cf-ray", NOT_AVAILABLE)
+    """The id for a support ticket, or ``N/A`` when the answer carries none.
+
+    A blank ``cf-ray`` is no id: rendering it would print ``request_id:``
+    followed by nothing, which reads as a bug in the block rather than as an
+    absent id (#114).
+    """
+    return read_header(response, HEADER_REQUEST_ID) or NOT_AVAILABLE
 
 
 class MarketdataHttpError(BaseMarketdataException):

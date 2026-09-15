@@ -185,7 +185,7 @@ the same six lines appear, with `request_id` / `request_url` reading `N/A` and
 `status_code` reading `0`. That is by design.
 
 **Bug indicator:** `request_id` reading `N/A` when the response genuinely carried a
-`cf-ray` header, a `status_code` of `0` on a real HTTP failure, or the token appearing in
+`cf-ray` header (a header present but blank is not one: it reads `N/A` by design), a `status_code` of `0` on a real HTTP failure, or the token appearing in
 `request_url`.
 
 #### 1.4 Every exception type is reachable and correct

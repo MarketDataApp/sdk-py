@@ -586,3 +586,20 @@ def test_merge_of_nothing_is_a_value_error():
     to surface as a bare IndexError."""
     with pytest.raises(ValueError, match="empty list"):
         ResponseMeta.merge([])
+@pytest.mark.parametrize("sent, reason", [("", "blank"), ("   ", "spaces")])
+def test_a_request_id_the_api_sent_blank_reads_as_no_id(
+    respx_mock, real_headers, sent, reason
+):
+    """`None` is how this dataclass says it does not have a value, and a
+    blank `cf-ray` is a value it does not have: `""` would read as an id to
+    a caller pasting it into a ticket (#114)."""
+    client = real_headers
+    respx_mock.get(PRICES_URL).respond(
+        json=prices_body(),
+        status_code=200,
+        headers=credit_headers(1, 99, request_id=sent),
+    )
+
+    result = client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)
+
+    assert get_meta(result).request_id is None, reason

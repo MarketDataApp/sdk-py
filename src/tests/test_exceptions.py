@@ -194,3 +194,37 @@ def test_validation_errors_raise_before_any_request(respx_mock, client):
     assert not [
         c for c in respx_mock.calls if c.request.url.path.startswith("/v1/stocks/")
     ]
+@pytest.mark.parametrize(
+    "headers, reason",
+    [
+        ({"cf-ray": ""}, "blank"),
+        ({"cf-ray": "   "}, "spaces"),
+        ({}, "absent"),
+    ],
+)
+def test_an_answer_with_no_usable_request_id_reports_it_as_not_available(
+    headers, reason
+):
+    """A blank `cf-ray` is not an id (#114). Rendering it printed
+    `request_id:` followed by nothing, which reads as a bug in the block
+    rather than as an answer that carried no id."""
+    error = RateLimitError(
+        "Rate limit exceeded",
+        response=Response(429, headers=headers, request=REQUEST),
+        timestamp="2025-02-21 12:00:00",
+    )
+
+    assert error.request_id == "N/A", reason
+    assert "request_id:     N/A" in error.support_info
+
+
+def test_a_request_id_keeps_the_spacing_the_api_sent_inside_it():
+    """Only the ends are trimmed: the id itself is quoted verbatim in a
+    ticket, so nothing inside it is rewritten."""
+    error = RateLimitError(
+        "Rate limit exceeded",
+        response=Response(429, headers={"cf-ray": "  8a1b-SJC  "}, request=REQUEST),
+        timestamp="2025-02-21 12:00:00",
+    )
+
+    assert error.request_id == "8a1b-SJC"
