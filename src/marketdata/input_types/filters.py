@@ -5,7 +5,8 @@ The API reads both as a small expression language rather than as one number
 ``parse_input_expression``): ``250`` is one value, ``250,255`` a set,
 ``250-260`` an inclusive range, and ``>=250`` a one-sided bound. Written as a
 string that grammar is easy to get wrong and invisible to a type checker, so
-each shape has a constructor, the way sdk-go gives them.
+each shape has a constructor, the way sdk-go gives them. sdk-csharp names
+three of these shapes and has no filter for ``delta`` at all.
 
 Two of its rules are sharp edges, both measured against production on
 2026-09-15:
@@ -30,13 +31,17 @@ from decimal import Decimal
 __all__ = ["DeltaFilter", "StrikeFilter"]
 
 
-def _render(value: object, argument: str, *, negative_ok: bool) -> str:
+def _render(
+    value: object, argument: str, *, negative_ok: bool, in_a_range: bool = False
+) -> str:
     """One number as the digits the API should read.
 
     A ``Decimal`` renders through ``str`` and every other number through
-    ``str`` as well, which for a float is its shortest form. Exponent notation
-    is refused: ``1e-05`` reaches the API's expression parser as a range
-    between ``1e`` and ``05``.
+    ``str`` as well, which for a float is its shortest form. A positive
+    exponent travels fine: ``Decimal("250.00").normalize()`` is
+    ``Decimal("2.5E+2")``, and the API answers ``250`` for it, measured. What
+    cannot travel is a minus anywhere but the front, since the API reads the
+    text around one as a range: ``1e-05`` becomes ``1e`` to ``05``.
     """
     if isinstance(value, bool):
         raise ValueError(f"{argument} cannot be a bool: {value!r}")
@@ -54,12 +59,25 @@ def _render(value: object, argument: str, *, negative_ok: bool) -> str:
     else:
         raise ValueError(f"{argument} must be a number, not {type(value).__name__}")
 
-    if "e" in rendered.lower():
+    if Decimal(rendered) == 0:
+        # `-0.0` is zero and the API answers `0` for it, so the sign goes
+        # rather than the value being refused for a minus nobody wrote.
+        rendered = rendered.lstrip("-")
+    if "-" in rendered[1:]:
+        halves = rendered[1:].split("-")
         raise ValueError(
-            f"{argument} cannot be written in exponent notation ({rendered}): "
-            "the API would read it as a range. Pass a Decimal, or round it"
+            f"{argument} cannot carry a minus inside it ({rendered}): the API "
+            "reads the text around one as a range, so this would be read as "
+            f"{halves[0]!r} to {halves[1]!r}. Round it, or write the "
+            "expression by hand"
         )
     if not negative_ok and rendered.startswith("-"):
+        if in_a_range:
+            raise ValueError(
+                f"{argument} cannot be negative ({rendered}): a range with a "
+                "minus in it is not read as a range at all, so the call fails "
+                "with a 400"
+            )
         raise ValueError(
             f"{argument} cannot be negative ({rendered}): the API reads a "
             "number by its absolute value, so it would answer for "
@@ -108,8 +126,8 @@ class _NumericFilter(str):
     @classmethod
     def between(cls, low: object, high: object) -> _NumericFilter:
         """An inclusive range, sent as ``low-high``."""
-        rendered_low = _render(low, "low", negative_ok=False)
-        rendered_high = _render(high, "high", negative_ok=False)
+        rendered_low = _render(low, "low", negative_ok=False, in_a_range=True)
+        rendered_high = _render(high, "high", negative_ok=False, in_a_range=True)
         if Decimal(rendered_low) > Decimal(rendered_high):
             raise ValueError(
                 f"low must not be above high: {rendered_low}-{rendered_high}"
@@ -168,9 +186,20 @@ class StrikeFilter(_NumericFilter):
 class DeltaFilter(_NumericFilter):
     """The ``delta`` filter of ``options.chain``.
 
-    The API filters on the **absolute value** of delta and answers both sides,
-    so ``DeltaFilter.exact(0.5)`` and ``DeltaFilter.exact(-0.5)`` return the
-    same rows, measured. Both are accepted for an exact value and for a set.
+    Three things the API does with this parameter are worth knowing before
+    the constructors make sense.
+
+    It matches the **nearest** delta rather than the one asked for: per
+    expiration and side it sorts by distance and takes the closest, so
+    ``exact(0.5)`` answered ``[0.5266, -0.4729]`` when it was measured, and
+    never answers with nothing. ``exact`` names the shape of the expression,
+    not the precision of the match.
+
+    It filters on the **absolute value** and answers both sides, so ``0.5``
+    and ``-0.5`` return the same rows, measured. Both are accepted for an
+    exact value and for a set.
+
+    A value above 1 is read as a percentage: ``exact(30)`` means ``0.30``.
 
     A negative is still refused in a range or a bound, where the absolute
     value changes the question rather than restating it: ``>=-0.5`` would ask
@@ -179,7 +208,8 @@ class DeltaFilter(_NumericFilter):
 
     The filter can also do nothing at all: if any contract in the chain the
     API fetched carries a null delta, the whole filter is skipped and the full
-    chain comes back with a ``200`` (MarketData-App/api#352).
+    chain comes back with a ``200`` (MarketData-App/api#352). Together with a
+    historical ``date`` it is refused with a ``400``.
     """
 
     __slots__ = ()

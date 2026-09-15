@@ -58,34 +58,80 @@ def test_each_constructor_renders_the_expression_the_api_reads(built, expression
     assert isinstance(built, str), "it reaches the query string as a string"
 
 
-@pytest.mark.parametrize("build", [StrikeFilter.exact, DeltaFilter.exact])
-def test_a_filter_keeps_its_own_class(build):
+@pytest.mark.parametrize("filter_type", [StrikeFilter, DeltaFilter])
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda f: f.exact(250),
+        lambda f: f.any_of(250, 255),
+        lambda f: f.between(250, 260),
+        lambda f: f.at_least(250),
+        lambda f: f.at_most(250),
+        lambda f: f.above(250),
+        lambda f: f.below(250),
+        lambda f: f.expression("240-260"),
+    ],
+    ids=["exact", "any_of", "between", "at_least", "at_most", "above", "below", "expr"],
+)
+def test_every_constructor_keeps_its_own_class(filter_type, build):
     """`==` on a `str` subclass is plain string equality, so a constructor
-    that stopped returning its own class would pass unnoticed. The repo pins
-    `CsvPath` the same way."""
-    assert type(build(250)) is build.__self__
+    that stopped returning its own class would pass unnoticed. Every one of
+    them is pinned, the way the repo pins `CsvPath`."""
+    assert type(build(filter_type)) is filter_type
 
 
 @pytest.mark.parametrize(
     ("call", "message"),
     [
-        (lambda: StrikeFilter.exact(-250), "cannot be negative"),
-        (lambda: StrikeFilter.below(-250), "cannot be negative"),
-        (lambda: StrikeFilter.at_least(-250), "cannot be negative"),
-        (lambda: StrikeFilter.any_of(250, -255), "cannot be negative"),
-        (lambda: StrikeFilter.between(-20, 80), "cannot be negative"),
-        (lambda: DeltaFilter.at_least(-0.5), "cannot be negative"),
-        (lambda: DeltaFilter.between(-0.5, 0.5), "cannot be negative"),
+        (
+            lambda: StrikeFilter.exact(-250),
+            "strike cannot be negative (-250): the API reads a number by its "
+            "absolute value, so it would answer for 250 instead of failing",
+        ),
+        (
+            lambda: StrikeFilter.below(-250),
+            "strike cannot be negative (-250): the API reads a number by its "
+            "absolute value, so it would answer for 250 instead of failing",
+        ),
+        (
+            lambda: StrikeFilter.any_of(250, -255),
+            "strike cannot be negative (-255): the API reads a number by its "
+            "absolute value, so it would answer for 255 instead of failing",
+        ),
+        (
+            lambda: DeltaFilter.at_least(-0.5),
+            "delta cannot be negative (-0.5): the API reads a number by its "
+            "absolute value, so it would answer for 0.5 instead of failing",
+        ),
+        (
+            lambda: StrikeFilter.between(-20, 80),
+            "low cannot be negative (-20): a range with a minus in it is not "
+            "read as a range at all, so the call fails with a 400",
+        ),
+        (
+            lambda: StrikeFilter.between(20, -80),
+            "high cannot be negative (-80): a range with a minus in it is not "
+            "read as a range at all, so the call fails with a 400",
+        ),
+        (
+            lambda: DeltaFilter.between(-0.5, 0.5),
+            "low cannot be negative (-0.5): a range with a minus in it is not "
+            "read as a range at all, so the call fails with a 400",
+        ),
     ],
 )
-def test_a_negative_is_refused_where_the_api_would_drop_its_sign(call, message):
+def test_a_negative_is_refused_with_the_reason_that_applies_to_its_shape(call, message):
     """`parse_input` is `abs(float(value))`, so `strike=-250` answers with the
     strikes at 250 and `>=-0.5` becomes `>=0.5`: the call succeeds and the
     rows are not the ones that were asked for. A range is worse still, since
     a leading minus stops the API reading it as a range at all and the call
-    fails with a 400 (#101)."""
-    with pytest.raises(ValueError, match=message):
+    fails with a 400 (#101). The whole sentence is asserted: a `match=` of a
+    few words passes on a message that has been rewritten into something
+    false, which is how two wrong reasons shipped here before."""
+    with pytest.raises(ValueError) as refusal:
         call()
+
+    assert str(refusal.value) == message
 
 
 @pytest.mark.parametrize(
@@ -96,8 +142,9 @@ def test_a_negative_is_refused_where_the_api_would_drop_its_sign(call, message):
         (lambda: StrikeFilter.exact(float("inf")), "finite"),
         (lambda: StrikeFilter.exact(float("nan")), "finite"),
         (lambda: StrikeFilter.exact(Decimal("nan")), "finite"),
-        (lambda: StrikeFilter.exact(1e-05), "exponent notation"),
-        (lambda: StrikeFilter.exact(Decimal("2.5E+2")), "exponent notation"),
+        # A positive exponent travels fine and the API answers 250 for it,
+        # measured. What breaks is a minus inside the text (#101, round 2).
+        (lambda: StrikeFilter.exact(1e-05), "cannot carry a minus inside it"),
         (lambda: StrikeFilter.any_of(), "at least one"),
         (lambda: StrikeFilter.between(260, 250), "must not be above"),
         (lambda: StrikeFilter.expression(250), "must be a str"),
@@ -155,9 +202,10 @@ def test_the_query_string_carries_what_the_caller_asked_for(
 def test_a_bare_value_the_api_would_misread_never_reaches_a_request(
     respx_mock, client, field, refused
 ):
-    """`urlencode` would stringify any of these on its own: `True` as `True`,
-    an infinity as `inf`. The field checks them the way a filter does, and no
-    request is made."""
+    """Without the field check these do not fail, they mean something else:
+    pydantic reads `True` as the int 1, so the call becomes a request for
+    strike 1, and an infinity reaches the query as `inf`. The field checks
+    them the way a filter does, and no request is built."""
     respx_mock.get(url__startswith=CHAIN_URL).respond(
         json={"s": "no_data"}, status_code=404
     )
@@ -195,3 +243,19 @@ def test_a_strike_read_from_a_chain_can_be_passed_back():
     passed_back = OptionsChainInput(symbol="AAPL", strike=from_a_previous_chain)
 
     assert passed_back.strike == "262.50"
+
+
+def test_a_positive_exponent_is_sent_as_it_is():
+    """`Decimal("250.00").normalize()` is `Decimal("2.5E+2")`, which is what a
+    caller gets from tidying a strike read off an INTERNAL chain. The API
+    answers `250` for it, measured, so refusing it would have refused a value
+    it understands, with a message telling the caller to pass a Decimal they
+    had already passed (#101, round 2)."""
+    assert StrikeFilter.exact(Decimal("250.00").normalize()) == "2.5E+2"
+
+
+def test_a_signed_zero_is_zero():
+    """The API answers `0` for `-0.0`, which is what the caller meant, so the
+    sign goes rather than the value being refused for a minus nobody wrote."""
+    assert StrikeFilter.exact(-0.0) == "0.0"
+    assert StrikeFilter.exact(Decimal("-0")) == "0"
