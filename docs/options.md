@@ -196,7 +196,11 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 
 **Strike Filters:**
 
-- `strike` (str, optional): Filter by strike price (e.g., "150", "ATM", "ITM", "OTM")
+- `strike` (str | int | float | Decimal, optional): Filter by strike. A number is one
+  strike; a string is the API's expression: `"250,255"` for a set, `"250-260"` for an
+  inclusive range, `">=250"` or `"<250"` for a bound. `StrikeFilter` builds all of
+  them: `StrikeFilter.between(250, 260)`, `StrikeFilter.at_least(250)`. The values of
+  `range` (`itm`, `otm`, `all`) do not belong here: the API answers `400` to them
 - `delta` (float, optional): Filter by delta value
 - `strike_limit` (int, optional): Limit the number of strikes
 - `range` (str, optional): Strike range filter
@@ -270,19 +274,19 @@ print(chain)
 **Filter by strike and side:**
 
 ```python
-from marketdata import MarketDataClient
+from marketdata import MarketDataClient, StrikeFilter
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
 chain = client.options.chain(
     "AAPL",
-    strike="ATM",
+    strike=StrikeFilter.exact(250),
     side="call"
 )
 # or
 chain = client.options.chain(
     symbol="AAPL",
-    strike="ATM",
+    strike=StrikeFilter.exact(250),
     side="call"
 )
 print(chain)
@@ -322,7 +326,7 @@ client = MarketDataClient()
 chain = client.options.chain(
     "AAPL",
     expiration=datetime.date(2024, 12, 20),
-    strike="ITM",
+    range="itm",
     side="call",
     min_open_interest=100,
     min_volume=50
@@ -331,7 +335,7 @@ chain = client.options.chain(
 chain = client.options.chain(
     symbol="AAPL",
     expiration=datetime.date(2024, 12, 20),
-    strike="ITM",
+    range="itm",
     side="call",
     min_open_interest=100,
     min_volume=50

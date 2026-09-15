@@ -1,10 +1,12 @@
 import datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
 from marketdata.input_types.base import BaseInputType, BaseModelConfig
+from marketdata.input_types.strike import render_strike
 
 
 class OptionsExpirationsInput(BaseInputType):
@@ -61,8 +63,14 @@ class OptionsChainInput(BaseInputType):
     )
 
     # Strike filters
-    strike: str | None = Field(
-        description="The strike price to filter by", default=None
+    # `StrikeFilter` is a `str`, so it needs no place of its own here.
+    strike: str | int | float | Decimal | None = Field(
+        description=(
+            "The strikes to filter by: a price, or an expression built with "
+            "`StrikeFilter` (exact, any_of, between, at_least, at_most, above, "
+            "below, expression)"
+        ),
+        default=None,
     )
     delta: float | None = Field(description="The delta to filter by", default=None)
     strike_limit: int | None = Field(
@@ -113,6 +121,19 @@ class OptionsChainInput(BaseInputType):
     pm: bool | None = Field(
         description="Whether to include P.M. expirations", default=None
     )
+
+    @field_validator("strike", mode="before")
+    def render_strike_price(cls, value: object) -> object:
+        """A bare number goes out as its digits.
+
+        The public docs type this parameter `float`, and a float rendered by
+        anything other than its shortest repr carries binary noise into the
+        query string. A `str`, which a `StrikeFilter` is, travels as written
+        (#101).
+        """
+        if value is None or isinstance(value, str):
+            return value
+        return render_strike(value, "strike")
 
     @field_validator("expiration")
     def validate_expiration(
