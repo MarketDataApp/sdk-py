@@ -416,6 +416,9 @@ CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
         (200, BOM + '""\r\n', True),
         (203, BOM + '0\r\n""\r\n', True),
         # Inside a value it is data, not a mark.
+        # The second row is the one that pins *leading*: a mark that does not
+        # open the body is data, and it is the only case that goes red when the
+        # strip is applied to every line instead of the first (#109).
         (200, '0\r\n"' + BOM + '"\r\n', False),
         (200, "0\r\n" + BOM + '""\r\n', False),
     ],

@@ -63,9 +63,10 @@ def is_no_data(response: Response) -> bool:
         return False
     # A BOM is not data. This was the one CSV reader that matched the
     # placeholder with one attached, so a body a proxy had marked read as
-    # rows and the fan-outs failed on it (#109). Only a mark that opens the
-    # body: one after a blank line is not a byte order mark, and one inside a
-    # value is data. `_csv_rows` goes further and strips the first value after
+    # rows and the fan-outs failed on it (#109). Only what opens the body,
+    # however many marks that is, since `lstrip` takes a set of characters:
+    # one after a blank line is not a byte order mark, and one inside a value
+    # is data. `_csv_rows` goes further and strips the first value after
     # the parse as well, which the error path needs and this comparison does
     # not.
     body = response.text.lstrip(BOM)
@@ -100,9 +101,12 @@ def _csv_rows(text: str) -> list[list[str]]:
     """The rows of a CSV body, blank lines dropped and a BOM taken off.
 
     The error envelope and the fan-out merge both read a body through here, so
-    the two cannot drift apart. It is not every CSV the SDK touches: the body
-    of a single-request CSV answer is written to file unread, and
-    ``is_no_data`` matches the placeholder line by line.
+    the two cannot drift apart. It is not every CSV the SDK touches: the ten
+    resources that answer from one request write the body to file unread, and
+    ``is_no_data`` matches the placeholder line by line. ``stocks.candles`` and
+    ``options.quotes`` are not among them: their CSV goes through the merge
+    even when a single request answered it, so their file is re-rendered
+    rather than passed along.
 
     The text is read with ``newline=""``, as the ``csv`` module prescribes, so
     a body whose lines end in a lone CR reads as rows instead of raising, and
