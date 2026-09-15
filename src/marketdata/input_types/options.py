@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from marketdata.input_types.base import BaseInputType, BaseModelConfig
-from marketdata.input_types.strike import render_strike
+from marketdata.input_types.filters import render_number
 
 
 class OptionsExpirationsInput(BaseInputType):
@@ -72,7 +72,15 @@ class OptionsChainInput(BaseInputType):
         ),
         default=None,
     )
-    delta: float | None = Field(description="The delta to filter by", default=None)
+    # `DeltaFilter` is a `str`, so it needs no place of its own here.
+    delta: str | int | float | Decimal | None = Field(
+        description=(
+            "The delta to filter by: a number, or an expression built with "
+            "`DeltaFilter`. The API filters on the absolute value and answers "
+            "both sides"
+        ),
+        default=None,
+    )
     strike_limit: int | None = Field(
         description="The strike limit to filter by", alias="strikeLimit", default=None
     )
@@ -122,18 +130,19 @@ class OptionsChainInput(BaseInputType):
         description="Whether to include P.M. expirations", default=None
     )
 
-    @field_validator("strike", mode="before")
-    def render_strike_price(cls, value: object) -> object:
-        """A bare number goes out as its digits.
+    @field_validator("strike", "delta", mode="before")
+    def render_number_filter(cls, value: object, info) -> object:
+        """A bare number is checked and rendered the way a filter is.
 
-        The public docs type this parameter `float`, and a float rendered by
-        anything other than its shortest repr carries binary noise into the
-        query string. A `str`, which a `StrikeFilter` is, travels as written
-        (#101).
+        `urlencode` stringifies a number on its own, so this is not about the
+        digits: it is the refusals. A bool would travel as `True`, an infinity
+        as `inf`, and a negative strike would come back as its absolute value
+        with no word from the API (#101). A `str`, which a filter is, travels
+        as written.
         """
         if value is None or isinstance(value, str):
             return value
-        return render_strike(value, "strike")
+        return render_number(value, info.field_name)
 
     @field_validator("expiration")
     def validate_expiration(

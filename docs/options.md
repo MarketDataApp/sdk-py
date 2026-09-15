@@ -199,11 +199,18 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 - `strike` (str | int | float | Decimal, optional): Filter by strike. A number is one
   strike; a string is the API's expression: `"250,255"` for a set, `"250-260"` for an
   inclusive range, `">=250"` or `"<250"` for a bound. `StrikeFilter` builds all of
-  them: `StrikeFilter.between(250, 260)`, `StrikeFilter.at_least(250)`. The values of
-  `range` (`itm`, `otm`, `all`) do not belong here: the API answers `400` to them
+  them: `StrikeFilter.between(250, 260)`, `StrikeFilter.at_least(250)`. A negative is
+  refused: the API reads a number by its absolute value, so `-250` would answer for
+  `250`. The vocabulary of `range` does not belong here: `strike="ITM"` is a `400`
+- `delta` (str | int | float | Decimal, optional): Filter by delta, built the same way
+  with `DeltaFilter`. The API filters on the **absolute value** and answers both sides,
+  so `0.5` and `-0.5` give the same rows; a negative is kept for an exact value and
+  refused in a range or a bound, where the absolute value would change the question
 - `delta` (float, optional): Filter by delta value
 - `strike_limit` (int, optional): Limit the number of strikes
-- `range` (str, optional): Strike range filter
+- `range` (str, optional): Moneyness filter. The API reads `itm`, `inthemoney`, `otm`,
+  `outthemoney` and `outofthemoney`; any other value is dropped without an error, so
+  the chain comes back unfiltered
 
 **Price / Liquidity Filters:**
 
