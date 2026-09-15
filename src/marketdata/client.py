@@ -6,6 +6,7 @@ from httpx import Client, DecodingError, RequestError, Response
 
 from marketdata.api_error import get_resource_retry_adapter
 from marketdata.exceptions import (
+    NOT_AVAILABLE,
     AuthenticationError,
     BadRequestError,
     ForbiddenError,
@@ -19,10 +20,12 @@ from marketdata.exceptions import (
 )
 from marketdata.input_types.base import UserUniversalAPIParams
 from marketdata.internal_settings import (
+    HEADER_REQUEST_ID,
     MAX_CREDIT_WINDOW_SECONDS,
     MAX_RETRY_ATTEMPTS,
     NO_TOKEN_VALUE,
     REQUEST_TIMEOUT,
+    read_header,
 )
 from marketdata.logger import get_logger
 from marketdata.meta import ResponseMeta, record_meta
@@ -276,7 +279,7 @@ class MarketDataClient:
         self.logger.debug(f"Making request to URL: {self.base_url}/{url}")
 
     def _post_request_logs(self, response: Response, response_log_level: int = INFO):
-        cf_request_id = response.headers.get("cf-ray")
+        cf_request_id = read_header(response, HEADER_REQUEST_ID) or NOT_AVAILABLE
         duration = format_duration_log(response.elapsed.total_seconds() * 1000)
         method = response.request.method
         status = response.status_code
