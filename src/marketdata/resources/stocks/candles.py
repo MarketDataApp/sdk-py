@@ -17,7 +17,12 @@ from marketdata.output_types.stocks_candles import (
     StockCandlesHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, model_columns, no_data_result
+from marketdata.resources.base import (
+    BaseResource,
+    model_columns,
+    model_errors,
+    no_data_result,
+)
 from marketdata.utils import (
     encode_path_segment,
     get_data_records,
@@ -155,7 +160,8 @@ def candles(
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         data = _get_responses_data(responses, exact=True)
         data = get_data_records(data, exclude_keys=["s"])
-        return [output_model(**row) for row in data]
+        with model_errors(responses[-1]):
+            return [output_model(**row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         data = _get_responses_data(responses)

@@ -18,7 +18,8 @@ field gets back exactly the float the plain parse would have given it.
 import dataclasses
 import numbers
 import types
-from decimal import Decimal, InvalidOperation
+from collections.abc import Iterable
+from decimal import Context, Decimal, InvalidOperation, localcontext
 from functools import cache
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
@@ -62,16 +63,24 @@ def _parse_decimal(value: str | numbers.Real) -> Decimal:
     # str() is the shortest repr in the value's own precision: "65.1" for a
     # float, for a numpy float64 (whose repr is "np.float64(65.1)") and for a
     # float32, which is not a float at all.
-    try:
-        return Decimal(str(value))
-    except InvalidOperation:
-        if isinstance(value, str):
+    #
+    # Under a private context, because whether an unreadable value raises or
+    # decodes as NaN is decided by the `InvalidOperation` trap, which is
+    # thread-local state the caller owns and finance code often turns off.
+    # With it off, "n/a" reached `to_decimal` as a NaN and left as `None`,
+    # which reads as a price the API does not have. Construction from a
+    # string is exact whatever precision the context carries.
+    with localcontext(_TRAPPING):
+        try:
+            return Decimal(str(value))
+        except InvalidOperation:
+            if isinstance(value, str):
+                raise ValueError(f"not a decimal number: {value!r}") from None
+        try:
+            # A Real whose str is not a decimal, such as a Fraction.
+            return Decimal(repr(float(value)))
+        except (ArithmeticError, ValueError):
             raise ValueError(f"not a decimal number: {value!r}") from None
-    try:
-        # A Real whose str is not a decimal, such as a Fraction.
-        return Decimal(repr(float(value)))
-    except (ArithmeticError, ValueError):
-        raise ValueError(f"not a decimal number: {value!r}") from None
 
 
 def decimal_to_float(value: Any) -> Any:
@@ -114,10 +123,25 @@ def _number_fields(model: type) -> tuple[tuple[str, bool], ...]:
     )
 
 
+# The trap the parse needs, kept apart from whatever the caller set on its own
+# context (#50 review).
+_TRAPPING = Context(traps=[InvalidOperation])
+
+
 def _is_amount(value: Any) -> bool:
     """Already what a money field holds: ``None`` or a finite ``Decimal``,
     which is every amount the exact parse produces."""
     return value is None or (isinstance(value, Decimal) and value.is_finite())
+
+
+def _is_other_sequence(value: Any) -> bool:
+    """A sequence this module does not walk: a numpy array, a pandas Series,
+    anything iterable that is not a ``list`` or a ``tuple``. Converting one
+    would hand the caller back a different container, and rejecting it would
+    break rebuilding a model from the columns of a DataFrame, which worked
+    before money became exact. It is left as it came, which is what the plain
+    parse did with it (#50 review)."""
+    return not isinstance(value, (str, bytes)) and isinstance(value, Iterable)
 
 
 def _as_money(value: Any) -> Any:
@@ -125,10 +149,16 @@ def _as_money(value: Any) -> Any:
         return [item if _is_amount(item) else to_decimal(item) for item in value]
     if isinstance(value, tuple):
         return tuple(item if _is_amount(item) else to_decimal(item) for item in value)
+    if _is_other_sequence(value):
+        return value
     return to_decimal(value)
 
 
 def _as_parsed(value: Any) -> Any:
+    # No branch for the other sequences here: `coerce_numbers` sends a field
+    # this way only when it holds a `Decimal` or a list or tuple with one in
+    # it, so an ndarray never arrives, and one that did would be left as it
+    # came by that guard rather than by this function.
     if isinstance(value, list):
         return [decimal_to_float(item) for item in value]
     if isinstance(value, tuple):

@@ -15,7 +15,7 @@ import math
 import pathlib
 import pkgutil
 import typing
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, localcontext
 from fractions import Fraction
 from unittest.mock import patch
 
@@ -25,7 +25,7 @@ import polars as pl
 import pytest
 
 import marketdata.output_types
-from marketdata.exceptions import ParseError
+from marketdata.exceptions import BaseMarketdataException, ParseError
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.funds_candles import (
     FundsCandle,
@@ -564,6 +564,90 @@ def test_a_number_past_what_a_decimal_holds_is_a_parse_error(respx_mock, client)
         client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)
     body = client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
     assert body["mid"] == [math.inf]
+
+
+@pytest.mark.parametrize(
+    "sent, raw",
+    [
+        ("an infinity", b"Infinity"),
+        ("a word", b'"n/a"'),
+        ("a boolean", b"true"),
+    ],
+)
+def test_a_value_the_model_cannot_hold_is_a_parse_error_not_a_builtin(
+    respx_mock, client, sent, raw
+):
+    """The model refuses a value that is not an amount, and on the API path
+    that refusal has to be an SDK exception: a caller who wrote
+    `except BaseMarketdataException` does not catch a `TypeError`, and the
+    output format must not decide whether a call raises (#91, #50 review).
+    The same body on JSON is what it always was."""
+    body = (
+        b'{"s": "ok", "symbol": ["AAPL"], "mid": [' + raw + b"], "
+        b'"change": [0.1], "changepct": [0.01], "updated": [1765478200]}'
+    )
+    respx_mock.get(f"{API}/v1/stocks/prices/").respond(
+        content=body, headers={"content-type": "application/json"}
+    )
+
+    with pytest.raises(ParseError) as failure:
+        client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)
+    assert "mid" in str(failure.value), sent
+    assert isinstance(failure.value, BaseMarketdataException)
+
+    assert client.stocks.prices("AAPL", output_format=OutputFormat.JSON)["mid"]
+
+
+@pytest.mark.parametrize("trapped", [True, False])
+def test_the_parse_does_not_depend_on_the_caller_decimal_traps(
+    respx_mock, client, trapped
+):
+    """Whether an unreadable number raises or decodes as NaN is a trap on a
+    thread-local context the caller owns, and finance code turns it off. With
+    it off, `"n/a"` used to arrive as NaN and leave as `None`, which reads as
+    a price the API does not have (#50 review)."""
+    with localcontext() as context:
+        context.traps[InvalidOperation] = trapped
+
+        with pytest.raises(ValueError, match="not a decimal number"):
+            to_decimal("n/a")
+
+        respx_mock.get(f"{API}/v1/stocks/prices/").respond(
+            content=(
+                b'{"s": "ok", "symbol": ["AAPL"], "mid": [1e9999999999999999999], '
+                b'"change": [0.1], "changepct": [0.01], "updated": [1765478200]}'
+            ),
+            headers={"content-type": "application/json"},
+        )
+        with pytest.raises(ParseError, match="out of range"):
+            client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)
+
+
+@pytest.mark.parametrize(
+    "container", [np.array([100.0, 105.0]), pd.Series([100.0, 105.0])]
+)
+def test_a_sequence_that_is_not_a_list_is_left_as_it_came(container):
+    """A model rebuilt from the columns of a DataFrame holds an ndarray or a
+    Series in a money field. Converting it would hand back a different
+    container and rejecting it would break code that worked before money was
+    exact, so it is left alone, as the plain parse left it (#50 review)."""
+    fields = {field.name: [] for field in dataclasses.fields(OptionsChain)}
+
+    chain = OptionsChain(**{**fields, "s": "ok", "strike": container})
+
+    assert type(chain.strike) is type(container)
+
+
+def test_a_strike_list_keeps_the_container_it_was_given():
+    """`_as_money` answers a tuple with a tuple for every other model, so the
+    strikes model does too (#50 review)."""
+    strikes = OptionsStrikes(
+        s="ok", updated=1765478200, **{"2025-12-12": (110.0, 120.5)}
+    )
+
+    held = getattr(strikes, "2025-12-12")
+    assert type(held) is tuple
+    assert held == (Decimal("110.0"), Decimal("120.5"))
 
 
 # ------------------------------ dates the exact parse would have broken

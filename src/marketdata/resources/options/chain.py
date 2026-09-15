@@ -10,7 +10,7 @@ from marketdata.output_types.options_chain import (
     OptionsChainHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.resources.base import BaseResource, model_errors, no_data_result
 from marketdata.utils import encode_path_segment, is_no_data, parse_json
 
 
@@ -70,7 +70,8 @@ def chain(
         data = parse_json(response, exact=True)
         if user_universal_params.use_human_readable:
             data = {k.replace(" ", "_"): v for k, v in data.items()}
-        return output_model(**data)
+        with model_errors(response):
+            return output_model(**data)
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         return parse_json(response)

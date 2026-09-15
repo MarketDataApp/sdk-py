@@ -30,7 +30,9 @@ class OptionsStrikes:
         if not isinstance(v, (list, tuple)):
             raise TypeError(f"extra field '{name}' must be a list of strike prices")
         try:
-            return [to_decimal(strike) for strike in v]
+            # The container comes back as it went in, the way `_as_money`
+            # answers for every other model (#50 review).
+            return type(v)(to_decimal(strike) for strike in v)
         except (TypeError, ValueError) as exc:
             raise type(exc)(f"extra field '{name}': {exc}") from exc
 
@@ -71,7 +73,9 @@ class OptionsStrikesHumanReadable:
         if not isinstance(v, (list, tuple)):
             raise TypeError(f"extra field '{name}' must be a list of strike prices")
         try:
-            return [to_decimal(strike) for strike in v]
+            # The container comes back as it went in, the way `_as_money`
+            # answers for every other model (#50 review).
+            return type(v)(to_decimal(strike) for strike in v)
         except (TypeError, ValueError) as exc:
             raise type(exc)(f"extra field '{name}': {exc}") from exc
 

@@ -16,7 +16,12 @@ from marketdata.output_types.options_quotes import (
     OptionsQuotesHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, model_columns, no_data_result
+from marketdata.resources.base import (
+    BaseResource,
+    model_columns,
+    model_errors,
+    no_data_result,
+)
 from marketdata.utils import (
     encode_path_segment,
     is_no_data,
@@ -130,7 +135,8 @@ def quotes(
             )
 
         if user_universal_params.output_format == OutputFormat.INTERNAL:
-            return output_model(**data)
+            with model_errors(usable[-1]):
+                return output_model(**data)
         if user_universal_params.output_format == OutputFormat.JSON:
             return data
 
