@@ -35,7 +35,16 @@ on:
 jobs:
   review:
     uses: MarketData-App/code-review-bot/.github/workflows/review.yml@main
-    secrets: inherit
+    # NOT `secrets: inherit`. That keyword only passes secrets to a reusable
+    # workflow in the SAME organisation. sdk-py is owned by the MarketDataApp
+    # user account and code-review-bot by the MarketData-App organisation, so
+    # inherit crosses an owner boundary and delivers nothing: the call fails
+    # at evaluation with "Secret CODE_REVIEW_APP_PRIVATE_KEY is required, but
+    # not provided while calling", even though the secret is set on this
+    # repository. Naming them explicitly works either side of the boundary.
+    secrets:
+      CODE_REVIEW_APP_PRIVATE_KEY: ${{ secrets.CODE_REVIEW_APP_PRIVATE_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
     with:
       # REQUIRED here. The workflow's own default is the org's self-hosted
       # runner, whose runner group is visibility=all with
