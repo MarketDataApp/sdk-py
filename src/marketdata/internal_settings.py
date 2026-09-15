@@ -53,8 +53,9 @@ def read_header(response: Response | None, name: str) -> str | None:
     caller pasting one into a ticket. The sites that report a header's value
     to the caller read it here, so "missing", "blank" and "spaces" are one
     answer rather than three (#44, #114). The numeric headers are not among
-    them: the credit headers and ``Retry-After`` are parsed where they are
-    used, and a blank one is already a failed ``int()`` there.
+    them: the four credit headers are read straight into ``int()`` where they
+    are used, inside the handler that already covers a value that is not a
+    number, and ``parse_retry_after`` applies this same rule locally.
 
     What each caller makes of that answer stays with the caller: the support
     block renders an absent id as ``N/A`` (§6.3) and ``ResponseMeta`` reports

@@ -580,7 +580,9 @@ def test_the_response_log_line_names_the_request_id_or_says_n_a(
         client.stocks.prices(symbols="AAPL")
 
     message = logged.call_args.args[1]
-    assert f" {expected} " in message, reason
+    # Anchored on the URL that follows: `f" {expected} "` alone is satisfied by
+    # an untrimmed id, since " abc " sits inside "  abc  " (#114, second pass).
+    assert f" {expected} https://" in message, reason
     assert "None" not in message
 
 

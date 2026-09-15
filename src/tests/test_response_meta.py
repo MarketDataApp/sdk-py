@@ -596,7 +596,11 @@ def test_a_request_id_the_api_sent_blank_reads_as_no_id(
 ):
     """`None` is how this dataclass says it does not have a value, and a
     blank `cf-ray` is a value it does not have: `""` would read as an id to
-    a caller pasting it into a ticket (#114)."""
+    a caller pasting it into a ticket (#114).
+
+    The absent case answered `None` before this change too; it is here so the
+    three ways an answer can carry no id are pinned as one behavior rather
+    than two that happen to agree."""
     client = real_headers
     headers = credit_headers(1, 99)
     if sent is None:

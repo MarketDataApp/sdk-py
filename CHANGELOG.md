@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- A request id the answer carried blank now reads as no id rather than as an empty one: the support block prints `N/A`, `get_meta(result).request_id` is `None`, and the response log line says `N/A` instead of the word `None`. Every site that reads a header goes through one reading, so missing, blank and whitespace are one answer (#114)
+- A request id the answer carried blank now reads as no id rather than as an empty one: the support block prints `N/A`, `get_meta(result).request_id` is `None`, and the response log line says `N/A` instead of the word `None`. The sites that report a header's value to the caller share one reading, so missing, blank and whitespace are one answer (#114)
 - `options.quotes()` no longer hides a per-symbol body that cannot be decoded (an HTML error page from a proxy or a captive portal) behind a fabricated empty row that read as "no options"; it raises `ParseError` with the URL, the status and a body excerpt, as every other method does (#82, CSV output in #86)
 - `stocks.candles()` and `options.quotes()` retry each request on its own instead of the whole call: a failed chunk or symbol is re-issued alone, the healthy responses are kept, and one unreachable symbol no longer re-sends (and re-bills) every other symbol on each attempt (#83)
 - `options.expirations()` returns a `no_data` DataFrame with the same index as a populated one (`expirations` index, `updated` column), so concatenating results across symbols keeps the index name and gains no stray `expirations` column (#84)

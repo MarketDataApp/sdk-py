@@ -183,7 +183,7 @@ exception_type: BadRequestError
 For a failure that never reached the API (`MinMaxDateValidationError`, `RateLimitError`)
 the same six lines appear, with `request_id` / `request_url` reading `N/A` and
 `status_code` reading `0`. That is by design. So is a `request_id` of `N/A` on a real
-answer whose `cf-ray` header arrived blank or empty: a blank header is not an id.
+answer whose `cf-ray` header arrived empty or whitespace-only: neither is an id.
 
 **Bug indicator:** `request_id` reading `N/A` when the response carried a `cf-ray`
 header with a value in it, a `status_code` of `0` on a real HTTP failure, or the token
