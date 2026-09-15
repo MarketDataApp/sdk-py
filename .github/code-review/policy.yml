@@ -1,0 +1,63 @@
+# Code review bot, sdk-py. Overrides the bot's defaults; anything absent keeps
+# the default. See MarketData-App/code-review-bot/reviewbot/defaults/policy.yml
+
+# Only the Claude credential exists today, so name it alone rather than let the
+# probe drop a Codex that is never there. Add codex here when the key exists.
+backends: [claude]
+mode: first
+
+# A blocked review fails the check run. The check is advisory until someone
+# adds it to a branch rule, so this costs nothing yet and means something later.
+gate: true
+
+# The test matrix runs on every pull request. A red matrix is not something a
+# review should paper over.
+require_ci_green: true
+
+proof:
+  required: true
+  # The gate fires only when a changed path matches. src/marketdata/** is the
+  # whole runtime surface, models included: PR #100 is entirely in
+  # output_types/ and its four findings were runtime defects reproduced
+  # through the client. A pull request that touches only docs/, the README,
+  # the CHANGELOG or CI can never be blocked for missing proof, whatever the
+  # model decides about it.
+  paths: ["src/marketdata/**"]
+
+auto_approve: false
+auto_merge:
+  enabled: false
+review_drafts: false
+
+# MarketDataDev02 is a MEMBER of MarketData-App, which the membership lookup
+# answers correctly. COLLABORATOR stays out: on a user-account repository it
+# also covers a stranger invited to this one repository.
+trusted_associations: [OWNER, MEMBER]
+
+# This list does two jobs.
+#   1. It skips the whole pull request when EVERY changed file matches. A
+#      skipped pull request gets no comment and no check run.
+#   2. It drops matching files from the diff before the size budget is
+#      counted, and they are not reported as unseen.
+# So a pull request that changes docs and source together is still reviewed
+# in full, and the docs files simply do not reach the model.
+ignore_paths:
+  - "docs/**"            # the resource pages and the ADRs
+  - "*.md"               # README, CHANGELOG, CLAUDE.md at the root only
+  - ".github/**/*.md"
+  - "**/*.lock"
+  - "**/dist/**"
+  - "htmlcov/**"
+  - "coverage.xml"
+  # 5.2 MB each. Without this, one of them overflows the budget and hides
+  # every file after it, and allow_ready_with_unseen_files being false then
+  # makes the pull request permanently unready. Measured with a 6 MB fixture
+  # ahead of one source file: src/marketdata/client.py was invisible to the
+  # model without this entry and visible with it.
+  - "src/tests/data/stocks_news_*response_200.json"
+
+# The largest open pull request is 144 KB of diff, so 400 KB has room.
+max_diff_kb: 400
+
+check_name: "Code review"
+timeout_minutes: 15

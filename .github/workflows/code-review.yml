@@ -1,0 +1,47 @@
+name: Code review
+
+# DELIBERATELY DISPATCH ONLY, FOR THE FIRST RUN.
+#
+# The full caller also carries pull_request_target and issue_comment. Landing
+# those here would arm the bot for all seven open pull requests at once: any
+# push, reopen or description edit on any of them would start a review nobody
+# asked for. The first review against a repository that is not the bot itself
+# is the only evidence we have about how REVIEW.md is calibrated, and seven at
+# once would bury it.
+#
+# So the trigger list is the enforcement, not an intention. Once the first
+# review is judged good, a follow-up commit adds:
+#
+#   pull_request_target:
+#     types: [opened, synchronize, reopened, ready_for_review, edited]
+#   issue_comment:
+#     types: [created]
+#
+# and the job gains back the guard that keeps a comment from starting a review
+# unless it is addressed to the bot:
+#
+#   if: >
+#     github.event_name != 'issue_comment' ||
+#     (github.event.issue.pull_request != null &&
+#      startsWith(github.event.comment.body, '@marketdata-code-review'))
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+
+jobs:
+  review:
+    uses: MarketData-App/code-review-bot/.github/workflows/review.yml@main
+    secrets: inherit
+    with:
+      # REQUIRED here. The workflow's own default is the org's self-hosted
+      # runner, whose runner group is visibility=all with
+      # allows_public_repositories=false. "all" means all repositories in the
+      # MarketData-App ORGANISATION; sdk-py is public and lives on the
+      # MarketDataApp user account, so it fails on both counts and owns no
+      # runner of its own. Without this line the job queues forever with no
+      # runner and nothing says why.
+      runs-on: '["ubuntu-latest"]'
