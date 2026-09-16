@@ -26,7 +26,8 @@ breaking API change can also need no SDK change at all.
 
 **Do not form an opinion. Compare.**
 
-Build one row for every public symbol the diff touches:
+Section 8 says what counts as a public symbol in this language, and what
+breaks it. Build one row for every public symbol the diff touches:
 
 | symbol | before | after | breaking |
 |--------|--------|-------|----------|
@@ -162,7 +163,7 @@ return type each need, in the same pull request:
 - the README, when the method list or the quick start changes
 - the `CHANGELOG.md` entry
 
-## The public surface of this SDK
+## 8. The public surface of this SDK
 
 The surface is every name in `src/marketdata/` that does not start with `_`,
 plus everything re-exported from `src/marketdata/__init__.py`. The package is
@@ -189,7 +190,7 @@ optional, a widened accepted type on a parameter.
 A removal also carries a test that pins the absence, so the surface cannot come
 back quietly.
 
-## sdk-py house rules
+# sdk-py house rules
 
 ## The four output formats must agree
 
@@ -254,7 +255,7 @@ Every resource method answers in `INTERNAL`, `JSON`, `CSV` or `DATAFRAME`.
 - A deprecated surface that is about to be deleted does not need refactoring.
   Say that rather than asking for the cleanup.
 
-## Tests
+## Tests, in this repository
 
 - A behaviour test drives the public client with `respx`, through
   `client.<resource>.<method>`. A test that only builds a model by hand does
