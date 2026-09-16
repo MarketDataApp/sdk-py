@@ -137,16 +137,17 @@ def _is_amount(value: Any) -> bool:
 
 
 def _is_array(value: Any) -> bool:
-    """A numpy array, or a pandas or polars Series: a container with a length
-    that hands numpy its values. That leaves out a numpy scalar, which is a
-    number and converts as one, and a numpy string, which is a string. A
-    model rebuilt from the columns of a DataFrame holds an array in a money
-    field. Converting it would hand the caller back a different container,
-    and refusing it would break code that worked before money became exact,
-    so it is left as it came, as the plain parse left it. A ``dict``, a
-    ``set`` or a generator is not one, and is refused as a value that is not
-    an amount, where a generator would otherwise have been stored unconsumed
-    (#50 review)."""
+    """Anything that is not a string and has ``__array__`` and ``__len__``: a
+    numpy array, a pandas or polars Series, a pandas Index. That leaves out
+    numpy's number scalars, which convert as numbers, and a numpy string,
+    which is a string, but not a 0-d array or a structured numpy scalar,
+    which have both and are left as they came too. A model rebuilt from the
+    columns of a DataFrame holds an array in a money field. Converting it
+    would hand the caller back a different container, and refusing it would
+    break code that worked before money became exact, so it is left as it
+    came, as the plain parse left it. A ``dict``, a ``set`` or a generator
+    is not one, and is refused as a value that is not an amount, where a
+    generator would otherwise have been stored unconsumed (#50 review)."""
     return (
         not isinstance(value, (str, bytes))
         and hasattr(value, "__array__")

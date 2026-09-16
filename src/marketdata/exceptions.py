@@ -18,8 +18,9 @@ status          exception
 500             ``InternalError`` (the API failed; never retried)
 501 to 599      ``ServerError`` (the API is unavailable; retried with backoff)
 transport       ``NetworkError`` (retried unless the client caused it)
-undecodable     ``ParseError`` (bad JSON or a body that does not match its
-                Content-Encoding)
+undecodable     ``ParseError`` (bad JSON, a body that does not match its
+                Content-Encoding, a ``NaN`` or an infinity in a JSON body, or
+                a value an INTERNAL model refuses)
 other 4xx       ``MarketdataHttpError``
 ==============  ==========================================================
 """
@@ -196,7 +197,9 @@ class NetworkError(MarketdataHttpError):
 
 
 class ParseError(MarketdataHttpError):
-    """The API answered, but the body could not be decoded."""
+    """The API answered, but the body could not be decoded, or it holds a
+    value the SDK refuses: a ``NaN`` or an infinity, or a value an
+    ``OutputFormat.INTERNAL`` model refuses."""
 
 
 class RateLimitError(BaseMarketdataException):

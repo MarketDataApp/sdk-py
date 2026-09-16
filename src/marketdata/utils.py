@@ -67,10 +67,12 @@ def parse_json(response: Response, *, exact: bool = False) -> Any:
     what a float holds does not: the plain parse reads ``1e400`` as ``inf``,
     while the exact parse keeps it, and refuses only a number past what a
     ``Decimal`` holds. Refusing them on the plain parse would take a hook on
-    every number, measured at 1.6 to 1.9 times the decode time of an option
-    chain of about 50 000 numbers, for a body the API's renderer does not
-    write: it prints a float by its shortest repr, whose exponent stops at
-    308 (#50 review).
+    every number, which made the decode about 1.4 to 1.9 times slower on
+    bodies of about 50 000 numbers, depending on their digits (option chains
+    and quotes built from the test fixtures, bodies of only prices, bodies of
+    only 17-digit floats), for a body the renderer behind the API's data
+    endpoints does not write: it prints a float by its shortest repr, whose
+    exponent stops at 308 (#50 review).
     """
     try:
         if exact:

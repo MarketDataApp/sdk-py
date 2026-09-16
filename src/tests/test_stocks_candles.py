@@ -1,5 +1,6 @@
 import copy
 import datetime
+import json
 import pathlib
 from decimal import Decimal
 from unittest.mock import patch
@@ -587,9 +588,9 @@ CANDLE_CHUNK = dict(json={"s": "ok", "t": [1], "c": [1.0]})
 def test_stocks_candles_value_the_model_refuses_names_the_chunk_it_came_from(
     respx_mock, client, bad_chunk, human
 ):
-    """A refusal after the merge used to name the last chunk whatever chunk
-    the value came from, so the URL, the request id and the body excerpt a
-    customer hands to support described a healthy answer (#50 review)."""
+    """A refusal after the merge names the chunk the value came from, not
+    the last chunk merged, whose URL, request id and body excerpt, handed to
+    support, would describe a healthy answer (#50 review)."""
     if human:
         model = "StockCandlesHumanReadable"
         keys = ["Date", "Open", "High", "Low", "Close", "Volume"]
@@ -621,6 +622,36 @@ def test_stocks_candles_value_the_model_refuses_names_the_chunk_it_came_from(
         error.message
     )
     assert str(days[bad_chunk]) in error.message
+
+
+def test_stocks_candles_rebuilds_each_chunk_with_the_exact_parse(respx_mock, client):
+    """Each chunk is rebuilt alone with the parse the merge used, so a
+    healthy chunk holding an amount only a `Decimal` holds is not taken for
+    the one that was refused (#50 review)."""
+    keys = ["t", "o", "h", "l", "c", "v"]
+    healthy = dict(zip(keys, ([1672756200], [1.5], [2.5], [0.5], ["BIG"], [10])))
+    bad = dict(zip(keys, ([1704292200], [1.5], [2.5], [0.5], ["not a price"], [10])))
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=by_chunk(
+            dict(
+                content=json.dumps({"s": "ok", **healthy})
+                .replace('"BIG"', "1e400")
+                .encode(),
+                headers={"content-type": "application/json", "cf-ray": "chunk-0"},
+            ),
+            dict(json={"s": "ok", **bad}, headers={"cf-ray": "chunk-1"}),
+        )
+    )
+
+    with pytest.raises(ParseError) as failure:
+        client.stocks.candles(
+            "AAPL", resolution="H", output_format=OutputFormat.INTERNAL, **TWO_CHUNKS
+        )
+
+    assert failure.value.request_id == "chunk-1"
+    assert "(StockCandle.c: not a decimal number: 'not a price'): " in (
+        failure.value.message
+    )
 
 
 @pytest.mark.parametrize(

@@ -1,4 +1,5 @@
 import datetime
+import json
 import pathlib
 from decimal import Decimal
 from unittest.mock import patch
@@ -249,9 +250,9 @@ def test_options_quotes_undecodable_symbol_body_is_a_parse_error(
 def test_options_quotes_value_the_model_refuses_names_the_symbol_it_came_from(
     load_json, respx_mock, client, bad_first, human
 ):
-    """A refusal after the merge used to name the last symbol whatever symbol
-    the value came from, so the URL, the request id and the body excerpt a
-    customer hands to support described a healthy answer (#50 review)."""
+    """A refusal after the merge names the symbol the value came from, not
+    the last symbol merged, whose URL, request id and body excerpt, handed to
+    support, would describe a healthy answer (#50 review)."""
     if human:
         fixture, model, key = (
             "options_quotes_human_response_200",
@@ -285,6 +286,39 @@ def test_options_quotes_value_the_model_refuses_names_the_symbol_it_came_from(
         "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
     )
     assert f"({model}.{key}: not a decimal number: 'not a price'): " in (error.message)
+
+
+def test_options_quotes_rebuilds_each_symbol_with_the_exact_parse(
+    load_json, respx_mock, client
+):
+    """Each symbol is rebuilt alone with the parse the merge used, so a
+    healthy answer holding an amount only a `Decimal` holds is not taken for
+    the one that was refused (#50 review)."""
+    good = load_json("options_quotes_response_200")
+    healthy = json.dumps({**good, "bid": ["BIG", *good["bid"][1:]]})
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
+    ).respond(
+        content=healthy.replace('"BIG"', "1e400").encode(),
+        headers={"content-type": "application/json", "cf-ray": "healthy"},
+    )
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+    ).respond(
+        json={**good, "ask": ["not a price", *good["ask"][1:]]},
+        headers={"cf-ray": "bad"},
+    )
+
+    with pytest.raises(ParseError) as failure:
+        client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=OutputFormat.INTERNAL,
+        )
+
+    assert failure.value.request_id == "bad"
+    assert "(OptionsQuotes.ask: not a decimal number: 'not a price'): " in (
+        failure.value.message
+    )
 
 
 def test_options_quotes_names_a_bad_symbol_with_its_own_refusal(

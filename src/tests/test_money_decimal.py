@@ -635,10 +635,11 @@ def test_a_number_past_what_a_float_holds_is_a_documented_difference(
     """The plain parse reads both as `inf`. The exact parse keeps the first
     and refuses the second, which no `Decimal` can hold. The formats differ
     here on purpose: refusing these on the plain parse would take a hook on
-    every number, measured at 1.6 to 1.9 times the decode time of an option
-    chain of about 50 000 numbers, for a body the API's renderer does not
-    write, since it prints a float by its shortest repr, whose exponent stops
-    at 308 (#50 review). Pinned, so that changing it is a decision."""
+    every number, which made the decode about 1.4 to 1.9 times slower on
+    bodies of about 50 000 numbers, for a body the renderer behind the API's
+    data endpoints does not write, since it prints a float by its shortest
+    repr, whose exponent stops at 308 (#50 review). Pinned, so that changing
+    it is a decision."""
     _respond_price(respx_mock, number)
 
     if internal is ParseError:
