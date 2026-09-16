@@ -2,6 +2,7 @@
 are built, and none added by importing the package."""
 
 import contextlib
+import importlib
 import io
 import logging
 import os
@@ -9,10 +10,32 @@ import subprocess
 import sys
 import threading
 
+import pytest
+
 from marketdata.logger import get_logger
 from marketdata.settings import settings
 
 LOGGER_NAME = "marketdata.logger"
+logger_module = importlib.import_module("marketdata.logger")
+
+
+@pytest.fixture(autouse=True)
+def _a_logger_nobody_configured(monkeypatch):
+    """The logger's level, the level the SDK last applied to it and the SDK
+    handler's level and stream are process state. Each test starts from a
+    logger with no level of its own and leaves them as it found them, so the
+    order the tests run in, and a `MARKETDATA_LOGGING_LEVEL` in the
+    environment, do not decide what they see (#108 review)."""
+    logger = logging.getLogger(LOGGER_NAME)
+    handler = logger_module._HANDLER
+    saved = (logger.level, handler.level, handler._stream)
+    monkeypatch.setattr(logger_module, "_applied_level", logging.NOTSET)
+    logger.setLevel(logging.NOTSET)
+    yield
+    logger.setLevel(saved[0])
+    handler.setLevel(saved[1])
+    handler._stream = saved[2]
+
 
 # Run in a fresh interpreter: the handler count is process state, and every
 # test in this session builds clients.
@@ -106,6 +129,108 @@ def test_the_handler_takes_a_stream_set_on_it(monkeypatch):
 
     assert "to my stream" in mine.getvalue()
     assert handler.stream is sys.stderr
+
+
+def test_setting_the_current_stderr_fixes_it(monkeypatch):
+    """`StreamHandler.setStream` skips a stream that is already the handler's,
+    and this handler answers the live `sys.stderr` while none is set, so
+    `setStream(sys.stderr)` used to do nothing: a line logged under a later
+    redirection went there instead (#108 review)."""
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
+    handler = get_logger().handlers[0]
+    chosen = FlushCounting()
+    later = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", chosen)
+
+    try:
+        assert handler.setStream(sys.stderr) is chosen
+        assert handler.setStream(chosen) is None
+        with contextlib.redirect_stderr(later):
+            logger.warning("to the stream I chose")
+        flushed = chosen.flushes
+    finally:
+        handler.setStream(None)
+
+    assert "to the stream I chose" in chosen.getvalue()
+    assert later.getvalue() == ""
+    # the stream a handler leaves is flushed, as the standard library does
+    assert chosen.flushes > flushed
+
+
+class FlushCounting(io.StringIO):
+    flushes = 0
+
+    def flush(self):
+        self.flushes += 1
+        super().flush()
+
+
+CALLER_CONFIGURED = """
+import logging
+
+import respx
+
+import marketdata
+
+kept = []
+
+
+class Keep(logging.Handler):
+    def emit(self, record):
+        kept.append(record.getMessage())
+
+
+logger = logging.getLogger("marketdata.logger")
+logger.addHandler(Keep())
+logger.setLevel(logging.DEBUG)
+with respx.mock(assert_all_called=False) as mock:
+    mock.get(url__regex=r".*").respond(json={}, status_code=200)
+    marketdata.MarketDataClient(token="x" * 30)
+    marketdata.MarketDataClient(token="x" * 30)
+print(logging.getLevelName(logger.level))
+print(kept.count("Initializing MarketDataClient"))
+"""
+
+
+def test_a_level_the_application_set_is_kept():
+    """The reproduction from the #108 review, in a fresh interpreter: an
+    application configured the SDK's logger, built a client, and got
+    `WARNING` back, losing its own records and the SDK's `INFO` lines."""
+    env = {**os.environ}
+    env.pop("MARKETDATA_LOGGING_LEVEL", None)
+
+    result = subprocess.run(
+        [sys.executable, "-c", CALLER_CONFIGURED],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["DEBUG", "2"]
+
+
+def test_the_logger_follows_the_settings_while_nobody_else_set_a_level(
+    monkeypatch,
+):
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+
+    monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
+    get_logger()
+    assert logger.level == logging.WARNING
+
+    monkeypatch.setattr(settings, "marketdata_logging_level", "DEBUG")
+    get_logger()
+    assert logger.level == logging.DEBUG
+
+    logger.setLevel(logging.ERROR)
+    monkeypatch.setattr(settings, "marketdata_logging_level", "INFO")
+    get_logger()
+    assert logger.level == logging.ERROR
 
 
 def test_the_handler_keeps_the_level_of_the_settings(monkeypatch, capsys):

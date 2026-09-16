@@ -682,8 +682,10 @@ MARKETDATA_MODE=live
 **Defaults:**
 - `MARKETDATA_BASE_URL`: `https://api.marketdata.app`
 - `MARKETDATA_API_VERSION`: `v1`
-- `MARKETDATA_LOGGING_LEVEL`: `INFO`
+- `MARKETDATA_LOGGING_LEVEL`: `WARNING`
 - Universal parameters: `None` (uses method defaults)
+
+**Logging:** the SDK logs to the `marketdata.logger` logger. A client built without a `logger=` attaches one stream handler to it, once per process, writing to `sys.stderr` at `MARKETDATA_LOGGING_LEVEL`; the logger gets that level too while it has none of its own. A level your application sets on `marketdata.logger` is kept, and a handler you attach to it before building a client replaces the SDK's. A level set only on a parent logger (`marketdata`, or the root through `logging.basicConfig`) is not inherited.
 
 **Note:** Universal parameters set via environment variables will be used as defaults for all API calls, but can be overridden by passing them as method arguments. See the [Universal Parameters](#universal-parameters) section for available values.
 

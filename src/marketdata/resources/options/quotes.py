@@ -81,14 +81,14 @@ def quotes(
 
     # Per-symbol answers: a symbol with no data (a 404 no_data, or its CSV
     # placeholder, #89) contributes no rows; only when every symbol is empty
-    # is the whole call empty.
+    # is the whole call empty. One filter answers both that and which answer
+    # an exception names, so the two cannot drift apart again (#104).
+    answered = [response for response in responses if not is_no_data(response)]
     usable = [
-        response
-        for response in responses
-        if response.status_code in VALID_STATUS_CODES and not is_no_data(response)
+        response for response in answered if response.status_code in VALID_STATUS_CODES
     ]
     if not usable:
-        if all(is_no_data(response) for response in responses):
+        if not answered:
             return no_data_result(
                 user_universal_params,
                 output_model,
@@ -101,11 +101,10 @@ def quotes(
         # exception names an answer that is neither usable nor empty, since
         # its metadata describes that request (#104): the first response could
         # be a symbol that simply had no data.
-        failed = next(response for response in responses if not is_no_data(response))
         raise MarketdataHttpError(
             message="No responses from API",
-            request=failed.request,
-            response=failed,
+            request=answered[0].request,
+            response=answered[0],
         )
 
     if user_universal_params.output_format in [

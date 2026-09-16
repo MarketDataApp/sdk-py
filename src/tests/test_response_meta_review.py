@@ -418,6 +418,26 @@ def test_the_no_usable_answer_error_names_the_answer_that_is_not_empty(
     assert _speaker(get_meta(exc_info.value)) == (204, "odd-1")
 
 
+def test_the_no_usable_answer_error_names_the_first_such_answer(respx_mock, client):
+    """With more than one answer that is neither usable nor empty, the first
+    in request order is named, whichever arrives last (#108 review)."""
+    third = "AAPL250117C00155000"
+    respx_mock.get(CALL_URL).respond(
+        json={"s": "no_data"}, status_code=404, headers={"cf-ray": "empty-1"}
+    )
+    respx_mock.get(PUT_URL).mock(
+        side_effect=later(httpx.Response(202, headers={"cf-ray": "odd-1"}))
+    )
+    respx_mock.get(f"https://api.marketdata.app/v1/options/quotes/{third}/").respond(
+        status_code=204, headers={"cf-ray": "odd-2"}
+    )
+
+    with pytest.raises(marketdata.MarketdataHttpError) as exc_info:
+        client.options.quotes([*SYMBOLS, third], output_format=OutputFormat.JSON)
+
+    assert (exc_info.value.status_code, exc_info.value.request_id) == (202, "odd-1")
+
+
 def test_an_exception_not_about_a_request_keeps_the_rule_of_a_success():
     """A CSV path that already exists: every request answered, so neither an
     empty symbol nor an attempt that failed and recovered is what went wrong,
