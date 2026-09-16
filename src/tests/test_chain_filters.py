@@ -26,6 +26,17 @@ from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.options import OptionsChainInput
 
 CHAIN_URL = "https://api.marketdata.app/v1/options/chain/AAPL/"
+# The output format must not change which values reach the query string and
+# which are refused.
+EVERY_FORMAT = pytest.mark.parametrize(
+    "output_format",
+    [
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.CSV,
+        OutputFormat.DATAFRAME,
+    ],
+)
 
 
 @pytest.mark.parametrize(
@@ -182,8 +193,9 @@ def test_a_delta_keeps_its_sign_where_the_api_reads_the_same_rows_either_way():
         ("delta", DeltaFilter.at_least(0.5), ">=0.5"),
     ],
 )
+@EVERY_FORMAT
 def test_the_query_string_carries_what_the_caller_asked_for(
-    respx_mock, client, field, passed, sent
+    respx_mock, client, field, passed, sent, output_format
 ):
     """#101: a number was refused before a request was built, while the public
     docs type `strike` as `float` and the API takes both a number and an
@@ -192,15 +204,18 @@ def test_the_query_string_carries_what_the_caller_asked_for(
         json={"s": "no_data"}, status_code=404
     )
 
-    client.options.chain("AAPL", **{field: passed}, output_format=OutputFormat.JSON)
+    client.options.chain("AAPL", **{field: passed}, output_format=output_format)
 
-    assert respx_mock.calls.last.request.url.params[field] == sent
+    params = respx_mock.calls.last.request.url.params
+    assert params[field] == sent
+    assert params["format"] == ("csv" if output_format == OutputFormat.CSV else "json")
 
 
 @pytest.mark.parametrize("field", ["strike", "delta"])
 @pytest.mark.parametrize("refused", [True, float("inf"), float("nan"), object(), 1e-05])
+@EVERY_FORMAT
 def test_a_bare_value_the_api_would_misread_never_reaches_a_request(
-    respx_mock, client, field, refused
+    respx_mock, client, field, refused, output_format
 ):
     """Without the field check these do not fail, they mean something else:
     pydantic reads `True` as the int 1, so the call becomes a request for
@@ -211,16 +226,15 @@ def test_a_bare_value_the_api_would_misread_never_reaches_a_request(
     )
 
     with pytest.raises(ValidationError):
-        client.options.chain(
-            "AAPL", **{field: refused}, output_format=OutputFormat.JSON
-        )
+        client.options.chain("AAPL", **{field: refused}, output_format=output_format)
 
     # the client fixture makes its own startup call, so the check is that no
     # chain request was built
     assert not [c for c in respx_mock.calls if "/options/chain/" in str(c.request.url)]
 
 
-def test_a_negative_strike_never_reaches_a_request(respx_mock, client):
+@EVERY_FORMAT
+def test_a_negative_strike_never_reaches_a_request(respx_mock, client, output_format):
     """Measured: `strike=-250` answers with the strikes at 250, a 203 with the
     wrong rows in it. The SDK refuses it instead."""
     respx_mock.get(url__startswith=CHAIN_URL).respond(
@@ -228,7 +242,7 @@ def test_a_negative_strike_never_reaches_a_request(respx_mock, client):
     )
 
     with pytest.raises(ValidationError, match="cannot be negative"):
-        client.options.chain("AAPL", strike=-250, output_format=OutputFormat.JSON)
+        client.options.chain("AAPL", strike=-250, output_format=output_format)
 
     # the client fixture makes its own startup call, so the check is that no
     # chain request was built
