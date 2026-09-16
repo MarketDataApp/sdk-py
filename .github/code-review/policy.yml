@@ -1,17 +1,23 @@
 # Code review bot, sdk-py. Overrides the bot's defaults; anything absent keeps
 # the default. See MarketData-App/code-review-bot/reviewbot/defaults/policy.yml
 
-# Codex only, deliberately. `backends` is a LIST, so naming it replaces the
-# default wholesale and Claude does not run here at all -- the point is to read
-# an unmixed Codex review and judge it on its own, not to average it with
-# Claude's.
+# Codex reviews this repository; Claude catches it when Codex cannot.
 #
-# What this gives up: with one backend there is nothing to fall back to. A
-# credential the job cannot borrow means no review at all, reported `neutral`
-# on the check run (never red), rather than a review from the other model.
-# Revert to `backends: [claude]` to restore that.
-backends: [codex]
-mode: first
+# `fallback`, NOT `first`, and the difference decides what a broken credential
+# costs. Under `first`, base.run() returns `[ready[0].review(brief)]` and a
+# BackendError goes straight to `_fail` -- Claude is never tried, because it
+# was moved into `missing` the moment Codex probed live. Since
+# `CodexBackend.probe()` returns True as soon as `$CODEX_HOME/auth.json`
+# EXISTS, a stale borrowed copy is live-but-broken, and that would end the
+# review with a neutral "Bot error" and no comment. Under `fallback` the same
+# failure moves to Claude and the review still publishes.
+#
+# Codex must stay FIRST for a second reason: `credential-checkout` declines the
+# shared credential lease when codex is not the first backend, because under
+# both `first` and `fallback` a later backend is reached rarely or never, and
+# holding one plan's lease for it would starve the repositories that use it.
+backends: [codex, claude]
+mode: fallback
 
 # A blocked review fails the check run. The check is advisory until someone
 # adds it to a branch rule, so this costs nothing yet and means something later.
