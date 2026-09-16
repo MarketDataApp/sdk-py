@@ -34,7 +34,7 @@ on:
 
 jobs:
   review:
-    uses: MarketData-App/code-review-bot/.github/workflows/review.yml@feat/codex-credential-leasing
+    uses: MarketData-App/code-review-bot/.github/workflows/review.yml@main
     # NOT `secrets: inherit`. That keyword only passes secrets to a reusable
     # workflow in the SAME organisation. sdk-py is owned by the MarketDataApp
     # user account and code-review-bot by the MarketData-App organisation, so
@@ -54,11 +54,3 @@ jobs:
       # runner of its own. Without this line the job queues forever with no
       # runner and nothing says why.
       runs-on: '["ubuntu-latest"]'
-      # MUST match the branch in `uses:` above, and does not follow it
-      # automatically. `uses:` selects the WORKFLOW; `bot-ref` selects the BOT
-      # CODE the workflow checks out, and its default is `main`. Leaving it
-      # unset ran the branch's workflow against main's reviewbot, which has no
-      # `credential-checkout` command, so the borrow step failed with
-      # "invalid choice: 'credential-checkout' (choose from 'run', 'gate')"
-      # (run 35124611237). Both revert to main together.
-      bot-ref: feat/codex-credential-leasing
