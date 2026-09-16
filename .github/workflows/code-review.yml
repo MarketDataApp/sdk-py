@@ -1,31 +1,31 @@
 name: Code review
 
-# DELIBERATELY DISPATCH ONLY, FOR THE FIRST RUN.
+# REVIEWS RUN WHEN CI GOES GREEN, OR WHEN ASKED. Not on every push.
 #
-# The full caller also carries pull_request_target and issue_comment. Landing
-# those here would arm the bot for all seven open pull requests at once: any
-# push, reopen or description edit on any of them would start a review nobody
-# asked for. The first review against a repository that is not the bot itself
-# is the only evidence we have about how REVIEW.md is calibrated, and seven at
-# once would bury it.
+# `pull_request_target` is deliberately absent, and that is not caution left
+# over from the first run. It fires on `opened` and `synchronize` -- the moment
+# CI STARTS -- and the bot refuses to review a commit whose checks are still
+# running. Measured: this repository's Tests take about 75 seconds and a review
+# reaches that gate in 30 to 40. So a push-triggered review would find CI
+# pending, skip, and nothing would bring it back. The run would report success
+# while doing nothing, which is the failure hardest to notice.
 #
-# So the trigger list is the enforcement, not an intention. Once the first
-# review is judged good, a follow-up commit adds:
+# So the trigger is CI's COMPLETION. Both workflows are named, because the gate
+# looks at every check on the commit: whichever finishes last is the one whose
+# review actually proceeds, and the earlier trigger skips cheaply. A second
+# trigger on the same commit skips too -- the bot does not review a head twice.
 #
-#   pull_request_target:
-#     types: [opened, synchronize, reopened, ready_for_review, edited]
-#   issue_comment:
-#     types: [created]
+# `issue_comment` gives a person the last word: `@marketdata-code-review
+# re-review`, or `waive <id>`, which must work without waiting for a push.
 #
-# and the job gains back the guard that keeps a comment from starting a review
-# unless it is addressed to the bot:
-#
-#   if: >
-#     github.event_name != 'issue_comment' ||
-#     (github.event.issue.pull_request != null &&
-#      startsWith(github.event.comment.body, '@marketdata-code-review'))
-
+# `workflow_dispatch` stays for a deliberate run, with `force` to override the
+# already-reviewed skip.
 on:
+  workflow_run:
+    workflows: ["Tests", "Lint"]
+    types: [completed]
+  issue_comment:
+    types: [created]
   workflow_dispatch:
     inputs:
       pr:
@@ -35,12 +35,19 @@ on:
         description: >
           Review a commit that has already been reviewed. The bot skips an
           unchanged head, so without this a re-dispatch is a no-op that reports
-          success -- which is what happened trying to re-review #112.
+          success.
         type: boolean
         default: false
 
 jobs:
   review:
+    # A comment only starts a review when it is addressed to the bot, so saying
+    # thank you costs nothing. The reusable workflow refuses a workflow_run whose
+    # conclusion is not success, and decides trust itself in `reviewbot gate`.
+    if: >
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request != null &&
+       startsWith(github.event.comment.body, '@marketdata-code-review'))
     uses: MarketData-App/code-review-bot/.github/workflows/review.yml@main
     # NOT `secrets: inherit`. That keyword only passes secrets to a reusable
     # workflow in the SAME organisation. sdk-py is owned by the MarketDataApp
