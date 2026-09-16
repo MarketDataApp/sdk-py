@@ -244,6 +244,83 @@ def test_options_quotes_undecodable_symbol_body_is_a_parse_error(
     assert bad.call_count == 1
 
 
+@pytest.mark.parametrize("human", [False, True], ids=["api names", "human names"])
+@pytest.mark.parametrize("bad_first", [True, False])
+def test_options_quotes_value_the_model_refuses_names_the_symbol_it_came_from(
+    load_json, respx_mock, client, bad_first, human
+):
+    """A refusal after the merge used to name the last symbol whatever symbol
+    the value came from, so the URL, the request id and the body excerpt a
+    customer hands to support described a healthy answer (#50 review)."""
+    if human:
+        fixture, model, key = (
+            "options_quotes_human_response_200",
+            "OptionsQuotesHumanReadable",
+            "Bid",
+        )
+    else:
+        fixture, model, key = "options_quotes_response_200", "OptionsQuotes", "bid"
+    good = load_json(fixture)
+    bad = {**good, key: ["not a price", *good[key][1:]]}
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
+    ).respond(json=good, headers={"cf-ray": "good"})
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+    ).respond(json=bad, headers={"cf-ray": "bad"})
+    symbols = ["AAPL271217C00255000", "AAPL271217P00255000"]
+    if bad_first:
+        symbols.reverse()
+
+    with pytest.raises(ParseError) as failure:
+        client.options.quotes(
+            symbols=symbols,
+            output_format=OutputFormat.INTERNAL,
+            use_human_readable=human,
+        )
+
+    error = failure.value
+    assert error.request_id == "bad"
+    assert error.request_url.startswith(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+    )
+    assert f"({model}.{key}: not a decimal number: 'not a price'): " in (error.message)
+
+
+def test_options_quotes_names_a_bad_symbol_with_its_own_refusal(
+    load_json, respx_mock, client
+):
+    """Two symbols each carry a bad value, in different fields, and the merge
+    trips over the second symbol's first. The error names the first symbol
+    in request order together with that symbol's own refusal, not with the
+    merge's, so the URL and the reason describe the same answer (#50
+    review)."""
+    good = load_json("options_quotes_response_200")
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
+    ).respond(
+        json={**good, "ask": ["bad ask", *good["ask"][1:]]},
+        headers={"cf-ray": "first"},
+    )
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+    ).respond(
+        json={**good, "bid": ["bad bid", *good["bid"][1:]]},
+        headers={"cf-ray": "second"},
+    )
+
+    with pytest.raises(ParseError) as failure:
+        client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=OutputFormat.INTERNAL,
+        )
+
+    error = failure.value
+    assert error.request_id == "first"
+    assert "(OptionsQuotes.ask: not a decimal number: 'bad ask'): " in error.message
+    assert "bad bid" not in error.message
+
+
 def test_options_quotes_empty_symbol_body_is_a_parse_error(respx_mock, client):
     respx_mock.get(
         "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"

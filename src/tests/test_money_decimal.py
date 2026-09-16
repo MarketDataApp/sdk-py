@@ -6,6 +6,7 @@ annotation says: Decimals in the money fields, the plain parse's floats
 everywhere else. The DataFrame and JSON outputs keep the plain float parse.
 """
 
+import array
 import dataclasses
 import datetime
 import importlib
@@ -19,13 +20,14 @@ from decimal import Decimal, InvalidOperation, localcontext
 from fractions import Fraction
 from unittest.mock import patch
 
+import httpx
 import numpy as np
 import pandas as pd
 import polars as pl
 import pytest
 
 import marketdata.output_types
-from marketdata.exceptions import BaseMarketdataException, ParseError
+from marketdata.exceptions import ParseError
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.funds_candles import (
     FundsCandle,
@@ -65,6 +67,7 @@ from marketdata.output_types.stocks_quotes import (
     StockQuote,
     StockQuotesHumanReadable,
 )
+from marketdata.resources.base import merged_model_errors
 
 DATA_DIR = pathlib.Path(__file__).parent / "data"
 API = "https://api.marketdata.app"
@@ -547,55 +550,225 @@ def test_a_spread_is_exact(respx_mock, client):
     assert quote.ask - quote.bid == Decimal("0.2") == quote.mid
 
 
-def test_a_number_past_what_a_decimal_holds_is_a_parse_error(respx_mock, client):
-    """The float parse reads an exponent this size as `inf`; a Decimal cannot
-    hold it and raises `decimal.InvalidOperation`, which is not an SDK
-    exception. The INTERNAL call fails like any other body it cannot read,
-    and the JSON output of the same body is what it always was."""
+# One price row whose `mid` is the bytes given.
+PRICE_BODY = (
+    b'{"s": "ok", "symbol": ["AAPL"], "mid": [%s], '
+    b'"change": [0.1], "changepct": [0.01], "updated": [1765478200]}'
+)
+
+
+def _respond_price(respx_mock, mid: bytes) -> None:
     respx_mock.get(f"{API}/v1/stocks/prices/").respond(
-        content=(
-            b'{"s": "ok", "symbol": ["AAPL"], "mid": [1e9999999999999999999], '
-            b'"change": [0.1], "changepct": [0.01], "updated": [1765478200]}'
-        ),
-        headers={"content-type": "application/json"},
+        content=PRICE_BODY % mid, headers={"content-type": "application/json"}
     )
 
-    with pytest.raises(ParseError, match="out of range"):
-        client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)
-    body = client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
-    assert body["mid"] == [math.inf]
+
+@pytest.mark.parametrize("literal", ["NaN", "Infinity", "-Infinity"])
+@pytest.mark.parametrize(
+    "output_format",
+    [OutputFormat.INTERNAL, OutputFormat.JSON, OutputFormat.DATAFRAME],
+    ids=["internal", "json", "dataframe"],
+)
+def test_a_non_finite_literal_fails_the_call_on_every_decoded_format(
+    respx_mock, client, literal, output_format
+):
+    """`NaN` and `Infinity` are not JSON, yet Python's decoder reads them. The
+    API's renderer refuses them (the call answers 500), so one in a body was
+    written by something in between, and no price, greek or date is one. On
+    main every format returned them as `nan` and `inf`. With money exact, the
+    model first held `None` for a NaN, which reads as a price the API does
+    not have, and refused an infinity, while the other formats still returned
+    both: the format decided whether the call raised (#50 review). The body
+    fails before any DataFrame handler runs, so the library does not matter."""
+    _respond_price(respx_mock, literal.encode())
+
+    with pytest.raises(ParseError) as failure:
+        client.stocks.prices("AAPL", output_format=output_format)
+
+    assert failure.value.message.startswith(
+        f"Response body has a number that is not finite ({literal}): "
+    )
+
+
+def test_a_resource_that_writes_its_csv_from_the_decoded_body_refuses_it_too(
+    respx_mock, client
+):
+    """`client.utilities` decodes the body for every format and builds its CSV
+    from it, so its CSV output is a decoded format like the other three (#50
+    review)."""
+    case = OTHER_CASES["utilities.status"]
+    data = _load_fixture(case.fixture)
+    data["uptimePct30d"][0] = "__nan__"
+    _respond(respx_mock, case, json.dumps(data).replace('"__nan__"', "NaN").encode())
+
+    with pytest.raises(ParseError) as failure:
+        case.call(client, output_format=OutputFormat.CSV)
+
+    assert failure.value.message.startswith(
+        "Response body has a number that is not finite (NaN): "
+    )
+
+
+def test_a_csv_file_is_the_api_text_whatever_numbers_it_carries(
+    respx_mock, client, tmp_path
+):
+    """The fourth format decodes no number: the file is the API's text as it
+    came, so there is nothing in it for the SDK to refuse (#50 review)."""
+    body = "s,symbol,mid\r\nok,AAPL,NaN\r\n"
+    respx_mock.get(f"{API}/v1/stocks/prices/").respond(text=body)
+
+    path = client.stocks.prices(
+        "AAPL", output_format=OutputFormat.CSV, filename=tmp_path / "prices.csv"
+    )
+
+    assert pathlib.Path(path).read_bytes() == body.encode()
 
 
 @pytest.mark.parametrize(
-    "sent, raw",
+    "number, internal",
+    [(b"1e400", Decimal("1E+400")), (b"1e9999999999999999999", ParseError)],
+    ids=["past a float", "past a decimal"],
+)
+def test_a_number_past_what_a_float_holds_is_a_documented_difference(
+    respx_mock, client, number, internal
+):
+    """The plain parse reads both as `inf`. The exact parse keeps the first
+    and refuses the second, which no `Decimal` can hold. The formats differ
+    here on purpose: refusing these on the plain parse would take a hook on
+    every number, measured at 1.6 to 1.9 times the decode time of an option
+    chain of about 50 000 numbers, for a body the API's renderer does not
+    write, since it prints a float by its shortest repr, whose exponent stops
+    at 308 (#50 review). Pinned, so that changing it is a decision."""
+    _respond_price(respx_mock, number)
+
+    if internal is ParseError:
+        with pytest.raises(ParseError) as failure:
+            client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)
+        assert failure.value.message.startswith(
+            "Response body has a number out of range: "
+        )
+    else:
+        mid = client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)[0].mid
+        assert str(mid) == str(internal)
+    body = client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+    assert body["mid"] == [math.inf]
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        frame = client.stocks.prices("AAPL", output_format=OutputFormat.DATAFRAME)
+    assert frame["mid"].tolist() == [math.inf]
+
+
+@pytest.mark.parametrize(
+    "raw, decoded, refusal",
     [
-        ("an infinity", b"Infinity"),
-        ("a word", b'"n/a"'),
-        ("a boolean", b"true"),
+        (b'"n/a"', "n/a", "not a decimal number: 'n/a'"),
+        (b"true", True, "an amount cannot be a bool: True"),
+        (b'"NaN"', "NaN", "an amount must be finite, not 'NaN'"),
     ],
+    ids=["a word", "a boolean", "a string nan"],
 )
 def test_a_value_the_model_cannot_hold_is_a_parse_error_not_a_builtin(
-    respx_mock, client, sent, raw
+    respx_mock, client, raw, decoded, refusal
 ):
     """The model refuses a value that is not an amount, and on the API path
     that refusal has to be an SDK exception: a caller who wrote
-    `except BaseMarketdataException` does not catch a `TypeError`, and the
-    output format must not decide whether a call raises (#91, #50 review).
-    The same body on JSON is what it always was."""
-    body = (
-        b'{"s": "ok", "symbol": ["AAPL"], "mid": [' + raw + b"], "
-        b'"change": [0.1], "changepct": [0.01], "updated": [1765478200]}'
-    )
-    respx_mock.get(f"{API}/v1/stocks/prices/").respond(
-        content=body, headers={"content-type": "application/json"}
-    )
+    `except BaseMarketdataException` does not catch a `TypeError` (#91, #50
+    review). Only a typed model reads the value, so only it can refuse one:
+    the JSON output returns the body as decoded, as it always did."""
+    _respond_price(respx_mock, raw)
 
     with pytest.raises(ParseError) as failure:
         client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)
-    assert "mid" in str(failure.value), sent
-    assert isinstance(failure.value, BaseMarketdataException)
 
-    assert client.stocks.prices("AAPL", output_format=OutputFormat.JSON)["mid"]
+    # The body excerpt holds `mid` too, so the field is checked through the
+    # text only the model's refusal carries.
+    assert f"(StockPrice.mid: {refusal}): " in failure.value.message
+    body = client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+    assert body["mid"] == [decoded]
+
+
+@pytest.mark.parametrize(
+    "name, change, refusal",
+    [
+        ("options.lookup", "extra", "got an unexpected keyword argument 'extra'"),
+        ("markets.status", "extra", "got an unexpected keyword argument 'extra'"),
+        ("utilities.user", "missing", "missing 1 required positional argument"),
+    ],
+)
+def test_a_body_whose_keys_the_model_does_not_take_is_a_parse_error(
+    respx_mock, client, name, change, refusal
+):
+    """A key the model does not have, or one it lacks, used to escape as a
+    bare `TypeError` from the model's constructor (#50 review). What the SDK
+    should do with a column the API adds is #111; this pins only that the
+    refusal is an SDK exception."""
+    case = OTHER_CASES[name]
+    data = _load_fixture(case.fixture)
+    if change == "extra":
+        data["extra"] = data[next(key for key in data if key != "s")]
+    else:
+        del data[next(key for key in data if key != "s")]
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    with pytest.raises(ParseError) as failure:
+        case.call(client, output_format=OutputFormat.INTERNAL)
+
+    message = failure.value.message
+    assert message.startswith("Response body is not a valid answer of this resource (")
+    assert refusal in message
+
+
+@pytest.mark.parametrize("name", OTHER_DATE_KEYS.keys())
+def test_a_date_the_model_cannot_read_is_a_parse_error_with_no_money_involved(
+    respx_mock, client, name
+):
+    """The refusal of a model is an SDK exception on every resource, not only
+    on the ones with money: a date the model cannot read used to escape these
+    as a bare `ValueError` (#50 review)."""
+    case = OTHER_CASES[name]
+    data = _load_fixture(case.fixture)
+    data[OTHER_DATE_KEYS[name][0]][0] = "not a date"
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    with pytest.raises(ParseError) as failure:
+        case.call(client, output_format=OutputFormat.INTERNAL)
+
+    assert "(Unrecognized date format): " in failure.value.message
+    assert failure.value.request_url.startswith(case.url)
+
+
+def _answer(url: str) -> httpx.Response:
+    return httpx.Response(200, text=url, request=httpx.Request("GET", url))
+
+
+@pytest.mark.parametrize(
+    "refusing, named, reason",
+    [
+        (("a", "b"), "a", "a refused alone"),
+        (("b",), "b", "b refused alone"),
+        ((), "b", "refused merged"),
+    ],
+    ids=["both, the first", "the last alone", "none alone, the last"],
+)
+def test_a_merged_refusal_names_the_first_answer_refused_alone(refusing, named, reason):
+    """Each answer is built again on its own, in request order, and the first
+    one refused is named with its own reason, whatever the exception. A
+    refusal no answer produces alone could only come from the merge, which no
+    model does today; the last answer is named then, with the merge's reason,
+    rather than none (#50 review)."""
+    answers = [_answer(f"{API}/{key}/") for key in ("a", "b")]
+
+    def build_alone(answer):
+        key = str(answer.request.url).rstrip("/")[-1]
+        if key in refusing:
+            raise (ValueError if key == "a" else LookupError)(f"{key} refused alone")
+
+    with pytest.raises(ParseError) as failure:
+        with merged_model_errors(answers, build_alone):
+            raise TypeError("refused merged")
+
+    assert failure.value.request_url == f"{API}/{named}/"
+    assert f"({reason}): " in failure.value.message
+    assert str(failure.value.__cause__) == reason
 
 
 @pytest.mark.parametrize("trapped", [True, False])
@@ -624,9 +797,15 @@ def test_the_parse_does_not_depend_on_the_caller_decimal_traps(
 
 
 @pytest.mark.parametrize(
-    "container", [np.array([100.0, 105.0]), pd.Series([100.0, 105.0])]
+    "container",
+    [
+        np.array([100.0, 105.0]),
+        pd.Series([100.0, 105.0]),
+        pl.Series([100.0, 105.0]),
+    ],
+    ids=["ndarray", "pandas", "polars"],
 )
-def test_a_sequence_that_is_not_a_list_is_left_as_it_came(container):
+def test_an_array_in_a_money_field_is_left_as_it_came(container):
     """A model rebuilt from the columns of a DataFrame holds an ndarray or a
     Series in a money field. Converting it would hand back a different
     container and rejecting it would break code that worked before money was
@@ -635,7 +814,46 @@ def test_a_sequence_that_is_not_a_list_is_left_as_it_came(container):
 
     chain = OptionsChain(**{**fields, "s": "ok", "strike": container})
 
-    assert type(chain.strike) is type(container)
+    assert chain.strike is container
+
+
+def test_a_numpy_string_is_a_string():
+    """It hands numpy its value and has a length, as an array does, and is
+    still read as the string it is (#50 review)."""
+    fields = {field.name: [] for field in dataclasses.fields(OptionsChain)}
+
+    chain = OptionsChain(**{**fields, "s": "ok", "strike": np.str_("65.1")})
+
+    assert type(chain.strike) is Decimal
+    assert str(chain.strike) == "65.1"
+    with pytest.raises(TypeError):
+        OptionsChain(**{**fields, "s": "ok", "strike": np.bytes_(b"65.1")})
+
+
+@pytest.mark.parametrize(
+    "container",
+    [
+        {"strike": 100.0},
+        {100.0},
+        (strike for strike in [100.0]),
+        range(2),
+        array.array("d", [100.0]),
+    ],
+    ids=["dict", "set", "generator", "range", "array.array"],
+)
+def test_a_container_that_is_not_an_array_is_not_an_amount(container):
+    """Only an array is left as it came. Anything else in a money field is a
+    value that is not an amount, and a generator would otherwise have been
+    stored unconsumed (#50 review)."""
+    fields = {field.name: [] for field in dataclasses.fields(OptionsChain)}
+
+    with pytest.raises(TypeError) as refusal:
+        OptionsChain(**{**fields, "s": "ok", "strike": container})
+
+    assert str(refusal.value) == (
+        "OptionsChain.strike: an amount must be a number, "
+        f"not {type(container).__name__}"
+    )
 
 
 def test_a_strike_list_keeps_the_container_it_was_given():
@@ -737,14 +955,26 @@ def test_a_float_becomes_the_decimal_it_reads_as():
 
 @pytest.mark.parametrize(
     "value",
-    [float("nan"), np.float64("nan"), Decimal("NaN"), Decimal("sNaN"), "NaN"],
-    ids=["float", "numpy", "Decimal", "signaling", "str"],
+    [float("nan"), np.float64("nan"), Decimal("NaN"), Decimal("sNaN")],
+    ids=["float", "numpy", "Decimal", "signaling"],
 )
 def test_nan_is_a_missing_amount(value):
     """pandas writes a missing value as NaN; the API writes it as null, which
     the model holds as None. A Decimal NaN would also raise on any ordering
     comparison, so sorting candles by price would fail."""
     assert to_decimal(value) is None
+
+
+@pytest.mark.parametrize("value", ["NaN", "nan", "-NaN", "sNaN", np.str_("NaN")])
+def test_a_string_that_reads_as_nan_is_not_an_amount(value):
+    """NaN is a missing amount only as a number, the way pandas writes one. A
+    string is read as text the API wrote, and the API writes a missing price
+    as null, so this one is refused like any other string that is not an
+    amount (#50 review)."""
+    with pytest.raises(ValueError) as refusal:
+        to_decimal(value)
+
+    assert str(refusal.value) == f"an amount must be finite, not {value!r}"
 
 
 @pytest.mark.parametrize(

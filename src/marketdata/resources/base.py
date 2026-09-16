@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any
@@ -95,6 +95,46 @@ def model_errors(response: Response) -> Iterator[None]:
         yield
     except (TypeError, ValueError) as exc:
         raise parse_error(response, str(exc)) from exc
+
+
+@contextmanager
+def merged_model_errors(
+    responses: list[Response], build_alone: Callable[[Response], object]
+) -> Iterator[None]:
+    """``model_errors`` for a result merged from the answers of several
+    requests: the chunks of ``stocks.candles``, the symbols of
+    ``options.quotes``.
+
+    The ``ParseError`` names the answer a refused value came from, with that
+    answer's own refusal: its URL, status, request id and body excerpt are
+    what support reads, and the last answer of a merge is usually a healthy
+    one (#50 review). Finding it costs nothing while the call works: only
+    after a refusal is each answer built again on its own, in request order,
+    and the first one refused is named with the reason it was refused for.
+    That is not always the reason the merge was refused for, since two
+    answers can each carry a bad value in a different field. A refusal no
+    answer produces alone could only come from the merge, which no model does
+    today; the last answer is named then, with the merge's reason.
+    """
+    try:
+        yield
+    except (TypeError, ValueError) as exc:
+        response, reason = _first_refusal(responses, build_alone) or (
+            responses[-1],
+            exc,
+        )
+        raise parse_error(response, str(reason)) from reason
+
+
+def _first_refusal(
+    responses: list[Response], build_alone: Callable[[Response], object]
+) -> tuple[Response, Exception] | None:
+    for response in responses:
+        try:
+            build_alone(response)
+        except Exception as refusal:  # any failure to build it alone locates it
+            return response, refusal
+    return None
 
 
 def no_data_result(

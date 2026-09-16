@@ -18,7 +18,6 @@ field gets back exactly the float the plain parse would have given it.
 import dataclasses
 import numbers
 import types
-from collections.abc import Iterable
 from decimal import Context, Decimal, InvalidOperation, localcontext
 from functools import cache
 from typing import Any, Union, get_args, get_origin, get_type_hints
@@ -29,7 +28,10 @@ def to_decimal(value: Any) -> Decimal | None:
 
     ``None`` stays ``None``: the API sends ``null`` for a price it does not
     have, and NaN, which is how pandas writes that same missing value, becomes
-    ``None`` too. An infinity is not an amount. An integer is exact as it is.
+    ``None`` too. That rule is for a number: a NaN literal in a response body
+    is refused by ``parse_json`` before any model sees it, and a string that
+    reads as NaN is refused here like any other string that is not an amount.
+    An infinity is not an amount. An integer is exact as it is.
     Any other number goes through its shortest repr in its own precision, so
     ``65.1`` becomes ``Decimal("65.1")`` whether it is a float, a numpy
     float64 or a float32, rather than the binary expansion ``Decimal(65.1)``
@@ -54,7 +56,7 @@ def to_decimal(value: Any) -> Decimal | None:
         raise TypeError(f"an amount must be a number, not {type(value).__name__}")
     if amount.is_finite():
         return amount
-    if amount.is_nan():
+    if amount.is_nan() and not isinstance(value, str):
         return None
     raise ValueError(f"an amount must be finite, not {value!r}")
 
@@ -134,14 +136,22 @@ def _is_amount(value: Any) -> bool:
     return value is None or (isinstance(value, Decimal) and value.is_finite())
 
 
-def _is_other_sequence(value: Any) -> bool:
-    """A sequence this module does not walk: a numpy array, a pandas Series,
-    anything iterable that is not a ``list`` or a ``tuple``. Converting one
-    would hand the caller back a different container, and rejecting it would
-    break rebuilding a model from the columns of a DataFrame, which worked
-    before money became exact. It is left as it came, which is what the plain
-    parse did with it (#50 review)."""
-    return not isinstance(value, (str, bytes)) and isinstance(value, Iterable)
+def _is_array(value: Any) -> bool:
+    """A numpy array, or a pandas or polars Series: a container with a length
+    that hands numpy its values. That leaves out a numpy scalar, which is a
+    number and converts as one, and a numpy string, which is a string. A
+    model rebuilt from the columns of a DataFrame holds an array in a money
+    field. Converting it would hand the caller back a different container,
+    and refusing it would break code that worked before money became exact,
+    so it is left as it came, as the plain parse left it. A ``dict``, a
+    ``set`` or a generator is not one, and is refused as a value that is not
+    an amount, where a generator would otherwise have been stored unconsumed
+    (#50 review)."""
+    return (
+        not isinstance(value, (str, bytes))
+        and hasattr(value, "__array__")
+        and hasattr(value, "__len__")
+    )
 
 
 def _as_money(value: Any) -> Any:
@@ -149,16 +159,16 @@ def _as_money(value: Any) -> Any:
         return [item if _is_amount(item) else to_decimal(item) for item in value]
     if isinstance(value, tuple):
         return tuple(item if _is_amount(item) else to_decimal(item) for item in value)
-    if _is_other_sequence(value):
+    if _is_array(value):
         return value
     return to_decimal(value)
 
 
 def _as_parsed(value: Any) -> Any:
-    # No branch for the other sequences here: `coerce_numbers` sends a field
-    # this way only when it holds a `Decimal` or a list or tuple with one in
-    # it, so an ndarray never arrives, and one that did would be left as it
-    # came by that guard rather than by this function.
+    # No branch for arrays here: `coerce_numbers` sends a field this way only
+    # when it holds a `Decimal` or a list or tuple with one in it, so an array
+    # never arrives, and one that did would be left as it came by that guard
+    # rather than by this function.
     if isinstance(value, list):
         return [decimal_to_float(item) for item in value]
     if isinstance(value, tuple):

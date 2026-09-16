@@ -582,6 +582,47 @@ def test_stocks_candles_csv_with_every_chunk_empty_is_a_header_only_file(
 CANDLE_CHUNK = dict(json={"s": "ok", "t": [1], "c": [1.0]})
 
 
+@pytest.mark.parametrize("human", [False, True], ids=["api names", "human names"])
+@pytest.mark.parametrize("bad_chunk", [0, 1], ids=["first", "last"])
+def test_stocks_candles_value_the_model_refuses_names_the_chunk_it_came_from(
+    respx_mock, client, bad_chunk, human
+):
+    """A refusal after the merge used to name the last chunk whatever chunk
+    the value came from, so the URL, the request id and the body excerpt a
+    customer hands to support described a healthy answer (#50 review)."""
+    if human:
+        model = "StockCandlesHumanReadable"
+        keys = ["Date", "Open", "High", "Low", "Close", "Volume"]
+    else:
+        model, keys = "StockCandle", ["t", "o", "h", "l", "c", "v"]
+    days = [1672756200, 1704292200]
+    bodies = []
+    for index, day in enumerate(days):
+        body = dict(zip(keys, ([day], [1.5], [2.5], [0.5], [2.0], [10])))
+        if not human:
+            body = {"s": "ok", **body}
+        bodies.append(dict(json=body, headers={"cf-ray": f"chunk-{index}"}))
+    bodies[bad_chunk]["json"][keys[4]] = ["not a price"]
+    respx_mock.get(HOURLY_URL).mock(side_effect=by_chunk(*bodies))
+
+    with pytest.raises(ParseError) as failure:
+        client.stocks.candles(
+            "AAPL",
+            resolution="H",
+            output_format=OutputFormat.INTERNAL,
+            use_human_readable=human,
+            **TWO_CHUNKS,
+        )
+
+    error = failure.value
+    assert error.request_id == f"chunk-{bad_chunk}"
+    assert f"from={CHUNK_STARTS[bad_chunk]}" in error.request_url
+    assert f"({model}.{keys[4]}: not a decimal number: 'not a price'): " in (
+        error.message
+    )
+    assert str(days[bad_chunk]) in error.message
+
+
 @pytest.mark.parametrize(
     ("bodies", "bad_index", "reason"),
     [

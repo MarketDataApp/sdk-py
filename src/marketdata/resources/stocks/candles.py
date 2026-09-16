@@ -19,8 +19,8 @@ from marketdata.output_types.stocks_candles import (
 from marketdata.params import universal_params
 from marketdata.resources.base import (
     BaseResource,
+    merged_model_errors,
     model_columns,
-    model_errors,
     no_data_result,
 )
 from marketdata.utils import (
@@ -160,7 +160,13 @@ def candles(
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         data = _get_responses_data(responses, exact=True)
         data = get_data_records(data, exclude_keys=["s"])
-        with model_errors(responses[-1]):
+
+        def _rows_alone(response: httpx.Response) -> list:
+            alone = _get_responses_data([response], exact=True)
+            rows = get_data_records(alone, exclude_keys=["s"])
+            return [output_model(**row) for row in rows]
+
+        with merged_model_errors(responses, _rows_alone):
             return [output_model(**row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:

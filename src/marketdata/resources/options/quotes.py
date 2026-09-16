@@ -18,8 +18,8 @@ from marketdata.output_types.options_quotes import (
 from marketdata.params import universal_params
 from marketdata.resources.base import (
     BaseResource,
+    merged_model_errors,
     model_columns,
-    model_errors,
     no_data_result,
 )
 from marketdata.utils import (
@@ -135,7 +135,15 @@ def quotes(
             )
 
         if user_universal_params.output_format == OutputFormat.INTERNAL:
-            with model_errors(usable[-1]):
+
+            def _model_alone(response: Response) -> object:
+                alone = [parse_json(response, exact=True)]
+                keys = json_answer_columns(
+                    [response], alone, output_model.answer_keys()
+                )
+                return output_model(**output_model.join_dicts(alone, keys))
+
+            with merged_model_errors(usable, _model_alone):
                 return output_model(**data)
         if user_universal_params.output_format == OutputFormat.JSON:
             return data
