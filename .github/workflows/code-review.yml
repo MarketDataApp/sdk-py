@@ -10,6 +10,12 @@ name: Code review
 # pending, skip, and nothing would bring it back. The run would report success
 # while doing nothing, which is the failure hardest to notice.
 #
+# ONLY PULL REQUESTS. `Tests` and `Lint` also run on pushes to main, and a
+# workflow_run fires for those too -- so the job checks
+# `github.event.workflow_run.event == 'pull_request'`. Without it every merge to
+# main started a review job that minted App tokens, found no pull request, and
+# did nothing. Filtering at the job is cheaper than resolving it and giving up.
+#
 # So the trigger is CI's COMPLETION. Both workflows are named, because the gate
 # looks at every check on the commit: whichever finishes last is the one whose
 # review actually proceeds, and the earlier trigger skips cheaply. A second
@@ -45,9 +51,11 @@ jobs:
     # thank you costs nothing. The reusable workflow refuses a workflow_run whose
     # conclusion is not success, and decides trust itself in `reviewbot gate`.
     if: >
-      github.event_name != 'issue_comment' ||
-      (github.event.issue.pull_request != null &&
-       startsWith(github.event.comment.body, '@marketdata-code-review'))
+      (github.event_name != 'workflow_run' ||
+       github.event.workflow_run.event == 'pull_request') &&
+      (github.event_name != 'issue_comment' ||
+       (github.event.issue.pull_request != null &&
+        startsWith(github.event.comment.body, '@marketdata-code-review')))
     uses: MarketData-App/code-review-bot/.github/workflows/review.yml@main
     # NOT `secrets: inherit`. That keyword only passes secrets to a reusable
     # workflow in the SAME organisation. sdk-py is owned by the MarketDataApp
@@ -68,4 +76,9 @@ jobs:
       # runner of its own. Without this line the job queues forever with no
       # runner and nothing says why.
       runs-on: '["ubuntu-latest"]'
-      force: ${{ inputs.force }}
+      # `|| false` is load-bearing: `inputs` exists only for
+      # workflow_dispatch, so on a workflow_run or issue_comment this is null,
+      # and a null against a boolean-typed input fails the whole workflow at
+      # EVALUATION -- no jobs, just "this run likely failed because of a
+      # workflow file issue". Measured on run 35155992004.
+      force: ${{ inputs.force || false }}
