@@ -220,6 +220,53 @@ def test_an_answer_with_no_usable_request_id_reports_it_as_not_available(
     assert "request_id:     N/A" in error.support_info
 
 
+@pytest.mark.parametrize(
+    "output_format",
+    [
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.CSV,
+        OutputFormat.DATAFRAME,
+    ],
+)
+@pytest.mark.parametrize(
+    "headers, reason",
+    [
+        ({"cf-ray": ""}, "blank"),
+        ({"cf-ray": "   "}, "spaces"),
+        ({}, "absent"),
+    ],
+)
+def test_a_failed_call_with_no_usable_request_id_reports_it_as_not_available(
+    respx_mock, client, output_format, headers, reason
+):
+    """The same answer through the client, on every output format: the block a
+    caller pastes into a ticket is built from the response the resource got
+    back (#114). A CSV call gets the API's CSV error body."""
+    errmsg = "Bad parameters, please check API documentation."
+
+    def answer(request):
+        if request.url.params.get("format") == "csv":
+            return Response(
+                400,
+                headers={**headers, "content-type": "text/csv; charset=utf-8"},
+                text=f's,errmsg\r\nerror,"{errmsg}"\r\n',
+            )
+        return Response(400, headers=headers, json={"s": "error", "errmsg": errmsg})
+
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").mock(
+        side_effect=answer
+    )
+
+    with pytest.raises(BadRequestError) as exc_info:
+        client.stocks.prices("AAPL", output_format=output_format)
+
+    error = exc_info.value
+    assert error.message == errmsg
+    assert error.request_id == "N/A", reason
+    assert "request_id:     N/A" in error.support_info
+
+
 def test_a_request_id_keeps_the_spacing_the_api_sent_inside_it():
     """Only the ends are trimmed: the id itself is quoted verbatim in a
     ticket, so nothing inside it is rewritten."""

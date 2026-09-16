@@ -589,10 +589,20 @@ def test_merge_of_nothing_is_a_value_error():
 
 
 @pytest.mark.parametrize(
+    ("output_format", "library"),
+    [
+        (OutputFormat.INTERNAL, None),
+        (OutputFormat.JSON, None),
+        (OutputFormat.CSV, None),
+        (OutputFormat.DATAFRAME, "pandas"),
+        (OutputFormat.DATAFRAME, "polars"),
+    ],
+)
+@pytest.mark.parametrize(
     "sent, reason", [("", "blank"), ("   ", "spaces"), (None, "absent")]
 )
 def test_a_request_id_the_api_sent_blank_reads_as_no_id(
-    respx_mock, real_headers, sent, reason
+    respx_mock, real_headers, sent, reason, output_format, library, tmp_path
 ):
     """`None` is how this dataclass says it does not have a value, and a
     blank `cf-ray` is a value it does not have: `""` would read as an id to
@@ -610,7 +620,13 @@ def test_a_request_id_the_api_sent_blank_reads_as_no_id(
     respx_mock.get(PRICES_URL).respond(
         json=prices_body(), status_code=200, headers=headers
     )
+    kwargs = {"output_format": output_format}
+    if output_format == OutputFormat.CSV:
+        kwargs["filename"] = str(tmp_path / "p.csv")
 
-    result = client.stocks.prices("AAPL", output_format=OutputFormat.INTERNAL)
+    with patch(
+        "marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [library or "pandas"]
+    ):
+        result = client.stocks.prices("AAPL", **kwargs)
 
     assert get_meta(result).request_id is None, reason
