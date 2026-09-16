@@ -31,6 +31,13 @@ on:
       pr:
         description: Pull request number
         required: true
+      force:
+        description: >
+          Review a commit that has already been reviewed. The bot skips an
+          unchanged head, so without this a re-dispatch is a no-op that reports
+          success -- which is what happened trying to re-review #112.
+        type: boolean
+        default: false
 
 jobs:
   review:
@@ -54,3 +61,4 @@ jobs:
       # runner of its own. Without this line the job queues forever with no
       # runner and nothing says why.
       runs-on: '["ubuntu-latest"]'
+      force: ${{ inputs.force }}
