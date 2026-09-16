@@ -133,14 +133,14 @@ def test_the_handler_takes_a_stream_set_on_it(monkeypatch):
 
 def test_setting_the_current_stderr_fixes_it(monkeypatch):
     """`StreamHandler.setStream` skips a stream that is already the handler's,
-    and this handler answers the live `sys.stderr` while none is set, so
-    `setStream(sys.stderr)` used to do nothing: a line logged under a later
-    redirection went there instead (#108 review)."""
+    and this handler answers the live `sys.stderr` while none is set, so the
+    standard `setStream(sys.stderr)` would do nothing, and a line logged under
+    a later redirection would go there instead (#108 review)."""
     logger = logging.getLogger(LOGGER_NAME)
     monkeypatch.setattr(logger, "handlers", [])
     monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
     handler = get_logger().handlers[0]
-    chosen = FlushCounting()
+    chosen = io.StringIO()
     later = io.StringIO()
     monkeypatch.setattr(sys, "stderr", chosen)
 
@@ -149,14 +149,11 @@ def test_setting_the_current_stderr_fixes_it(monkeypatch):
         assert handler.setStream(chosen) is None
         with contextlib.redirect_stderr(later):
             logger.warning("to the stream I chose")
-        flushed = chosen.flushes
     finally:
         handler.setStream(None)
 
     assert "to the stream I chose" in chosen.getvalue()
     assert later.getvalue() == ""
-    # the stream a handler leaves is flushed, as the standard library does
-    assert chosen.flushes > flushed
 
 
 class FlushCounting(io.StringIO):
@@ -165,6 +162,24 @@ class FlushCounting(io.StringIO):
     def flush(self):
         self.flushes += 1
         super().flush()
+
+
+def test_set_stream_returns_the_stream_it_leaves_and_flushes_it(monkeypatch):
+    """As the standard library's `setStream` does: the stream the handler
+    leaves comes back, flushed, and the one it takes is not touched (#108
+    review)."""
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    handler = get_logger().handlers[0]
+    first, second = FlushCounting(), FlushCounting()
+
+    try:
+        assert handler.setStream(first) is sys.stderr
+        before = (first.flushes, second.flushes)
+        assert handler.setStream(second) is first
+        assert (first.flushes, second.flushes) == (before[0] + 1, before[1])
+    finally:
+        handler.setStream(None)
 
 
 CALLER_CONFIGURED = """
@@ -231,6 +246,23 @@ def test_the_logger_follows_the_settings_while_nobody_else_set_a_level(
     monkeypatch.setattr(settings, "marketdata_logging_level", "INFO")
     get_logger()
     assert logger.level == logging.ERROR
+
+
+def test_a_logger_reset_to_notset_follows_the_settings_again(monkeypatch):
+    """An application that takes its level back off the logger hands it to
+    the settings again (#108 review)."""
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(settings, "marketdata_logging_level", "ERROR")
+    get_logger()
+    logger.setLevel(logging.DEBUG)
+    get_logger()
+    assert logger.level == logging.DEBUG
+
+    logger.setLevel(logging.NOTSET)
+    monkeypatch.setattr(settings, "marketdata_logging_level", "INFO")
+    get_logger()
+    assert logger.level == logging.INFO
 
 
 def test_the_handler_keeps_the_level_of_the_settings(monkeypatch, capsys):

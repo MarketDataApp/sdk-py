@@ -69,18 +69,19 @@ def get_logger() -> Logger:
     Every client built without a ``logger=`` asks for it. The handler is
     attached only when the logger has none: a handler per call wrote every
     record once per client built (#104), and a handler the caller attached to
-    ``marketdata.logger`` before building a client stands in for it.
+    ``marketdata.logger`` before the first client stands in for it.
 
     The SDK's handler takes its level from the settings on every call, as each
     new handler used to, and so does the logger, unless a level was set on it
     by someone else since: an application that set ``marketdata.logger`` to
     ``DEBUG`` got ``WARNING`` back from the next client built, and the
     handlers it had attached lost that logger's records below ``WARNING``
-    (#108 review). Two limits. A level set only on a parent logger
-    (``marketdata``, or the root through ``basicConfig``) is not inherited,
-    since the SDK gives its own logger the settings' level while it has none.
-    And a level set to the one the SDK applied cannot be told apart from it,
-    so it keeps following the settings.
+    (#108 review). A level set above the settings' drops the records below
+    it before any handler sees them, the SDK's included. Two limits. A level
+    set only on a parent logger (``marketdata``, or the root through
+    ``basicConfig``) is not inherited, since the SDK gives its own logger the
+    settings' level while it has none. And a level set to the one the SDK
+    applied cannot be told apart from it, so it keeps following the settings.
     """
     global _applied_level
     level = settings.marketdata_logging_level
