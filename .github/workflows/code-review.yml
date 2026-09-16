@@ -34,7 +34,7 @@ on:
 
 jobs:
   review:
-    uses: MarketData-App/code-review-bot/.github/workflows/review.yml@main
+    uses: MarketData-App/code-review-bot/.github/workflows/review.yml@feat/codex-credential-leasing
     # NOT `secrets: inherit`. That keyword only passes secrets to a reusable
     # workflow in the SAME organisation. sdk-py is owned by the MarketDataApp
     # user account and code-review-bot by the MarketData-App organisation, so
