@@ -1,12 +1,17 @@
 # Code review bot, sdk-py. Overrides the bot's defaults; anything absent keeps
 # the default. See MarketData-App/code-review-bot/reviewbot/defaults/policy.yml
 
-# TEMPORARY, for the first Codex run. Both backends review this pull request
-# and their findings are merged, so the Codex output can be judged next to
-# Claude's rather than in isolation. Revert to `backends: [claude]` and
-# `mode: first` once that judgement is made.
-backends: [claude, codex]
-mode: all
+# Codex only, deliberately. `backends` is a LIST, so naming it replaces the
+# default wholesale and Claude does not run here at all -- the point is to read
+# an unmixed Codex review and judge it on its own, not to average it with
+# Claude's.
+#
+# What this gives up: with one backend there is nothing to fall back to. A
+# credential the job cannot borrow means no review at all, reported `neutral`
+# on the check run (never red), rather than a review from the other model.
+# Revert to `backends: [claude]` to restore that.
+backends: [codex]
+mode: first
 
 # A blocked review fails the check run. The check is advisory until someone
 # adds it to a branch rule, so this costs nothing yet and means something later.
