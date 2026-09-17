@@ -203,18 +203,21 @@ def test_two_callers_swapping_the_stream_share_no_previous_one(monkeypatch):
         assert held.wait(timeout=10), "the second caller never reached the lock"
         flush()
 
-    left = []
+    # By caller, not in the order they return: they release the lock at the
+    # same moment, and which of the two writes its answer first says nothing
+    # about the swap.
+    left = {}
 
-    def swap(stream):
-        left.append(handler.setStream(stream))
+    def swap(caller, stream):
+        left[caller] = handler.setStream(stream)
 
     try:
         handler.setStream(first)
         monkeypatch.setattr(handler, "flush", slow_flush)
-        swapping = threading.Thread(target=swap, args=(second,))
+        swapping = threading.Thread(target=swap, args=("inside", second))
         swapping.start()
         assert inside.wait(timeout=10), "the first caller never swapped"
-        waiting = threading.Thread(target=swap, args=(third,))
+        waiting = threading.Thread(target=swap, args=("waiting", third))
         waiting.start()
         held.set()
         swapping.join(timeout=10)
@@ -223,7 +226,7 @@ def test_two_callers_swapping_the_stream_share_no_previous_one(monkeypatch):
         monkeypatch.setattr(handler, "flush", flush)
         handler.setStream(None)
 
-    assert left == [first, second]
+    assert left == {"inside": first, "waiting": second}
     assert handler.stream is sys.stderr
 
 
