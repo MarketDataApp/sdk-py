@@ -149,8 +149,11 @@ jobs:
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
-          if [ ! -s release-notes.md ]; then
-            echo "::error::CHANGELOG.md has no ## [${VERSION}] section, or it is empty. Promote ## [Unreleased] in a pull request first."
+          # Not `-s`: a section with no entries still extracts the blank
+          # line under its heading, and a release with empty notes is one
+          # nobody can read.
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md has no ## [${VERSION}] section, or it has no entries. Promote ## [Unreleased] in a pull request first."
             exit 1
           fi
           echo "Release notes for ${VERSION}:"
@@ -198,7 +201,7 @@ jobs:
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
-          test -s release-notes.md
+          grep -q '[^[:space:]]' release-notes.md
 
       - name: Refuse a tag that appeared while the suite ran
         env:
