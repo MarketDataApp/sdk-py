@@ -53,8 +53,10 @@ Every resource method answers in `INTERNAL`, `JSON`, `CSV` or `DATAFRAME`.
   `TypeError` or `KeyError`. A model or a parser that raises a built-in must be
   wrapped at the resource boundary into `ParseError` or another
   `BaseMarketdataException`.
-- A model the caller builds by hand may raise a built-in. There the value came
-  from the caller, not from the API.
+- A model the caller builds by hand may raise a built-in. So may the input
+  models a resource method builds from its arguments: an argument they refuse
+  raises pydantic's `ValidationError`. There the value came from the caller,
+  not from the API.
 - No resource method returns an error value. 1.x returned
   `MarketDataClientErrorResult`, and 2.0.0 drops it. A change that brings an
   error value back is a finding. The empty result for a 404 `no_data` answer,
