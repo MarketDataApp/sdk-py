@@ -3,9 +3,16 @@
 
 ## 9. The public surface of this SDK
 
-The surface is every name in `src/marketdata/` that does not start with `_`,
-plus everything re-exported from `src/marketdata/__init__.py`. The package is
-installed by customers as `marketdata-sdk-py`.
+The surface is every name that a module in `src/marketdata/` defines without a
+leading `_`, plus everything re-exported from `src/marketdata/__init__.py`. A
+function bound onto a `*Resource` class is part of the surface as
+`client.<resource>.<method>`. The package is installed by customers as
+`marketdata-sdk-py`.
+
+Apart from those re-exports, a name that a module imports is not part of its
+surface. PEP 8 treats imported names as implementation details, and no module
+here gives its imports an underscore: `from httpx import Response` does not add
+a public `Response` to the module that imports it.
 
 A signature here includes the parameter names, because callers pass them by
 keyword. Renaming a parameter breaks callers even when the position is the same.
@@ -16,9 +23,7 @@ Breaking, for this SDK:
 - a parameter renamed, removed, reordered, or moved from optional to required
 - a type hint narrowed on a parameter, or widened on a return value
 - a changed default
-- a resource method that starts to raise where it used to return
-  `MarketDataClientErrorResult`, or that raises a different
-  `BaseMarketdataException` subclass
+- a resource method that raises a different `BaseMarketdataException` subclass
 - a field removed from a Pydantic model or a `TypedDict`, or made required
 - an `Enum` member removed or its value changed
 
@@ -50,9 +55,10 @@ Every resource method answers in `INTERNAL`, `JSON`, `CSV` or `DATAFRAME`.
   `BaseMarketdataException`.
 - A model the caller builds by hand may raise a built-in. There the value came
   from the caller, not from the API.
-- In v1 the normal flow returns `MarketDataClientErrorResult` rather than
-  raising. A change that starts raising where v1 returned a result is a
-  breaking change, not a fix.
+- No resource method returns an error value. 1.x returned
+  `MarketDataClientErrorResult`, and 2.0.0 drops it. A change that brings an
+  error value back is a finding. The empty result for a 404 `no_data` answer,
+  `{"s": "no_data"}` in JSON included, is an answer, not an error value.
 - Failure metadata must name the request that raised: the URL, the status and
   the request id. A header the API sent blank reads as absent, never as an
   empty string. The token is redacted everywhere, log lines included.
@@ -80,9 +86,12 @@ Every resource method answers in `INTERNAL`, `JSON`, `CSV` or `DATAFRAME`.
 
 - A public method's PEP 257 docstring reaches the documentation through the
   `@docs` decorator. A new or changed public method without it is a finding.
-- The decorator stack order is fixed: `@docs`, `@handle_exceptions`,
-  `@api_error_handler`, `@universal_params`. A method that reorders it, or omits
-  one, is a finding.
+- The decorator stack is fixed. From the top, an endpoint method carries
+  `@api_error_handler`, `@docs` and `@universal_params`. The `utilities`
+  methods do not go through `@universal_params`, so their stack ends at
+  `@docs`. Which decorators a method carries, and their order, is what is
+  fixed: their arguments vary by method. A method that reorders the stack, or
+  leaves out a decorator its peers carry, is a finding.
 - Every endpoint must still work from required parameters alone. If a change
   makes a caller pass configuration to get a useful answer, say so.
 
@@ -100,8 +109,9 @@ Every resource method answers in `INTERNAL`, `JSON`, `CSV` or `DATAFRAME`.
   not cover the API path, and saying so is a finding.
 - The suite runs on Python 3.10, 3.11 and 3.12 and the project holds full
   coverage.
-- Formatting is `black` and `isort` with the black profile. Report a
-  formatting problem as a nit, and only once.
+- Formatting and import order are `ruff`: `./lint.sh` runs it, and the lint
+  workflow checks it. A formatting problem is one that `ruff check` or
+  `ruff format --check` reports. Report it as a nit, and only once.
 
 ## Proof, in this repository
 
