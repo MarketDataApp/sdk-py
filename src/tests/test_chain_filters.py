@@ -19,7 +19,7 @@ And on 2026-09-17, with `expiration=2026-10-16&side=call`:
 
     delta=5e-05       -> 400, split into `5e` and `05` as a range
     delta=0.00005     -> the contract nearest to it
-    delta=<=5e-05     -> 404, read like `<=0.00005`
+    delta=<=5e-05     -> 404 like `<=0.00005`: read, not refused with a 400
     delta=-1e-05      -> the same rows as `delta=-0.00001`
     strike=2.5E+2     -> the same rows as `strike=250`
 """

@@ -67,10 +67,12 @@ def _render(
     The digits are the ones the caller named, written out in full: a
     ``Decimal`` keeps its trailing zeros, a float is written from its shortest
     form, so ``65.1`` is sent as ``65.1``, and no number travels in exponent
-    form. ``Decimal("250.00").normalize()`` is ``Decimal("2.5E+2")`` and is
-    sent as ``250``. ``1e-05`` is sent as ``0.00001``, which the API reads in
-    every shape, while the exponent form is split at its minus when it stands
-    alone or ends a range.
+    form. Any other real number is turned into a float first, so a numpy
+    ``float32`` travels with the digits of that float.
+    ``Decimal("250.00").normalize()`` is ``Decimal("2.5E+2")`` and is sent as
+    ``250``. ``1e-05`` is sent as ``0.00001``, which the API reads in every
+    shape, while the exponent form is split at its minus when it stands alone
+    or sits in a range.
 
     The API reads each number with ``float()``, so a number a float cannot
     hold is refused: too far from zero, it would be read as an infinity, and
@@ -265,7 +267,7 @@ class DeltaFilter(_NumericFilter):
     _EXACT_NEGATIVE_OK = True
 
 
-def render_number(value: object, argument: str) -> str:
+def _render_number(value: object, argument: str) -> str:
     """A bare number for one of these parameters, as its digits.
 
     The field validators use it so a caller who passes a plain number gets the

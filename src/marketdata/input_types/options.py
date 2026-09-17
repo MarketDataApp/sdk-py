@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from marketdata.input_types.base import BaseInputType, BaseModelConfig
-from marketdata.input_types.filters import render_number
+from marketdata.input_types.filters import _render_number
 
 
 class OptionsExpirationsInput(BaseInputType):
@@ -143,7 +143,7 @@ class OptionsChainInput(BaseInputType):
         """
         if value is None or isinstance(value, str):
             return value
-        return render_number(value, info.field_name)
+        return _render_number(value, info.field_name)
 
     @field_validator("expiration")
     def validate_expiration(

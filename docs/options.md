@@ -213,8 +213,10 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   answers both sides, so `0.5` and `-0.5` give the same rows; and a value above 1 is read
   as a percentage, so `30` means `0.30`. A negative is kept for an exact value and refused
   in a range or a bound, where the absolute value would change the question. A small delta
-  is sent as plain digits too: `delta=5e-05` fails with a `400`, since the API splits that
-  text at its minus, while `delta=0.00005` is read. The filter is
+  is sent as plain digits too, `0.00005` rather than `5e-05`: the API answers a query of
+  `delta=5e-05` with a `400`, since it splits that text at its minus. A `bool`, a NaN or an
+  infinity is refused rather than sent, since the API reads `delta=nan` as no filter and
+  answers with the whole chain. The filter is
   skipped entirely if any contract in the chain carries a null delta, and it is a `400`
   together with a historical `date`
 - `strike_limit` (int, optional): Limit the number of strikes
