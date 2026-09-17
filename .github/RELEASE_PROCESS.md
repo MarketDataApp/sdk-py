@@ -107,7 +107,7 @@ What runs, in order:
 | `validate` | Before any runner time is spent: `confirm` is `RELEASE`, the version is well formed, the tag `vX.Y.Z` does not exist, `pyproject.toml` declares exactly that version, and `CHANGELOG.md` has a `## [X.Y.Z]` section. It prints the notes it extracted |
 | `gate` | Calls `test.yml` on that ref with `run_integration: true`: the suite on Python 3.10, 3.11 and 3.12 **and** the live integration suite, which here must run rather than skip |
 | `release` | Resolves the ref to a commit, checks the tag again in case one appeared while the suite ran, and creates the tag and the GitHub Release on that commit, titled `Version X.Y.Z`, with the notes from the CHANGELOG |
-| `publish` | Calls `publish.yml` on that commit: TestPyPI first, then PyPI, both through Trusted Publishing. It refuses to upload a build whose version is not the one asked for |
+| `publish` | Calls `publish.yml` on that commit: TestPyPI first, then PyPI, both through Trusted Publishing. It refuses to upload a build whose version is not the one asked for. Its own gate is skipped here, since `gate` above already ran the suite on this commit |
 | `verify` | Polls PyPI for the version, then installs it into a throwaway environment and reads its version back |
 
 Two things the workflow does not do, on purpose:
@@ -129,8 +129,10 @@ only up to the point where it would create the tag.
 
 If the workflow itself is broken, the manual path still works: tag the commit, push the
 tag, and create the Release. The `release: published` event starts `publish.yml`, which
-checks the tag against `pyproject.toml` and uploads. That path has no test gate, so run
-the suite and the live suite on the exact commit first.
+carries the same gates on that path, since a release anyone with write access can create
+must not be a way around them: it runs the suite and the live suite on the tag, refuses a
+commit `main` does not contain, and checks the tag against `pyproject.toml` before it
+uploads. What it cannot do is check anything before the tag exists.
 
 ```bash
 git fetch --tags && git tag -l "vX.Y.Z"     # must print nothing
@@ -194,8 +196,8 @@ gh release create vX.Y.Z --title "Version X.Y.Z" --notes-file <(awk '/^## \[X\.Y
   `tag-and-release` again does not help: it refuses the tag that now exists. Fix the
   cause, then either re-run the failed jobs of that run, or delete the GitHub Release and
   create it again from the same tag, which starts `publish.yml` through its `release`
-  trigger. The TestPyPI leg skips files it already uploaded, so a second attempt reaches
-  PyPI.
+  trigger and runs its gate again on the way. The TestPyPI leg skips files it already
+  uploaded, so a second attempt reaches PyPI.
 
 ## 7. Repository state this process assumes
 

@@ -8,9 +8,11 @@ name: Publish to PyPI
 #   (SDK requirements §17.5), so the publish is chained explicitly instead of
 #   waiting for the `release` event that will never arrive.
 # - A release published by hand in the web interface, which does fire the
-#   event. That path has no test gate, so the version check below is the last
-#   thing standing between a mistyped tag and an upload that can never be
-#   taken back.
+#   event. That path is the fallback for a broken release workflow, so it
+#   carries the same gates rather than trusting the person who cut it: the
+#   `gate` job below runs the suite and the live suite on the tag, and the
+#   commit still has to be one `main` contains. Without that, anyone who can
+#   create a release could publish an unreviewed commit.
 #
 # `workflow_dispatch` is deliberately absent: it published to TestPyPI with no
 # gate at all (#61), and a TestPyPI version is as permanent as a PyPI one.
@@ -29,6 +31,18 @@ on:
         type: string
 
 jobs:
+  # Only for a release cut by hand: `tag-and-release` has already run this on
+  # the commit it is about to tag, and running it twice would double the live
+  # API calls for nothing.
+  gate:
+    name: The suite, on the tag being published
+    if: github.event_name == 'release'
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ github.event.release.tag_name }}
+      run_integration: true
+    secrets: inherit
+
   publish-testpypi:
     name: Publish to TestPyPI
     runs-on: ubuntu-latest
@@ -38,6 +52,11 @@ jobs:
       url: https://test.pypi.org/p/marketdata-sdk-py/
     permissions:
       id-token: write
+    needs: gate
+    # `gate` is skipped when this workflow is called, and a skipped job is not
+    # a passed one for `needs`, so the condition says which results may
+    # publish. A cancelled gate may not.
+    if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -46,6 +65,8 @@ jobs:
           # release event carries its tag. A bare checkout would build the
           # default branch, which is not what is being released.
           ref: ${{ inputs.ref || github.event.release.tag_name }}
+          # For the ancestry check below.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.0.1
@@ -77,6 +98,18 @@ jobs:
             echo "::error::pyproject.toml declares ${declared}, and this release is ${expected}. Bump the version in a pull request before releasing."
             exit 1
           fi
+          # A release cut by hand can name any commit this repository can
+          # tag. `tag-and-release` refuses one `main` does not contain, and so
+          # does this: the alternative is that anyone who can create a release
+          # publishes an unreviewed commit.
+          if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
+            git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+            if ! git merge-base --is-ancestor HEAD origin/main; then
+              echo "::error::$(git rev-parse HEAD) is not on main. A release is cut from a commit that was merged."
+              exit 1
+            fi
+          fi
+
           ls -l dist/
           # A wheel whose name does not carry that version means the build read
           # something else, and the upload would put it on the index anyway.
