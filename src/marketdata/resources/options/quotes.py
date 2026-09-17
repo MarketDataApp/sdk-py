@@ -16,7 +16,12 @@ from marketdata.output_types.options_quotes import (
     OptionsQuotesHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, model_columns, no_data_result
+from marketdata.resources.base import (
+    BaseResource,
+    merged_model_errors,
+    model_columns,
+    no_data_result,
+)
 from marketdata.utils import (
     encode_path_segment,
     is_no_data,
@@ -111,8 +116,11 @@ def quotes(
     ]:
         # A body that is not JSON (a proxy's HTML error page) fails the call
         # as it does everywhere else (#82); a fabricated empty row would read
-        # as "no options" and break the merge of the healthy symbols.
-        data = [parse_json(response) for response in usable]
+        # as "no options" and break the merge of the healthy symbols. Only the
+        # models keep money exact (#50): the DataFrame and the JSON output keep
+        # the float parse.
+        exact = user_universal_params.output_format == OutputFormat.INTERNAL
+        data = [parse_json(response, exact=exact) for response in usable]
         # Under `columns=` the API sends the requested keys only, in request
         # order, and every symbol must carry the same ones: a symbol missing
         # one would shift the rows of every symbol after it (the rule
@@ -127,7 +135,16 @@ def quotes(
             )
 
         if user_universal_params.output_format == OutputFormat.INTERNAL:
-            return output_model(**data)
+
+            def _model_alone(response: Response) -> object:
+                alone = [parse_json(response, exact=True)]
+                keys = json_answer_columns(
+                    [response], alone, output_model.answer_keys()
+                )
+                return output_model(**output_model.join_dicts(alone, keys))
+
+            with merged_model_errors(usable, _model_alone):
+                return output_model(**data)
         if user_universal_params.output_format == OutputFormat.JSON:
             return data
 

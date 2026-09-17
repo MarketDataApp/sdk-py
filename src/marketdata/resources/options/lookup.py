@@ -10,7 +10,7 @@ from marketdata.output_types.options_lookup import (
     OptionsLookupHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.resources.base import BaseResource, model_errors, no_data_result
 from marketdata.utils import encode_path, is_no_data, parse_json
 
 
@@ -72,7 +72,8 @@ def lookup(
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         data = parse_json(response)
-        return output_model(**data)
+        with model_errors(response):
+            return output_model(**data)
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         return parse_json(response)

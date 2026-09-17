@@ -14,7 +14,7 @@ from httpx import Response
 
 from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.output_handlers import get_dataframe_output_handler
-from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.resources.base import BaseResource, model_errors, no_data_result
 from marketdata.utils import dict_to_csv, get_data_records, is_no_data, parse_json
 
 
@@ -70,8 +70,10 @@ def render(
     elif output_format == OutputFormat.INTERNAL:
         if as_records:
             rows = get_data_records(data, exclude_keys=["s"])
-            return [output_model(**row) for row in rows]
-        return output_model.from_dict(data)
+            with model_errors(response):
+                return [output_model(**row) for row in rows]
+        with model_errors(response):
+            return output_model.from_dict(data)
 
     elif output_format == OutputFormat.JSON:
         return data

@@ -1,6 +1,7 @@
 """Live test for the funds resource: candles."""
 
 import datetime
+from decimal import Decimal
 
 from marketdata import MarketDataClient, OutputFormat
 from marketdata.output_types.funds_candles import FundsCandle
@@ -25,3 +26,7 @@ def test_candles_return_recent_fund_prices(live_client: MarketDataClient):
         assert candle.l > 0
         assert candle.l <= candle.o <= candle.h
         assert candle.l <= candle.c <= candle.h
+        assert all(
+            isinstance(price, Decimal)
+            for price in (candle.o, candle.h, candle.l, candle.c)
+        )

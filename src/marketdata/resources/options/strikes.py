@@ -10,7 +10,7 @@ from marketdata.output_types.options_strikes import (
     OptionsStrikesHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.resources.base import BaseResource, model_errors, no_data_result
 from marketdata.utils import encode_path_segment, is_no_data, parse_json
 
 
@@ -64,8 +64,9 @@ def strikes(
         return handler(data, output_model, user_universal_params).get_result()
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = parse_json(response)
-        return output_model(**data)
+        data = parse_json(response, exact=True)
+        with model_errors(response):
+            return output_model(**data)
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         return parse_json(response)
