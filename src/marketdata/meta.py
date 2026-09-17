@@ -132,7 +132,7 @@ class ResponseMeta:
         )
 
     @classmethod
-    def merge(
+    def _merge(
         cls, metas: list[ResponseMeta], *, error: BaseException | None = None
     ) -> ResponseMeta:
         """The metadata of one call, from every response behind it. ``error``

@@ -180,14 +180,14 @@ def test_the_merged_address_comes_from_the_response_that_speaks_for_the_call():
     the same response as `status_code` and `request_id`, so the three describe
     one exchange; taking whichever response reported one last would make it
     depend on which worker thread finished first, which is not something a
-    caller can reason about. Asserted on `merge` itself: through a fan-out the
+    caller can reason about. Asserted on `_merge` itself: through a fan-out the
     order of the recorded responses is the order they arrived in."""
     metas = [
         ResponseMeta(200, "r1", None, detected_ip=OTHER_IP),
         ResponseMeta(200, "r2", None, detected_ip=DETECTED_IP),
     ]
 
-    merged = ResponseMeta.merge(metas)
+    merged = ResponseMeta._merge(metas)
 
     assert merged.request_id == "r2"
     assert merged.detected_ip == DETECTED_IP
@@ -234,15 +234,15 @@ def test_merging_nothing_but_headerless_responses_reports_no_address():
         ResponseMeta(status_code=200, request_id="r2", rate_limits=None),
     ]
 
-    assert ResponseMeta.merge(metas).detected_ip is None
+    assert ResponseMeta._merge(metas).detected_ip is None
 
 
 def test_the_speaker_is_the_last_usable_response_not_the_last_one():
-    """`merge` skips a response that could not have contributed to the result,
+    """`_merge` skips a response that could not have contributed to the result,
     and the address follows the same rule."""
     metas = [
         ResponseMeta(200, "r1", None, detected_ip=DETECTED_IP),
         ResponseMeta(404, "r2", None, detected_ip=OTHER_IP),
     ]
 
-    assert ResponseMeta.merge(metas).detected_ip == DETECTED_IP
+    assert ResponseMeta._merge(metas).detected_ip == DETECTED_IP

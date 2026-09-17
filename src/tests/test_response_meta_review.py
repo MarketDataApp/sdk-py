@@ -347,7 +347,7 @@ def test_the_exceptions_response_speaks_whatever_the_order(reverse):
         metas.reverse()
     error = BadRequestError("bad", request=REQUEST, response=_response(400, "bad-1"))
 
-    merged = ResponseMeta.merge(metas, error=error)
+    merged = ResponseMeta._merge(metas, error=error)
 
     assert _speaker(merged) == (400, "bad-1")
     assert merged.responses == 4
@@ -365,7 +365,7 @@ def test_a_failure_without_a_response_has_no_speaker(error):
     limits = UserRateLimits(100, 90, RESET, 3)
     metas = [ResponseMeta(200, "ok-1", limits), ResponseMeta(503, "down-1", None)]
 
-    merged = ResponseMeta.merge(metas, error=error)
+    merged = ResponseMeta._merge(metas, error=error)
 
     assert _speaker(merged) == (0, None)
     assert merged.rate_limits.credits_consumed == 3
@@ -378,7 +378,7 @@ def test_a_response_without_a_cf_ray_gives_no_request_id():
         "bad", request=REQUEST, response=httpx.Response(400, request=REQUEST)
     )
 
-    merged = ResponseMeta.merge([ResponseMeta(400, None, None)], error=error)
+    merged = ResponseMeta._merge([ResponseMeta(400, None, None)], error=error)
 
     assert error.request_id == "N/A"
     assert _speaker(merged) == (400, None)
@@ -393,7 +393,7 @@ def test_a_response_that_is_not_an_httpx_response_does_not_break_the_merge():
     error.response = object()
     metas = [ResponseMeta(200, "ok-1", None), ResponseMeta(404, "empty-1", None)]
 
-    assert _speaker(ResponseMeta.merge(metas, error=error)) == (200, "ok-1")
+    assert _speaker(ResponseMeta._merge(metas, error=error)) == (200, "ok-1")
 
 
 def test_the_no_usable_answer_error_names_the_answer_that_is_not_empty(
@@ -449,7 +449,7 @@ def test_an_exception_not_about_a_request_keeps_the_rule_of_a_success():
         ResponseMeta(404, "empty-1", None),
     ]
 
-    merged = ResponseMeta.merge(metas, error=FileExistsError("mine.csv"))
+    merged = ResponseMeta._merge(metas, error=FileExistsError("mine.csv"))
 
     assert _speaker(merged) == (200, "ok-2")
 
@@ -508,3 +508,12 @@ def test_a_result_that_cannot_be_weak_referenced_says_so(caplog):
 
     assert get_meta(42) is None
     assert "cannot be weak-referenced" in caplog.text
+
+
+def test_merging_the_metadata_of_a_call_is_not_public():
+    """`ResponseMeta` is public, but combining the metadata of the requests
+    behind one call is the SDK's own step. `merge` never shipped in a release
+    (#88 added it for 2.0.0), so it is private, and this keeps a public name
+    from coming back without a decision."""
+    assert not hasattr(ResponseMeta, "merge")
+    assert callable(ResponseMeta._merge)

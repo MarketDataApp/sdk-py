@@ -495,7 +495,7 @@ def test_merge_sums_credits_and_keeps_the_newest_window():
     late = ResponseMeta(200, "r2", limits(3, 40, reset=RESET - 3600))  # old window
     last = ResponseMeta(203, "r3", limits(4, 90, reset=RESET + 3600, limit=200))
 
-    merged = ResponseMeta.merge([first, late, last])
+    merged = ResponseMeta._merge([first, late, last])
 
     assert merged.responses == 3
     assert merged.status_code == 203 and merged.request_id == "r3"
@@ -514,7 +514,7 @@ def test_merge_takes_the_lowest_balance_inside_the_newest_window():
     first = ResponseMeta(200, "r1", limits(2, 98, reset=RESET))
     second = ResponseMeta(200, "r2", limits(3, 95, reset=RESET))
 
-    merged = ResponseMeta.merge([second, first])
+    merged = ResponseMeta._merge([second, first])
 
     assert merged.rate_limits.credits_remaining == 95
     assert merged.rate_limits.credits_consumed == 5
@@ -527,7 +527,7 @@ def test_merge_does_not_carry_a_closed_window_balance_across_a_reset():
     before = ResponseMeta(503, "r1", limits(0, 2, reset=RESET))
     after = ResponseMeta(200, "r2", limits(1, 99, reset=RESET + 60))
 
-    merged = ResponseMeta.merge([before, after])
+    merged = ResponseMeta._merge([before, after])
 
     assert merged.rate_limits.credits_remaining == 99
     assert merged.rate_limits.reset_time == after.rate_limits.reset_time
@@ -537,7 +537,7 @@ def test_merge_does_not_carry_a_closed_window_balance_across_a_reset():
 def test_merge_without_credit_headers_has_no_rate_limits():
     metas = [ResponseMeta(200, "a", None), ResponseMeta(200, "b", None)]
 
-    merged = ResponseMeta.merge(metas)
+    merged = ResponseMeta._merge(metas)
 
     assert merged.rate_limits is None
     assert merged.responses == 2
@@ -551,10 +551,10 @@ def test_merge_speaks_for_the_last_response_that_could_have_contributed():
     empty = ResponseMeta(404, "no-data", limits(0, 99))
     good = ResponseMeta(200, "has-data", limits(1, 98))
 
-    assert ResponseMeta.merge([good, empty]).request_id == "has-data"
-    assert ResponseMeta.merge([empty, good]).request_id == "has-data"
+    assert ResponseMeta._merge([good, empty]).request_id == "has-data"
+    assert ResponseMeta._merge([empty, good]).request_id == "has-data"
     for order in ([good, empty], [empty, good]):
-        merged = ResponseMeta.merge(order)
+        merged = ResponseMeta._merge(order)
         assert merged.status_code == 200
         assert merged.responses == 2
 
@@ -565,7 +565,7 @@ def test_merge_falls_back_to_the_last_response_when_none_was_usable():
     first = ResponseMeta(503, "try-1", limits(0, 99))
     second = ResponseMeta(503, "try-2", limits(0, 99))
 
-    merged = ResponseMeta.merge([first, second])
+    merged = ResponseMeta._merge([first, second])
 
     assert merged.status_code == 503
     assert merged.request_id == "try-2"
@@ -578,11 +578,11 @@ def test_merge_accepts_a_203_as_a_usable_answer():
     partial = ResponseMeta(203, "partial", limits(1, 98))
     empty = ResponseMeta(404, "no-data", limits(0, 99))
 
-    assert ResponseMeta.merge([partial, empty]).request_id == "partial"
+    assert ResponseMeta._merge([partial, empty]).request_id == "partial"
 
 
 def test_merge_of_nothing_is_a_value_error():
     """`ResponseMeta` is exported from the package root; an empty merge used
     to surface as a bare IndexError."""
     with pytest.raises(ValueError, match="empty list"):
-        ResponseMeta.merge([])
+        ResponseMeta._merge([])
