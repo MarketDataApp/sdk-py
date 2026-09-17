@@ -31,15 +31,61 @@ on:
         type: string
 
 jobs:
-  # Only for a release cut by hand: `tag-and-release` has already run this on
-  # the commit it is about to tag, and running it twice would double the live
-  # API calls for nothing.
+  # The three jobs below exist for a release cut by hand. `tag-and-release`
+  # resolved the commit, checked it and ran the suite on it before it tagged
+  # anything, so when it calls this workflow they are skipped.
+  resolve:
+    name: Resolve the tag and check what it names
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Resolve it, and refuse what a release must not be
+        id: commit
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          # A tag can be moved. Resolving it once, here, is what keeps the
+          # suite, the build and the upload on the same commit: every later
+          # job takes this SHA rather than the name.
+          sha=$(git rev-parse HEAD)
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "${TAG} is ${sha}"
+
+          # The same two checks `tag-and-release` runs before it tags, because
+          # this path reaches the same upload with the same credentials.
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "::error::${sha} is not on main. A release is cut from a commit that was merged."
+            exit 1
+          fi
+
+          version="${TAG#v}"
+          awk -v heading="## [${version}]" '
+            index($0, heading) == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::CHANGELOG.md has no ## [${version}] section, or it is empty."
+            exit 1
+          fi
+
   gate:
-    name: The suite, on the tag being published
+    name: The suite, on the commit being published
+    needs: resolve
     if: github.event_name == 'release'
     uses: ./.github/workflows/test.yml
     with:
-      ref: ${{ github.event.release.tag_name }}
+      ref: ${{ needs.resolve.outputs.sha }}
       run_integration: true
     secrets: inherit
 
@@ -52,21 +98,22 @@ jobs:
       url: https://test.pypi.org/p/marketdata-sdk-py/
     permissions:
       id-token: write
-    needs: gate
-    # `gate` is skipped when this workflow is called, and a skipped job is not
-    # a passed one for `needs`, so the condition says which results may
-    # publish. A cancelled gate may not.
-    if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') }}
+    needs: [resolve, gate]
+    # Both are skipped when this workflow is called, and a skipped job is not a
+    # passed one for `needs`, so the condition says which results may publish.
+    # A cancelled or failed one may not.
+    if: >-
+      ${{ !cancelled()
+      && (needs.resolve.result == 'success' || needs.resolve.result == 'skipped')
+      && (needs.gate.result == 'success' || needs.gate.result == 'skipped') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
-          # The caller resolved a branch to a commit before tagging it; the
-          # release event carries its tag. A bare checkout would build the
-          # default branch, which is not what is being released.
-          ref: ${{ inputs.ref || github.event.release.tag_name }}
-          # For the ancestry check below.
-          fetch-depth: 0
+          # A commit either way: the caller resolved one before tagging it,
+          # and `resolve` above turned the release's tag into one. A bare
+          # checkout would build the default branch instead.
+          ref: ${{ inputs.ref || needs.resolve.outputs.sha }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.0.1
@@ -98,18 +145,6 @@ jobs:
             echo "::error::pyproject.toml declares ${declared}, and this release is ${expected}. Bump the version in a pull request before releasing."
             exit 1
           fi
-          # A release cut by hand can name any commit this repository can
-          # tag. `tag-and-release` refuses one `main` does not contain, and so
-          # does this: the alternative is that anyone who can create a release
-          # publishes an unreviewed commit.
-          if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
-            git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
-            if ! git merge-base --is-ancestor HEAD origin/main; then
-              echo "::error::$(git rev-parse HEAD) is not on main. A release is cut from a commit that was merged."
-              exit 1
-            fi
-          fi
-
           ls -l dist/
           # A wheel whose name does not carry that version means the build read
           # something else, and the upload would put it on the index anyway.
@@ -141,12 +176,15 @@ jobs:
     # TestPyPI first: it is the same upload against the same immutability
     # rules, so a build that fails there would have failed on PyPI, where it
     # could not be taken back.
-    needs: publish-testpypi
+    needs: [resolve, publish-testpypi]
+    if: >-
+      ${{ !cancelled() && needs.publish-testpypi.result == 'success'
+      && (needs.resolve.result == 'success' || needs.resolve.result == 'skipped') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref || github.event.release.tag_name }}
+          ref: ${{ inputs.ref || needs.resolve.outputs.sha }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.0.1

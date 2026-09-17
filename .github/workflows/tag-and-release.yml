@@ -140,8 +140,12 @@ jobs:
 
           # The release notes come from the CHANGELOG, matched exactly, so a
           # release cannot ship with the notes of another version.
-          awk -v v="$VERSION" '
-            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+          # The heading is matched as text, not as a pattern: a version read
+          # as a regular expression has dots that match anything, so
+          # `## [2-0-0]` would answer for 2.0.0. It is the start of the line,
+          # since Keep a Changelog writes the date after it.
+          awk -v heading="## [${VERSION}]" '
+            index($0, heading) == 1 { found = 1; next }
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
@@ -185,8 +189,12 @@ jobs:
         run: |
           # Extracted again rather than carried from `validate`: a job output
           # is a single line, and these notes are not.
-          awk -v v="$VERSION" '
-            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+          # The heading is matched as text, not as a pattern: a version read
+          # as a regular expression has dots that match anything, so
+          # `## [2-0-0]` would answer for 2.0.0. It is the start of the line,
+          # since Keep a Changelog writes the date after it.
+          awk -v heading="## [${VERSION}]" '
+            index($0, heading) == 1 { found = 1; next }
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md

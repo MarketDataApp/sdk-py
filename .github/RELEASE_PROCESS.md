@@ -130,9 +130,10 @@ only up to the point where it would create the tag.
 If the workflow itself is broken, the manual path still works: tag the commit, push the
 tag, and create the Release. The `release: published` event starts `publish.yml`, which
 carries the same gates on that path, since a release anyone with write access can create
-must not be a way around them: it runs the suite and the live suite on the tag, refuses a
-commit `main` does not contain, and checks the tag against `pyproject.toml` before it
-uploads. What it cannot do is check anything before the tag exists.
+must not be a way around them: it resolves the tag to a commit once, refuses one `main`
+does not contain or that the CHANGELOG has no section for, runs the suite and the live
+suite on that commit, and checks the version against `pyproject.toml` before it uploads.
+What it cannot do is check anything before the tag exists.
 
 ```bash
 git fetch --tags && git tag -l "vX.Y.Z"     # must print nothing
