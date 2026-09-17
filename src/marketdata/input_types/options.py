@@ -137,7 +137,7 @@ class OptionsChainInput(BaseInputType):
         mode="before",
         json_schema_input_type=str | int | float | Decimal | None,
     )
-    def render_number_filter(cls, value: object, info) -> object:
+    def _render_number_filter(cls, value: object, info) -> object:
         """A bare number is checked and rendered the way a filter is.
 
         The fields accept a number and hold the text that is sent, so they are
