@@ -48,6 +48,11 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "latest"
+
       - name: Resolve it, and refuse what a release must not be
         id: commit
         env:
@@ -68,7 +73,33 @@ jobs:
             exit 1
           fi
 
-          version="${TAG#v}"
+          # The tag contract is `vX.Y.Z`, and the version is what follows
+          # the `v`, spelled the way pip serves it. `tag-and-release` checks
+          # this before it tags; here the tag exists already, so the check is
+          # what stops the upload.
+          case "$TAG" in
+            v*) version="${TAG#v}" ;;
+            *)
+              echo "::error::The tag ${TAG} does not start with v. A release of X.Y.Z is tagged vX.Y.Z."
+              exit 1
+              ;;
+          esac
+          uv run --no-project --quiet --with packaging --python 3.12 python - "$version" <<'PYEOF'
+          import sys
+
+          from packaging.version import InvalidVersion, Version
+
+          asked = sys.argv[1]
+          try:
+              parsed = Version(asked)
+          except InvalidVersion:
+              sys.exit(f"::error::{asked} is not a version Python packaging can read.")
+          if str(parsed) != asked:
+              sys.exit(f"::error::{asked} is spelled differently from the version it means: pip would serve {parsed}.")
+          if parsed.local:
+              sys.exit(f"::error::{asked} carries a local version, and PyPI refuses those.")
+          PYEOF
+
           awk -v heading="## [${version}]" '
             index($0, heading) == 1 { found = 1; next }
             found && /^## \[/ { exit }

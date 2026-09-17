@@ -188,9 +188,16 @@ gh release create vX.Y.Z --title "Version X.Y.Z" --notes-file <(awk '/^## \[X\.Y
 
 `tag-and-release.yml` closed the gap this section used to describe (#61). What is left:
 
-- **Nothing stands between a published Release and PyPI.** The `pypi` and `testpypi`
-  environments carry no protection rules, so no reviewer is asked. Required reviewers on
-  the `pypi` environment are a repository setting, not a file in this repository.
+- **The gates in this repository are only as good as the environment settings.** The
+  `pypi` and `testpypi` environments accept a deployment from any branch and ask no
+  reviewer. A `workflow_dispatch` runs the copy of the workflow on the branch it is
+  dispatched from, so anyone who can push a branch can push one with `validate` deleted
+  and reach those environments with it. Two settings close that, and neither is a file in
+  this repository:
+  - **Deployment branches and tags**, on both environments: selected branches, `main`
+    only. A run from any other branch then cannot use them.
+  - **Required reviewers** on `pypi`, so a person other than the one who dispatched it
+    sees what is about to be published.
 - **Coverage is not enforced anywhere** (see the note at the end of §7).
 - **A half-finished release is recovered by hand.** If `publish` fails after the tag and
   the Release exist, the release is real and the files are not. Dispatching
