@@ -2,7 +2,8 @@
 
 import random
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import patch
+
+import pytest
 
 from marketdata.rate_limit_tracker import RateLimitTracker
 from marketdata.types import UserRateLimits
@@ -69,20 +70,44 @@ def test_reset_bypasses_the_ordering_rule():
     assert tracker.state is None
 
 
-def test_an_authoritative_update_writes_through_reset():
-    """One way past the ordering rule (#104): an authoritative update applies
-    the zero-limit guard and then writes through `reset`, so a change to how a
-    state is replaced cannot land in one path and not the other, and the tests
-    that seed the tracker through `reset` exercise the write production uses."""
+def test_an_authoritative_update_goes_past_the_ordering_rule():
+    """One way past the ordering rule (#104): `client.utilities.user()` is
+    asked precisely to learn the balance, so its answer replaces the state
+    even when it reports more credits than the tracker holds, which the
+    ordering rule reads as a late response. A zero-limit envelope is refused
+    before it gets there: the API answers an unknown token with demo data and
+    a `0/0` envelope, which would otherwise say this account has nothing."""
     tracker = RateLimitTracker()
     tracker.update(limits(10))
 
-    with patch.object(tracker, "reset", wraps=tracker.reset) as reset:
-        tracker.update(limits(95), authoritative=True)
-        tracker.update(UserRateLimits(0, 0, RESET, 0), authoritative=True)
-
-    reset.assert_called_once_with(limits(95))
+    tracker.update(limits(95), authoritative=True)
     assert tracker.state == limits(95)
+
+    tracker.update(UserRateLimits(0, 0, RESET, 0), authoritative=True)
+    assert tracker.state == limits(95)
+
+
+@pytest.mark.parametrize(
+    "state",
+    [limits(95), limits(1), limits(50, reset=RESET - 3600), limits(10)],
+    ids=["a higher balance", "a lower one", "an older window", "the same state"],
+)
+def test_an_authoritative_update_leaves_what_reset_leaves(state):
+    """The two ways to replace the state are one write in production, and this
+    is what a caller can see of that: from the same starting point both end at
+    the same state, whatever the ordering rule would have made of it, so a
+    change to how a state is replaced cannot land in one path and not the
+    other (#104). The zero-limit envelope is the one input where they differ
+    on purpose, and the test above is about that."""
+    seeded = RateLimitTracker()
+    seeded.update(limits(10))
+    seeded.update(state, authoritative=True)
+
+    directly = RateLimitTracker()
+    directly.update(limits(10))
+    directly.reset(state)
+
+    assert seeded.state == directly.state == state
 
 
 def test_concurrent_updates_end_at_the_lowest_balance():
