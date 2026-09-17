@@ -182,6 +182,51 @@ def test_set_stream_returns_the_stream_it_leaves_and_flushes_it(monkeypatch):
         handler.setStream(None)
 
 
+def test_two_callers_swapping_the_stream_share_no_previous_one(monkeypatch):
+    """The comparison and the stream it answers are read under the lock, so
+    of two callers swapping at once each is told about the stream it actually
+    replaced. Read before the lock, as the standard library does it, both
+    would have been handed the first stream, and putting that one back would
+    have restored a stream nobody was writing to (#108 review)."""
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    handler = get_logger().handlers[0]
+    first, second, third = io.StringIO(), io.StringIO(), io.StringIO()
+    inside = threading.Event()
+    held = threading.Event()
+    flush = handler.flush
+
+    def slow_flush():
+        # Inside the swap, holding the lock: the moment the second caller
+        # used to read the stream the first one is about to replace.
+        inside.set()
+        assert held.wait(timeout=10), "the second caller never reached the lock"
+        flush()
+
+    left = []
+
+    def swap(stream):
+        left.append(handler.setStream(stream))
+
+    try:
+        handler.setStream(first)
+        monkeypatch.setattr(handler, "flush", slow_flush)
+        swapping = threading.Thread(target=swap, args=(second,))
+        swapping.start()
+        assert inside.wait(timeout=10), "the first caller never swapped"
+        waiting = threading.Thread(target=swap, args=(third,))
+        waiting.start()
+        held.set()
+        swapping.join(timeout=10)
+        waiting.join(timeout=10)
+    finally:
+        monkeypatch.setattr(handler, "flush", flush)
+        handler.setStream(None)
+
+    assert left == [first, second]
+    assert handler.stream is sys.stderr
+
+
 CALLER_CONFIGURED = """
 import logging
 

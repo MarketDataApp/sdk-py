@@ -37,12 +37,20 @@ class _StderrHandler(StreamHandler):
         the stream that was set. ``None`` goes back to the live ``sys.stderr``,
         and is also the way back after ``old = handler.setStream(stream)``:
         setting ``old`` again pins the stderr of that moment.
+
+        The comparison and the stream it answers are read under the handler's
+        lock, which the standard library takes only for the swap itself: two
+        callers changing the stream at the same moment would otherwise read
+        the same previous stream and both be told they own it, and one of the
+        two would put back a stream that is no longer there (#108 review).
         """
-        if stream is self._stream:
-            return None
-        result = self.stream
         self.acquire()
         try:
+            if stream is self._stream:
+                return None
+            result = self.stream
+            # `flush` takes the lock again. It is reentrant: the logging
+            # module makes it with `threading.RLock`.
             self.flush()
             self.stream = stream
         finally:

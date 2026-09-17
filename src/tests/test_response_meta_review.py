@@ -2,12 +2,13 @@
 response the metadata of a failed call speaks for, and an exception's ability
 to carry that metadata at all."""
 
-import time
+import threading
 
 import httpx
 import pytest
 
 import marketdata
+import marketdata.client
 from marketdata.exceptions import (
     BadRequestError,
     NetworkError,
@@ -218,15 +219,63 @@ def test_a_successful_call_still_speaks_for_a_usable_response(
 # exception can: the metadata of a failure describes the request it is about.
 
 
-def later(response: httpx.Response, delay: float = 0.2):
-    """Answer after the other requests of the call, so this response is
-    recorded last: the order in which a rule over the list went wrong."""
+class Order:
+    """Answers the requests of one call in a fixed order, by handshake rather
+    than by the clock (#108 review). What `after_the_others` answers is
+    recorded last, the order in which a rule over the list went wrong.
 
-    def answer(request: httpx.Request) -> httpx.Response:
-        time.sleep(delay)
-        return response
+    The wait is on `record_meta`, where that order is decided, so the answers
+    cannot be recorded the other way around on a loaded machine; a sleep only
+    made that unlikely. A failure that never reaches `record_meta`, a
+    transport error, counts itself through `answering`."""
 
-    return answer
+    def __init__(self, monkeypatch, others: int):
+        self._left = others
+        self._lock = threading.Lock()
+        self._recorded = threading.Event()
+        record_meta = marketdata.client.record_meta
+
+        def record(meta: ResponseMeta) -> None:
+            record_meta(meta)
+            self._count()
+
+        monkeypatch.setattr(marketdata.client, "record_meta", record)
+
+    def _count(self) -> None:
+        with self._lock:
+            if self._left > 0:
+                self._left -= 1
+                if self._left == 0:
+                    self._recorded.set()
+
+    def answering(self, failure: BaseException):
+        """A route that fails now, before any other answer is recorded."""
+
+        def answer(request: httpx.Request) -> httpx.Response:
+            self._count()
+            raise failure
+
+        return answer
+
+    def after_the_others(self, response: httpx.Response):
+        """A route that answers once the others have been recorded."""
+
+        def answer(request: httpx.Request) -> httpx.Response:
+            assert self._recorded.wait(timeout=10), "the other answers never came"
+            return response
+
+        return answer
+
+
+@pytest.fixture
+def answer_order(monkeypatch):
+    """An `Order` over the answers of one call, `others` of which are recorded
+    before the late one is given."""
+
+    def build(others: int = 1) -> Order:
+        return Order(monkeypatch, others)
+
+    return build
 
 
 def _speaker(meta: ResponseMeta) -> tuple[int, str | None]:
@@ -234,7 +283,7 @@ def _speaker(meta: ResponseMeta) -> tuple[int, str | None]:
 
 
 def test_a_failure_names_the_request_that_failed_not_a_later_empty_symbol(
-    respx_mock, client
+    respx_mock, client, answer_order
 ):
     respx_mock.get(CALL_URL).respond(
         json={"s": "error", "errmsg": "Bad parameters"},
@@ -242,7 +291,7 @@ def test_a_failure_names_the_request_that_failed_not_a_later_empty_symbol(
         headers={"cf-ray": "bad-1"},
     )
     respx_mock.get(PUT_URL).mock(
-        side_effect=later(
+        side_effect=answer_order().after_the_others(
             httpx.Response(404, json={"s": "no_data"}, headers={"cf-ray": "empty-1"})
         )
     )
@@ -255,8 +304,49 @@ def test_a_failure_names_the_request_that_failed_not_a_later_empty_symbol(
     assert _speaker(meta) == (400, "bad-1")
 
 
+@pytest.mark.parametrize(
+    "output_format",
+    [
+        OutputFormat.JSON,
+        OutputFormat.INTERNAL,
+        OutputFormat.CSV,
+        OutputFormat.DATAFRAME,
+    ],
+    ids=["json", "internal", "csv", "dataframe"],
+)
+def test_a_failure_names_the_request_that_failed_on_every_output_format(
+    respx_mock, client, answer_order, tmp_path, output_format
+):
+    """The output format decides what a call gives back, not which request a
+    failure is about: the rule lives in the decorator, above the renderers
+    (#108 review). The empty symbol is answered last on every one of them."""
+    respx_mock.get(CALL_URL).respond(
+        json={"s": "error", "errmsg": "Bad parameters"},
+        status_code=400,
+        headers={"cf-ray": "bad-1"},
+    )
+    respx_mock.get(PUT_URL).mock(
+        side_effect=answer_order().after_the_others(
+            httpx.Response(404, json={"s": "no_data"}, headers={"cf-ray": "empty-1"})
+        )
+    )
+    csv_file = (
+        {"filename": tmp_path / "quotes.csv"}
+        if output_format is OutputFormat.CSV
+        else {}
+    )
+
+    with pytest.raises(BadRequestError) as exc_info:
+        client.options.quotes(SYMBOLS, output_format=output_format, **csv_file)
+
+    meta = get_meta(exc_info.value)
+    assert meta.responses == 2
+    assert _speaker(meta) == (400, "bad-1")
+    assert (exc_info.value.status_code, exc_info.value.request_id) == (400, "bad-1")
+
+
 def test_a_failure_names_the_request_that_failed_not_a_later_server_error(
-    respx_mock, client
+    respx_mock, client, answer_order
 ):
     client.max_retries = 0
     respx_mock.get(CALL_URL).respond(
@@ -265,7 +355,9 @@ def test_a_failure_names_the_request_that_failed_not_a_later_server_error(
         headers={"cf-ray": "bad-1"},
     )
     respx_mock.get(PUT_URL).mock(
-        side_effect=later(httpx.Response(503, json={}, headers={"cf-ray": "down-1"}))
+        side_effect=answer_order().after_the_others(
+            httpx.Response(503, json={}, headers={"cf-ray": "down-1"})
+        )
     )
 
     with pytest.raises(BadRequestError) as exc_info:
@@ -275,19 +367,22 @@ def test_a_failure_names_the_request_that_failed_not_a_later_server_error(
 
 
 def test_an_undecodable_chunk_is_named_even_though_every_status_was_usable(
-    respx_mock, client
+    respx_mock, client, answer_order
 ):
     """Every answer is a 200, so no status says which one broke the call; only
     the `ParseError` does."""
     starts = iter(["html", "ok"])
+    order = answer_order()
+    late = order.after_the_others(
+        httpx.Response(
+            200, json={"s": "ok", "t": [1], "c": [1.0]}, headers={"cf-ray": "ok-1"}
+        )
+    )
 
     def answer(request: httpx.Request) -> httpx.Response:
         if next(starts) == "html":
             return httpx.Response(200, text="<html>", headers={"cf-ray": "html-1"})
-        time.sleep(0.2)
-        return httpx.Response(
-            200, json={"s": "ok", "t": [1], "c": [1.0]}, headers={"cf-ray": "ok-1"}
-        )
+        return late(request)
 
     respx_mock.get(url__regex=r".*/stocks/candles/H/AAPL/.*").mock(side_effect=answer)
 
@@ -305,15 +400,19 @@ def test_an_undecodable_chunk_is_named_even_though_every_status_was_usable(
 
 
 def test_a_request_that_got_no_answer_lends_the_failure_no_sibling_id(
-    respx_mock, client
+    respx_mock, client, answer_order
 ):
     """A transport failure has no response, so its metadata has no status and
     no id to report, as the exception itself says (`0` and `N/A`); the credits
     of the sibling that did answer are still reported."""
     client.max_retries = 0
-    respx_mock.get(CALL_URL).mock(side_effect=httpx.ConnectTimeout("timed out"))
+    order = answer_order()
+    # The timeout records nothing, so it is what counts itself here.
+    respx_mock.get(CALL_URL).mock(
+        side_effect=order.answering(httpx.ConnectTimeout("timed out"))
+    )
     respx_mock.get(PUT_URL).mock(
-        side_effect=later(
+        side_effect=order.after_the_others(
             httpx.Response(200, json={"s": "ok"}, headers={"cf-ray": "ok-1"})
         )
     )
@@ -397,7 +496,7 @@ def test_a_response_that_is_not_an_httpx_response_does_not_break_the_merge():
 
 
 def test_the_no_usable_answer_error_names_the_answer_that_is_not_empty(
-    respx_mock, client
+    respx_mock, client, answer_order
 ):
     """`options.quotes` raises its own `MarketdataHttpError` when no symbol
     answered with anything usable. It used to hand over the first response,
@@ -407,7 +506,9 @@ def test_the_no_usable_answer_error_names_the_answer_that_is_not_empty(
         json={"s": "no_data"}, status_code=404, headers={"cf-ray": "empty-1"}
     )
     respx_mock.get(PUT_URL).mock(
-        side_effect=later(httpx.Response(204, headers={"cf-ray": "odd-1"}))
+        side_effect=answer_order().after_the_others(
+            httpx.Response(204, headers={"cf-ray": "odd-1"})
+        )
     )
 
     with pytest.raises(marketdata.MarketdataHttpError) as exc_info:
@@ -418,7 +519,9 @@ def test_the_no_usable_answer_error_names_the_answer_that_is_not_empty(
     assert _speaker(get_meta(exc_info.value)) == (204, "odd-1")
 
 
-def test_the_no_usable_answer_error_names_the_first_such_answer(respx_mock, client):
+def test_the_no_usable_answer_error_names_the_first_such_answer(
+    respx_mock, client, answer_order
+):
     """With more than one answer that is neither usable nor empty, the first
     in request order is named, whichever arrives last (#108 review)."""
     third = "AAPL250117C00155000"
@@ -426,7 +529,9 @@ def test_the_no_usable_answer_error_names_the_first_such_answer(respx_mock, clie
         json={"s": "no_data"}, status_code=404, headers={"cf-ray": "empty-1"}
     )
     respx_mock.get(PUT_URL).mock(
-        side_effect=later(httpx.Response(202, headers={"cf-ray": "odd-1"}))
+        side_effect=answer_order(others=2).after_the_others(
+            httpx.Response(202, headers={"cf-ray": "odd-1"})
+        )
     )
     respx_mock.get(f"https://api.marketdata.app/v1/options/quotes/{third}/").respond(
         status_code=204, headers={"cf-ray": "odd-2"}
