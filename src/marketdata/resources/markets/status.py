@@ -10,7 +10,7 @@ from marketdata.output_types.markets_status import (
     MarketStatusHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.resources.base import BaseResource, model_errors, no_data_result
 from marketdata.utils import get_data_records, is_no_data, parse_json
 
 
@@ -67,7 +67,8 @@ def status(
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         data = parse_json(response)
         data = get_data_records(data, exclude_keys=["s"])
-        return [output_model(**row) for row in data]
+        with model_errors(response):
+            return [output_model(**row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         return parse_json(response)

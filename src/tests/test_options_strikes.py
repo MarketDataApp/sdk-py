@@ -1,5 +1,6 @@
 import datetime
 import pathlib
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -37,30 +38,34 @@ def test_options_strikes_post_init():
     )
 
 
-def test_options_strikes_to_float_list():
+def test_options_strikes_to_decimal_list():
     data = {
         "s": "ok",
         "updated": 1765478200,
         "2025-12-12": [110.0, 120.0, 125.0, 130.0, 135.0],
     }
     instance = OptionsStrikes(**data)
-    assert instance._to_float_list(
+    strikes = instance._to_decimal_list(
         "2025-12-12", [110.0, 120.0, 125.0, 130.0, 135.0]
-    ) == [110.0, 120.0, 125.0, 130.0, 135.0]
+    )
+    assert strikes == [Decimal(s) for s in ("110", "120", "125", "130", "135")]
+    assert all(isinstance(strike, Decimal) for strike in strikes)
     with pytest.raises(TypeError):
-        instance._to_float_list("2025-12-12", "invalid")
+        instance._to_decimal_list("2025-12-12", "invalid")
 
 
-def test_options_strikes_accepts_arbitrary_fields_only_float_list():
+def test_options_strikes_accepts_arbitrary_fields_only_decimal_list():
     data = {
         "s": "ok",
         "updated": 1765478200,
         "2025-12-12": [110.0, 120.0, 125.0, 130.0, 135.0],
     }
     instance = OptionsStrikes(**data)
-    assert instance._to_float_list(
+    strikes = instance._to_decimal_list(
         "2025-12-12", [110.0, 120.0, 125.0, 130.0, 135.0]
-    ) == [110.0, 120.0, 125.0, 130.0, 135.0]
+    )
+    assert strikes == [Decimal(s) for s in ("110", "120", "125", "130", "135")]
+    assert all(isinstance(strike, Decimal) for strike in strikes)
 
     data["2025-12-12"] = "invalid"
     with pytest.raises(TypeError):
@@ -105,28 +110,32 @@ def test_options_strikes_human_readable_formats_timestamps():
     assert instance.Date == datetime.datetime.fromisoformat("2025-12-12")
 
 
-def test_options_strikes_human_readable_to_float_list():
+def test_options_strikes_human_readable_to_decimal_list():
     data = {
         "Date": 1765478200,
         "2025-12-12": [110.0, 120.0, 125.0, 130.0, 135.0],
     }
     instance = OptionsStrikesHumanReadable(**data)
-    assert instance._to_float_list(
+    strikes = instance._to_decimal_list(
         "2025-12-12", [110.0, 120.0, 125.0, 130.0, 135.0]
-    ) == [110.0, 120.0, 125.0, 130.0, 135.0]
+    )
+    assert strikes == [Decimal(s) for s in ("110", "120", "125", "130", "135")]
+    assert all(isinstance(strike, Decimal) for strike in strikes)
     with pytest.raises(TypeError):
-        instance._to_float_list("2025-12-12", "invalid")
+        instance._to_decimal_list("2025-12-12", "invalid")
 
 
-def test_options_strikes_human_readable_accepts_arbitrary_fields_only_float_list():
+def test_options_strikes_human_readable_accepts_arbitrary_fields_only_decimal_list():
     data = {
         "Date": 1765478200,
         "2025-12-12": [110.0, 120.0, 125.0, 130.0, 135.0],
     }
     instance = OptionsStrikesHumanReadable(**data)
-    assert instance._to_float_list(
+    strikes = instance._to_decimal_list(
         "2025-12-12", [110.0, 120.0, 125.0, 130.0, 135.0]
-    ) == [110.0, 120.0, 125.0, 130.0, 135.0]
+    )
+    assert strikes == [Decimal(s) for s in ("110", "120", "125", "130", "135")]
+    assert all(isinstance(strike, Decimal) for strike in strikes)
 
     data["2025-12-12"] = "invalid"
     with pytest.raises(TypeError):
