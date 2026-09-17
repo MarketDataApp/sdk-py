@@ -569,6 +569,43 @@ def test_stocks_candles_csv_leaves_out_a_chunk_with_no_data(
     assert pathlib.Path(output).read_bytes() == CSV_BODY.encode()
 
 
+JSON_CHUNK = {
+    "s": "ok",
+    "t": [1704171600, 1704258000],
+    "o": [185.6, 182.69],
+    "h": [186.88, 184.34],
+    "l": [182.36, 181.91],
+    "c": [184.1, 182.72],
+    "v": [82488674, 58414460],
+}
+
+
+@pytest.mark.parametrize(
+    "output_format", [OutputFormat.INTERNAL, OutputFormat.JSON, OutputFormat.DATAFRAME]
+)
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
+def test_stocks_candles_leaves_out_a_placeholder_chunk_on_every_format(
+    respx_mock, client, output_format, mark
+):
+    """The placeholder rule reads the body, not the format that was asked for
+    (#91), so a chunk answering `""` adds no rows on the decoded formats too,
+    with a byte order mark in front of it or without one. With the mark, the
+    whole call used to fail with `ParseError` (#109)."""
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=by_chunk(dict(text=mark + '""'), dict(json=JSON_CHUNK))
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        result = client.stocks.candles(
+            symbol="AAPL", resolution="H", output_format=output_format, **TWO_CHUNKS
+        )
+
+    if output_format == OutputFormat.JSON:
+        assert result["t"] == JSON_CHUNK["t"]
+    else:
+        assert len(result) == 2
+
+
 def test_stocks_candles_csv_with_every_chunk_empty_is_a_header_only_file(
     respx_mock, client, tmp_path
 ):

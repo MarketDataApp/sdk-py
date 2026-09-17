@@ -802,6 +802,36 @@ def test_options_quotes_csv_leaves_out_a_symbol_with_no_data(
     )
 
 
+@pytest.mark.parametrize(
+    "output_format", [OutputFormat.INTERNAL, OutputFormat.JSON, OutputFormat.DATAFRAME]
+)
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
+def test_options_quotes_leaves_out_a_placeholder_symbol_on_every_format(
+    load_json, respx_mock, client, output_format, mark
+):
+    """The placeholder rule reads the body, not the format that was asked for
+    (#91), so a symbol answering `""` adds no rows on the decoded formats too,
+    with a byte order mark in front of it or without one. With the mark, the
+    whole call used to fail with `ParseError` (#109)."""
+    respx_mock.get(CALL_URL).respond(
+        json=load_json("options_quotes_response_200"), status_code=200
+    )
+    respx_mock.get(PUT_URL).respond(text=mark + '""', status_code=200)
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        output = client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=output_format,
+        )
+
+    if output_format == OutputFormat.INTERNAL:
+        assert output.optionSymbol == ["AAPL271217C00255000"]
+    elif output_format == OutputFormat.JSON:
+        assert output["optionSymbol"] == ["AAPL271217C00255000"]
+    else:
+        assert list(output.index) == ["AAPL271217C00255000"]
+
+
 def test_options_quotes_csv_with_every_symbol_empty_is_a_header_only_file(
     respx_mock, client, tmp_path
 ):
