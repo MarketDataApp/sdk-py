@@ -130,7 +130,9 @@ A fix is **Tier 2** if it does any of the following:
 
 Tiering governs *what* may be changed; the repo's normal release rules govern
 *what ships to consumers*. A Tier 1 fix may be committed to a branch and merged
-via the usual PR flow. **Publishing a release to PyPI** — creating the GitHub
-release that triggers the publish pipeline (`publish.yml`) — requires explicit
-maintainer confirmation, exactly like every other release. Automated agents never
+via the usual PR flow. **Publishing a release to PyPI** — dispatching
+`tag-and-release`, which asks for `RELEASE` to be typed and then calls the
+publish pipeline (`publish.yml`), or creating a GitHub release by hand, which
+starts the same pipeline — requires explicit maintainer confirmation, exactly
+like every other release. Automated agents never
 cut or publish a release on their own.

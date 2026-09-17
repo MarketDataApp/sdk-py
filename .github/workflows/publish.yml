@@ -1,14 +1,38 @@
 name: Publish to PyPI
 
+# WHAT MAY START A PUBLISH. Two things, and neither of them is a person with a
+# runner to spare:
+#
+# - `tag-and-release` calls this workflow after its gate and its tag. A release
+#   that a workflow creates with `GITHUB_TOKEN` starts no other workflow run
+#   (SDK requirements §17.5), so the publish is chained explicitly instead of
+#   waiting for the `release` event that will never arrive.
+# - A release published by hand in the web interface, which does fire the
+#   event. That path has no test gate, so the version check below is the last
+#   thing standing between a mistyped tag and an upload that can never be
+#   taken back.
+#
+# `workflow_dispatch` is deliberately absent: it published to TestPyPI with no
+# gate at all (#61), and a TestPyPI version is as permanent as a PyPI one.
 on:
   release:
     types: [published]
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to build and publish.
+        required: true
+        type: string
+      version:
+        description: The version that commit must declare, without a `v`.
+        required: true
+        type: string
 
 jobs:
   publish-testpypi:
     name: Publish to TestPyPI
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: testpypi
       url: https://test.pypi.org/p/marketdata-sdk-py/
@@ -17,6 +41,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          # The caller resolved a branch to a commit before tagging it; the
+          # release event carries its tag. A bare checkout would build the
+          # default branch, which is not what is being released.
+          ref: ${{ inputs.ref || github.event.release.tag_name }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.0.1
@@ -31,24 +60,60 @@ jobs:
       - name: Build package
         run: uv build
 
+      - name: Check the build carries the version this release names
+        env:
+          # A release published by hand names its version in the tag.
+          ASKED: ${{ inputs.version || github.event.release.tag_name }}
+        run: |
+          # The version is a static string in `pyproject.toml` (hatchling), so
+          # nothing else compares it with the tag: an upload of the previous
+          # number is rejected by PyPI as a duplicate, and a number nobody
+          # tagged is accepted and cannot be taken back (#61).
+          expected="${ASKED#v}"
+          declared=$(python -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])")
+          echo "asked for: ${expected}"
+          echo "pyproject.toml declares: ${declared}"
+          if [ "$declared" != "$expected" ]; then
+            echo "::error::pyproject.toml declares ${declared}, and this release is ${expected}. Bump the version in a pull request before releasing."
+            exit 1
+          fi
+          ls -l dist/
+          # A wheel whose name does not carry that version means the build read
+          # something else, and the upload would put it on the index anyway.
+          if ! ls dist/*.whl | grep -qF "marketdata_sdk_py-${declared}-"; then
+            echo "::error::No wheel in dist/ carries version ${declared}."
+            exit 1
+          fi
+
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@v1.14.2
         with:
           repository-url: https://test.pypi.org/legacy/
+          # A publish that failed after this leg left these files on TestPyPI,
+          # where they are as permanent as PyPI's. Without this, re-running
+          # the release's publish stops here with a 400 and PyPI never gets
+          # the upload it is missing. A duplicate on PyPI itself still fails
+          # the run, which is what should happen.
+          skip-existing: true
 
   publish-pypi:
     name: Publish to PyPI
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: pypi
       url: https://pypi.org/project/marketdata-sdk-py/
     permissions:
       id-token: write
+    # TestPyPI first: it is the same upload against the same immutability
+    # rules, so a build that fails there would have failed on PyPI, where it
+    # could not be taken back.
     needs: publish-testpypi
-    if: github.event_name == 'release'
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.event.release.tag_name }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.0.1

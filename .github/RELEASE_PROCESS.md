@@ -12,7 +12,7 @@ That has three consequences that shape everything below.
 
 | | |
 |---|---|
-| **The version comes from `pyproject.toml`, not from the tag** | `[project] version = "X.Y.Z"` is a static string (hatchling). Nothing in CI compares it with the tag you push. Bump it in the release PR or you will publish the previous version's number again — and PyPI will reject the upload as a duplicate. |
+| **The version comes from `pyproject.toml`, not from the tag** | `[project] version = "X.Y.Z"` is a static string (hatchling). Bump it in the release PR: `tag-and-release` refuses to run when that number and the version it was asked for disagree, and `publish.yml` refuses to upload a build that does not carry it (#61). |
 | **Publishing is irreversible** | A `(name, version)` pair on PyPI can never be re-uploaded, even after deletion. Yanking hides a version from resolvers; it does not remove it, and anyone who pins it still gets it. |
 | **There is a staging feed** | `publish.yml` uploads to [TestPyPI](https://test.pypi.org/project/marketdata-sdk-py/) first and only continues to PyPI if that succeeds. TestPyPI is a real upload with the same immutability, so a burned version number there is burned there for good. |
 
@@ -67,8 +67,8 @@ avoiding: the shipped wheel currently depends only on `httpx`, `pydantic`,
    - Add a fresh, empty `## [Unreleased]` section above it.
    - Confirm every breaking change carries migration guidance.
 
-   > The file currently has **no `## [Unreleased]` section**. Add one in the next PR that
-   > lands a user-visible change, so this step is a promotion rather than an invention.
+   > `tag-and-release` refuses to run without a `## [X.Y.Z]` section for the version it
+   > was asked for, and it takes the release notes from that section alone.
 
 5. Confirm `README.md` and `docs/` (`stocks.md`, `options.md`, `funds.md`, `markets.md`)
    describe the behavior you are about to ship.
@@ -80,6 +80,8 @@ avoiding: the shipped wheel currently depends only on `httpx`, `pydantic`,
    ./lint.sh                    # ruff check --fix + ruff format (this rewrites files)
    uv run ruff check src/ examples/ .github/scripts/
    uv run ruff format --check src/ examples/ .github/scripts/
+   uv run pytest src/tests/integration -m integration   # the live suite, which
+                                # `./test.sh` excludes and the release gate requires
    uv build                     # confirm the wheel and sdist build, and check the version
    ls dist/                     # marketdata_sdk_py-X.Y.Z-py3-none-any.whl
    ```
@@ -88,60 +90,55 @@ avoiding: the shipped wheel currently depends only on `httpx`, `pydantic`,
 
 ## 4. Cut the release
 
-**There is no `tag-and-release` workflow in this repository.** The tag and the GitHub
-Release are created by hand today; `publish.yml` then does the uploading. §6 describes the
-workflow that should exist.
+`tag-and-release.yml` does this, and it is the only path that runs the suite before the
+tag exists. Actions tab → **Tag and release** → *Run workflow*, from `main`:
 
-1. Confirm the tag is new:
+| Input | What to put there |
+|---|---|
+| `version` | `X.Y.Z`, no `v`. The same number the release PR wrote into `pyproject.toml` |
+| `ref` | the branch or commit to release, normally `main` |
+| `prerelease` | tick it for `X.Y.Zrc1` and the like; it only marks the GitHub Release |
+| `confirm` | `RELEASE`, typed. Anything else stops the run before it does anything |
 
-   ```bash
-   git fetch --tags && git tag -l "vX.Y.Z"     # must print nothing
-   ```
+What runs, in order:
 
-2. Tag the exact commit you validated, and push the tag:
+| Stage | What it does |
+|---|---|
+| `validate` | Before any runner time is spent: `confirm` is `RELEASE`, the version is well formed, the tag `vX.Y.Z` does not exist, `pyproject.toml` declares exactly that version, and `CHANGELOG.md` has a `## [X.Y.Z]` section. It prints the notes it extracted |
+| `gate` | Calls `test.yml` on that ref with `run_integration: true`: the suite on Python 3.10, 3.11 and 3.12 **and** the live integration suite, which here must run rather than skip |
+| `release` | Resolves the ref to a commit, checks the tag again in case one appeared while the suite ran, and creates the tag and the GitHub Release on that commit, titled `Version X.Y.Z`, with the notes from the CHANGELOG |
+| `publish` | Calls `publish.yml` on that commit: TestPyPI first, then PyPI, both through Trusted Publishing. It refuses to upload a build whose version is not the one asked for |
+| `verify` | Polls PyPI for the version, then installs it into a throwaway environment and reads its version back |
 
-   ```bash
-   git checkout main && git pull
-   git tag -a vX.Y.Z -m "Version X.Y.Z"
-   git push origin vX.Y.Z
-   ```
+Two things the workflow does not do, on purpose:
 
-3. Create the GitHub Release from that tag, with notes taken from `CHANGELOG.md`. Existing
-   releases are titled `Release vX.Y.Z`.
+- **It does not write to the repository.** The version bump and the CHANGELOG promotion
+  are the release PR's job (§3), so what ships is reviewed like any other change.
+- **It does not release a commit that is not on `main`.** A dispatch takes any ref the
+  repository can check out, a pull request's merge ref included, and the code at that ref
+  then runs with the publishing credentials. `validate` refuses a commit `main` does not
+  contain.
 
-   ```bash
-   gh release create vX.Y.Z --title "Release vX.Y.Z" \
-     --notes-file <(awk '/^## \[X\.Y\.Z\]/{f=1;next} /^## \[/{f=0} f' CHANGELOG.md)
-   ```
+Changing the workflow itself is awkward, and that is worth knowing before you do: the
+button only appears for workflows on the default branch, though it then runs the copy on
+the branch you pick. So a change to the release path can be rehearsed from a branch, but
+only up to the point where it would create the tag.
 
-4. Publishing `vX.Y.Z` — **the point of no return.** The `release: published` event starts
-   `publish.yml`:
+> **The point of no return is the `publish` stage.** Everything before it can be re-run;
+> a `(name, version)` pair on PyPI, and on TestPyPI, is permanent (§1).
 
-   | Job | What it does |
-   |---|---|
-   | `publish-testpypi` | Checks out the release ref, `uv build`, uploads to TestPyPI through the `testpypi` environment |
-   | `publish-pypi` | `needs: publish-testpypi`, and gated on `github.event_name == 'release'`. Rebuilds and uploads to PyPI through the `pypi` environment |
+If the workflow itself is broken, the manual path still works: tag the commit, push the
+tag, and create the Release. The `release: published` event starts `publish.yml`, which
+checks the tag against `pyproject.toml` and uploads. That path has no test gate, so run
+the suite and the live suite on the exact commit first.
 
-   `publish-pypi` is skipped on a manual `workflow_dispatch` run, so dispatching the
-   workflow by hand exercises the TestPyPI leg only.
-
-> **`publish.yml` runs no tests.** It builds and uploads. Everything that gates the
-> release therefore has to happen before the Release is published — that is what §3 is
-> for. Do not treat the green Tests badge on `main` as the release gate unless it is green
-> for the exact commit you tagged.
-
-### A release created by a workflow will not trigger `publish.yml`
-
-Releases are created by hand today, so the trigger fires. If a future workflow creates
-the Release using the default `GITHUB_TOKEN`, GitHub will **not** start another workflow
-run from that event — a guard against recursive triggering — and `publish.yml` will stay
-silent. Any automated release must therefore call the publish workflow explicitly
-(`workflow_call`) rather than relying on `release: published`.
-
-### The CHANGELOG is written by hand, never by a workflow
-
-There is deliberately no workflow that writes back to `CHANGELOG.md`. Promote
-`## [Unreleased]` yourself in the release PR, as §3 describes.
+```bash
+git fetch --tags && git tag -l "vX.Y.Z"     # must print nothing
+git checkout main && git pull
+git tag -a vX.Y.Z -m "Version X.Y.Z"
+git push origin vX.Y.Z
+gh release create vX.Y.Z --title "Version X.Y.Z" --notes-file <(awk '/^## \[X\.Y\.Z\]/{f=1;next} /^## \[/{f=0} f' CHANGELOG.md)
+```
 
 ## 5. Post-release checks
 
@@ -178,33 +175,27 @@ There is deliberately no workflow that writes back to `CHANGELOG.md`. Promote
 6. [pypi.org/project/marketdata-sdk-py](https://pypi.org/project/marketdata-sdk-py/)
    renders the README, and the "Development Status" and Python classifiers are right.
 
-## 6. What is missing — the workflow that should exist
+> The `verify` stage of `tag-and-release` covers part of 3 and 4 on its own: it polls
+> PyPI's JSON API for the version and installs the package into a throwaway environment,
+> where it reads the version back from the distribution metadata. It does not construct a
+> client, and it does not touch the extras, so 4's second command and 5 are still worth
+> running by hand.
 
-Everything in §4 is manual, and §17.5 of the SDK requirements asks for automation. The
-gap is recorded here rather than papered over. **No such workflow file exists in this
-repository; do not cite one in a PR review as though it did.**
+## 6. What the release path still does not cover
 
-A `tag-and-release.yml` for this SDK, modelled on the one in `MarketDataApp/sdk-csharp`
-and `MarketDataApp/sdk-java`, should:
+`tag-and-release.yml` closed the gap this section used to describe (#61). What is left:
 
-- Trigger **only** on `workflow_dispatch`, with inputs `version`, `ref`, `prerelease` and
-  `confirm`, and refuse to proceed unless `confirm` is exactly `RELEASE`.
-- **Validate before spending runner time**: `version` is well-formed SemVer without a `v`
-  prefix; the tag `vX.Y.Z` does not already exist; `pyproject.toml` declares exactly that
-  version; `CHANGELOG.md` contains a `## [X.Y.Z]` section. Print the extracted notes.
-- **Call `test.yml`** (`workflow_call`, not a copied job) against the exact ref, so the
-  release gate and everyday CI cannot drift apart — including the live integration suite
-  (see §7).
-- **Resolve `ref` to a concrete commit SHA** and tag that SHA, so a branch moving mid-run
-  cannot change what ships.
-- Create the tag and the GitHub Release with notes extracted from `CHANGELOG.md`.
-- **Call `publish.yml` explicitly** rather than relying on `release: published`, for the
-  `GITHUB_TOKEN` reason in §4.
-- **Verify after publishing**: poll PyPI for the new version, then install it into a
-  throwaway virtualenv and assert `version("marketdata-sdk-py") == X.Y.Z`.
-
-Until that exists, §3 and §4 are the process, and the discipline they describe is the only
-gate.
+- **Nothing stands between a published Release and PyPI.** The `pypi` and `testpypi`
+  environments carry no protection rules, so no reviewer is asked. Required reviewers on
+  the `pypi` environment are a repository setting, not a file in this repository.
+- **Coverage is not enforced anywhere** (see the note at the end of §7).
+- **A half-finished release is recovered by hand.** If `publish` fails after the tag and
+  the Release exist, the release is real and the files are not. Dispatching
+  `tag-and-release` again does not help: it refuses the tag that now exists. Fix the
+  cause, then either re-run the failed jobs of that run, or delete the GitHub Release and
+  create it again from the same tag, which starts `publish.yml` through its `release`
+  trigger. The TestPyPI leg skips files it already uploaded, so a second attempt reaches
+  PyPI.
 
 ## 7. Repository state this process assumes
 
@@ -213,9 +204,9 @@ gate.
 | PyPI Trusted Publishing | configured, through the `pypi` and `testpypi` environments; no API token secret is stored |
 | `pypi` / `testpypi` environment protection rules | **none** — no reviewer stands between a published Release and PyPI |
 | `MARKETDATA_TOKEN` secret | present; consumed by the `integration` job in `test.yml` |
-| Live integration suite | present: `src/tests/integration/`, one live test per endpoint (utilities pending #63), runs on every pull request; a missing token fails the job |
-| `CODECOV_TOKEN` secret | present; `test.yml` uploads `coverage.xml` with `fail_ci_if_error: true` |
-| `main` branch protection | enabled: `test (3.10)`, `test (3.11)` and `test (3.12)` are required checks; force pushes and deletions are blocked. **No required reviewer**, so a release PR can be merged by its author |
+| Live integration suite | present: `src/tests/integration/`, one live test per endpoint, runs on every pull request that changes something other than documentation; a missing token fails the job |
+| `CODECOV_TOKEN` secret | present; `test.yml` uploads `coverage.xml` with `fail_ci_if_error: false`, so a dependabot run, which cannot read it, does not turn red on the upload |
+| `main` branch protection | enabled: `Tests passed` is the required check; force pushes and deletions are blocked. **No required reviewer**, so a release PR can be merged by its author |
 | Default branch | `main` |
 
 > ### The integration suite
@@ -223,14 +214,15 @@ gate.
 > `src/tests/integration/` exercises every resource against `api.marketdata.app` with the
 > free-trial symbols, asserting on the decoded response shape. It is excluded from the
 > default `pytest` run and from `./test.sh`; the `integration` job in `test.yml` runs it on
-> every pull request and on manual dispatch, and **fails when `MARKETDATA_TOKEN` is
-> absent** rather than skipping (§17.3), so a green pipeline cannot mean "ran nothing".
+> every pull request that changes something other than documentation, and on manual
+> dispatch, and **fails when `MARKETDATA_TOKEN` is absent** rather than skipping (§17.3),
+> so a green pipeline cannot mean "ran nothing".
 > Dependabot pull requests cannot read repository secrets, so for them the job is skipped
 > as a whole, which the checks list shows as skipped, never as passed.
 >
-> The suite has not yet been wired into a release gate: until `tag-and-release.yml`
-> exists (§6, #61), run it by hand on the exact commit before tagging, and keep the manual
-> smoke test in §5 as the final check after publishing.
+> The `gate` stage of `tag-and-release` runs it on the exact commit before the tag
+> exists, with `run_integration: true`, and there a skipped live suite fails the gate
+> instead of passing it (#61). The smoke test in §5 stays as the check after publishing.
 
 > ### Coverage is at 100%, and nothing enforces it
 >
