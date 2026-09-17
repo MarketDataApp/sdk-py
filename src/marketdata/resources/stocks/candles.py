@@ -17,7 +17,12 @@ from marketdata.output_types.stocks_candles import (
     StockCandlesHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, model_columns, no_data_result
+from marketdata.resources.base import (
+    BaseResource,
+    merged_model_errors,
+    model_columns,
+    no_data_result,
+)
 from marketdata.utils import (
     encode_path_segment,
     get_data_records,
@@ -129,8 +134,10 @@ def candles(
             index_columns=["t", "Date"],
         )
 
-    def _get_responses_data(responses: list[httpx.Response]) -> dict:
-        responses_data = [parse_json(response) for response in responses]
+    def _get_responses_data(
+        responses: list[httpx.Response], exact: bool = False
+    ) -> dict:
+        responses_data = [parse_json(response, exact=exact) for response in responses]
         # Under `columns=` the API sends the requested keys only (#90), in
         # request order, and every chunk must carry the same ones.
         present = json_answer_columns(
@@ -151,9 +158,16 @@ def candles(
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = _get_responses_data(responses)
+        data = _get_responses_data(responses, exact=True)
         data = get_data_records(data, exclude_keys=["s"])
-        return [output_model(**row) for row in data]
+
+        def _rows_alone(response: httpx.Response) -> list:
+            alone = _get_responses_data([response], exact=True)
+            rows = get_data_records(alone, exclude_keys=["s"])
+            return [output_model(**row) for row in rows]
+
+        with merged_model_errors(responses, _rows_alone):
+            return [output_model(**row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         data = _get_responses_data(responses)

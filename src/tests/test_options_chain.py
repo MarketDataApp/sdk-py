@@ -1,5 +1,6 @@
 import datetime
 import pathlib
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -149,18 +150,18 @@ def test_get_options_chain_response_200_internal(load_json, respx_mock, client):
     assert chain.updated[0] == datetime.datetime.fromtimestamp(
         1764957099, tz=pytz.timezone("US/Eastern")
     )
-    assert chain.bid[0] == 167.8
+    assert chain.bid[0] == Decimal("167.8")
     assert chain.bidSize[0] == 164
-    assert chain.mid[0] == 168.62
-    assert chain.ask[0] == 169.45
+    assert chain.mid[0] == Decimal("168.62")
+    assert chain.ask[0] == Decimal("169.45")
     assert chain.askSize[0] == 25
-    assert chain.last[0] == 170.55
+    assert chain.last[0] == Decimal("170.55")
     assert chain.openInterest[0] == 11
     assert chain.volume[0] == 0
     assert chain.inTheMoney[0]
-    assert chain.intrinsicValue[0] == 169.2
-    assert chain.extrinsicValue[0] == 0.58
-    assert chain.underlyingPrice[0] == 279.2
+    assert chain.intrinsicValue[0] == Decimal("169.2")
+    assert chain.extrinsicValue[0] == Decimal("0.58")
+    assert chain.underlyingPrice[0] == Decimal("279.2")
     assert chain.iv[0] == 0
     assert chain.delta[0] == 1
     assert chain.gamma[0] == 0
@@ -226,18 +227,18 @@ def test_get_options_chain_human_response_200(load_json, respx_mock, client):
     assert chain.Date[0] == datetime.datetime.fromtimestamp(
         1765556009, tz=pytz.timezone("US/Eastern")
     )
-    assert chain.Bid[0] == 272.3
+    assert chain.Bid[0] == Decimal("272.3")
     assert chain.Bid_Size[0] == 299
-    assert chain.Mid[0] == 273.02
-    assert chain.Ask[0] == 273.75
+    assert chain.Mid[0] == Decimal("273.02")
+    assert chain.Ask[0] == Decimal("273.75")
     assert chain.Ask_Size[0] == 309
-    assert chain.Last[0] == 273.72
+    assert chain.Last[0] == Decimal("273.72")
     assert chain.Open_Interest[0] == 255
     assert chain.Volume[0] == 20
     assert chain.In_The_Money[0]
-    assert chain.Intrinsic_Value[0] == 272.7
-    assert chain.Extrinsic_Value[0] == 0.32
-    assert chain.Underlying_Price[0] == 277.7
+    assert chain.Intrinsic_Value[0] == Decimal("272.7")
+    assert chain.Extrinsic_Value[0] == Decimal("0.32")
+    assert chain.Underlying_Price[0] == Decimal("277.7")
     assert chain.IV[0] == 5.0
     assert chain.Delta[0] == 1
     assert chain.Gamma[0] == 0

@@ -1,7 +1,9 @@
 import datetime
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import ClassVar
 
+from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
 
 
@@ -9,12 +11,13 @@ from marketdata.utils import format_timestamp
 class StockPrice:
     s: str
     symbol: str
-    mid: float
-    change: float
+    mid: Decimal
+    change: Decimal
     changepct: float
     updated: datetime.datetime
 
     def __post_init__(self):
+        coerce_numbers(self)
         self.updated = format_timestamp(self.updated)
 
     def __repr__(self) -> str:
@@ -39,12 +42,13 @@ class StockPricesHumanReadable:
     api_model: ClassVar[type] = StockPrice
 
     Symbol: str
-    Mid: float
-    Change_Price: float
+    Mid: Decimal
+    Change_Price: Decimal
     Change_Percent: float
     Date: datetime.datetime
 
     def __post_init__(self):
+        coerce_numbers(self)
         self.Date = format_timestamp(self.Date)
 
     def __repr__(self) -> str:

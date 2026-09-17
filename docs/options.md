@@ -27,7 +27,7 @@ Fetches available expiration dates for a given symbol. This method includes API 
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns an `OptionsExpirations` object
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 - `strike` (float, optional): Filter by strike price
 - `date` (datetime.date, optional): Filter by specific date
@@ -51,7 +51,7 @@ Fetches available expiration dates for a given symbol. This method includes API 
   - The DataFrame is indexed by the `expirations` column if present
   - All timestamp fields are automatically converted to `datetime.datetime` objects
 - If `output_format=OutputFormat.INTERNAL`: An `OptionsExpirations` object (or `OptionsExpirationsHumanReadable` if `use_human_readable=True`) (single object, not a list)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's decoded JSON body
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
@@ -166,7 +166,7 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns an `OptionsChain` object
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 
 **Universal Parameters** (available for all options methods):
@@ -226,7 +226,7 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   - The DataFrame is indexed by the `optionSymbol` column if present
   - All timestamp fields are automatically converted to `datetime.datetime` objects
 - If `output_format=OutputFormat.INTERNAL`: An `OptionsChain` object (or `OptionsChainHumanReadable` if `use_human_readable=True`) (single object, not a list)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's decoded JSON body
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
@@ -427,7 +427,7 @@ Fetches the option symbol for a given lookup string. The lookup string should co
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns an `OptionsLookup` or `OptionsLookupHumanReadable` object
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 
 **Universal Parameters** (available for all options methods):
@@ -448,7 +448,7 @@ Fetches the option symbol for a given lookup string. The lookup string should co
   - The `s` column (status) is removed from the DataFrame
   - The DataFrame is indexed by the `optionSymbol` column if present (or `Symbol` if human-readable)
 - If `output_format=OutputFormat.INTERNAL`: An `OptionsLookup` object (or `OptionsLookupHumanReadable` if `use_human_readable=True`) (single object, not a list)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's decoded JSON body
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
@@ -556,7 +556,7 @@ Fetches options quotes for one or more option symbols. This method includes API 
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns an `OptionsQuotes` object
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 
 **Universal Parameters** (available for all options methods):
@@ -742,22 +742,22 @@ All properties are lists with the same length, where each index represents a sin
 - `underlying` (list[str]): List of underlying stock symbols
 - `expiration` (list[datetime.datetime]): List of expiration dates
 - `side` (list[str]): List of option sides ("call" or "put")
-- `strike` (list[float]): List of strike prices
+- `strike` (list[Decimal]): List of strike prices
 - `firstTraded` (list[datetime.datetime]): List of first traded dates
 - `dte` (list[int]): List of days to expiration
 - `updated` (list[datetime.datetime]): List of last update timestamps
-- `bid` (list[float]): List of bid prices
+- `bid` (list[Decimal]): List of bid prices
 - `bidSize` (list[int]): List of bid sizes
-- `mid` (list[float]): List of mid prices
-- `ask` (list[float]): List of ask prices
+- `mid` (list[Decimal]): List of mid prices
+- `ask` (list[Decimal]): List of ask prices
 - `askSize` (list[int]): List of ask sizes
-- `last` (list[float]): List of last trade prices
+- `last` (list[Decimal]): List of last trade prices
 - `openInterest` (list[int]): List of open interest values
 - `volume` (list[int]): List of volume values
 - `inTheMoney` (list[bool]): List indicating if options are in the money
-- `intrinsicValue` (list[float]): List of intrinsic values
-- `extrinsicValue` (list[float]): List of extrinsic values
-- `underlyingPrice` (list[float]): List of underlying prices
+- `intrinsicValue` (list[Decimal]): List of intrinsic values
+- `extrinsicValue` (list[Decimal]): List of extrinsic values
+- `underlyingPrice` (list[Decimal]): List of underlying prices
 - `iv` (list[float]): List of implied volatilities
 - `delta` (list[float]): List of delta values
 - `gamma` (list[float]): List of gamma values
@@ -802,7 +802,7 @@ When `use_human_readable=True`, the object uses human-readable field names simil
 - `Underlying` (list[str]): List of underlying stock symbols
 - `Expiration_Date` (list[datetime.datetime]): List of expiration dates (replaces `expiration`)
 - `Option_Side` (list[str]): List of option sides (replaces `side`)
-- `Strike` (list[float | int]): List of strike prices
+- `Strike` (list[Decimal]): List of strike prices
 - `First_Traded` (list[datetime.datetime]): List of first traded dates (replaces `firstTraded`)
 - `Days_To_Expiration` (list[int]): List of days to expiration (replaces `dte`)
 - `Date` (list[datetime.datetime]): List of last update timestamps (replaces `updated`)
@@ -822,22 +822,22 @@ All properties are lists with the same length, where each index represents a sin
 - `underlying` (list[str]): List of underlying stock symbols
 - `expiration` (list[datetime.datetime]): List of expiration dates
 - `side` (list[str]): List of option sides ("call" or "put")
-- `strike` (list[float]): List of strike prices
+- `strike` (list[Decimal]): List of strike prices
 - `firstTraded` (list[datetime.datetime]): List of first traded dates
 - `dte` (list[int]): List of days to expiration
 - `updated` (list[datetime.datetime]): List of last update timestamps
-- `bid` (list[float]): List of bid prices
+- `bid` (list[Decimal]): List of bid prices
 - `bidSize` (list[int]): List of bid sizes
-- `mid` (list[float]): List of mid prices
-- `ask` (list[float]): List of ask prices
+- `mid` (list[Decimal]): List of mid prices
+- `ask` (list[Decimal]): List of ask prices
 - `askSize` (list[int]): List of ask sizes
-- `last` (list[float]): List of last trade prices
+- `last` (list[Decimal]): List of last trade prices
 - `openInterest` (list[int]): List of open interest values
 - `volume` (list[int]): List of volume values
 - `inTheMoney` (list[bool]): List indicating if options are in the money
-- `intrinsicValue` (list[float]): List of intrinsic values
-- `extrinsicValue` (list[float]): List of extrinsic values
-- `underlyingPrice` (list[float]): List of underlying prices
+- `intrinsicValue` (list[Decimal]): List of intrinsic values
+- `extrinsicValue` (list[Decimal]): List of extrinsic values
+- `underlyingPrice` (list[Decimal]): List of underlying prices
 - `iv` (list[float]): List of implied volatilities
 - `delta` (list[float]): List of delta values
 - `gamma` (list[float]): List of gamma values
@@ -851,22 +851,22 @@ When `use_human_readable=True`:
 - `Underlying` (list[str]): List of underlying stock symbols
 - `Expiration_Date` (list[datetime.datetime]): List of expiration dates (replaces `expiration`)
 - `Option_Side` (list[str]): List of option sides (replaces `side`)
-- `Strike` (list[float | int]): List of strike prices
+- `Strike` (list[Decimal]): List of strike prices
 - `First_Traded` (list[datetime.datetime]): List of first traded dates (replaces `firstTraded`)
 - `Days_To_Expiration` (list[int]): List of days to expiration (replaces `dte`)
 - `Date` (list[datetime.datetime]): List of last update timestamps (replaces `updated`)
-- `Bid` (list[float]): List of bid prices
+- `Bid` (list[Decimal]): List of bid prices
 - `Bid_Size` (list[int]): List of bid sizes (replaces `bidSize`)
-- `Mid` (list[float]): List of mid prices
-- `Ask` (list[float]): List of ask prices
+- `Mid` (list[Decimal]): List of mid prices
+- `Ask` (list[Decimal]): List of ask prices
 - `Ask_Size` (list[int]): List of ask sizes (replaces `askSize`)
-- `Last` (list[float]): List of last trade prices
+- `Last` (list[Decimal]): List of last trade prices
 - `Open_Interest` (list[int]): List of open interest values (replaces `openInterest`)
 - `Volume` (list[int]): List of volume values
 - `In_The_Money` (list[bool]): List indicating if options are in the money (replaces `inTheMoney`)
-- `Intrinsic_Value` (list[float]): List of intrinsic values (replaces `intrinsicValue`)
-- `Extrinsic_Value` (list[float]): List of extrinsic values (replaces `extrinsicValue`)
-- `Underlying_Price` (list[float]): List of underlying prices (replaces `underlyingPrice`)
+- `Intrinsic_Value` (list[Decimal]): List of intrinsic values (replaces `intrinsicValue`)
+- `Extrinsic_Value` (list[Decimal]): List of extrinsic values (replaces `extrinsicValue`)
+- `Underlying_Price` (list[Decimal]): List of underlying prices (replaces `underlyingPrice`)
 - `IV` (list[float]): List of implied volatilities (replaces `iv`)
 - `Delta` (list[float]): List of delta values
 - `Gamma` (list[float]): List of gamma values

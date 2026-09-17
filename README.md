@@ -285,8 +285,8 @@ print(df)
 The SDK supports multiple output formats for API responses. See the [Universal Parameters](#universal-parameters) section for details on how to specify output formats.
 
 - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (default). Requires installing pandas or polars as an optional dependency. See [Optional Dependencies](#optional-dependencies) for installation instructions.
-- `OutputFormat.INTERNAL`: Returns internal Python objects (see resource-specific documentation for details)
-- `OutputFormat.JSON`: Returns raw JSON data (dictionary)
+- `OutputFormat.INTERNAL`: Returns internal Python objects (see resource-specific documentation for details). Money fields are `decimal.Decimal`, see [Money values](#money-values)
+- `OutputFormat.JSON`: Returns the decoded JSON as a dictionary, the way `httpx`'s `response.json()` does (numbers with a fraction are `float`)
 - `OutputFormat.CSV`: Writes CSV data to file and returns filename string
 
 For detailed information about return types and object structures for each resource, see the specific resource documentation:
@@ -332,6 +332,26 @@ csv_file = client.options.chain("AAPL", output_format=OutputFormat.CSV)
 When using `OutputFormat.CSV`, all resources write CSV data to a file and return the filename as a string. If `filename` is not provided, a timestamped file is automatically created in the `output/` directory (the directory is created when the file is written, never for other output formats).
 
 **Note:** When specifying a custom `filename`, the directory must exist and the file must not already exist. The file is created exclusively: if the path appears between validation and the write, the call fails instead of overwriting it. CSV bytes are written exactly as the API sent them on every platform. See resource-specific documentation for details on CSV output format.
+
+### Money values
+
+With `OutputFormat.INTERNAL`, every money field is a `decimal.Decimal` holding the digits the API sent: the prices of quotes, prices and candles (`ask`, `bid`, `mid`, `last`, `change`, `o`, `h`, `l`, `c`), earnings per share, and the option strike, bid, mid, ask, last, intrinsic value, extrinsic value and underlying price. A binary `float` cannot hold most decimal amounts, so arithmetic on them drifts (`0.3 - 0.1` is `0.19999999999999998`); with `Decimal`, `quote.ask - quote.bid` is exact. Everything else keeps its usual type: greeks, implied volatility and percentages are `float`, sizes and counts are `int`.
+
+```python
+from decimal import Decimal
+
+from marketdata import MarketDataClient, OutputFormat
+
+client = MarketDataClient()
+quote = client.stocks.quotes("AAPL", output_format=OutputFormat.INTERNAL)[0]
+spread = quote.ask - quote.bid       # Decimal, exact
+quote.bid == Decimal("65.1")         # compare with Decimal literals
+float(quote.mid)                     # a float, when a float is what you need
+```
+
+Mixing `Decimal` and `float` in arithmetic raises `TypeError`, and comparing them compares against the float's binary value, so `Decimal("65.1") == 65.1` is `False`. Use `Decimal` literals, or `int`, which mixes freely. For the same reason `json.dumps(..., default=str)` writes a model's money as strings, and a pandas DataFrame built from models has `object` columns (polars infers its own decimal dtype): `OutputFormat.DATAFRAME` is the float path for analysis.
+
+The other formats keep the plain parse. A DataFrame never holds a `Decimal`: it keeps the plain parse, so every column has the dtype it always had on both pandas and polars (`float64` for prices with a fraction). A DataFrame is for vectorized analysis, pandas has no decimal dtype, and the same call returning a different dtype depending on which library is installed would be a trap. `OutputFormat.JSON` returns the decoded JSON with standard `float` numbers, and `OutputFormat.CSV` writes the API's text as it came (`client.utilities` builds its CSV from the decoded body). A `NaN` or an `Infinity` in a JSON body is not JSON and fails the call on every format that decodes the body; a number past what a float holds (`1e400`) is `inf` on `JSON` and `DATAFRAME` and exact on `INTERNAL`.
 
 ## Universal Parameters
 
@@ -465,7 +485,7 @@ One class per kind of failure, mapped from the HTTP status the API answered (SDK
 | 500 | `InternalError` | no |
 | 501 and above | `ServerError` | yes, exponential backoff |
 | connection failure, timeout, protocol or proxy error | `NetworkError` | yes, unless the client caused it: a base URL without a scheme, a malformed request, a proxy that refuses the connection |
-| undecodable body, or a body that does not match its `Content-Encoding` | `ParseError` | no |
+| undecodable body, a body that does not match its `Content-Encoding`, a `NaN` or `Infinity` in a JSON body, or a value an `INTERNAL` model cannot read | `ParseError` | no |
 | any other 4xx | `MarketdataHttpError` | no |
 
 A `500` means the API itself failed on your request, so retrying would not help; `501` and above mean the API was unavailable or a gateway answered for it, which is why only those are retried. The two are separate classes: catching one never catches the other.
@@ -485,7 +505,7 @@ When the API has no data for a valid question (candles over a weekend, news for 
 | `JSON` | the API's `{"s": "no_data"}` body |
 | `CSV` | a file with the header row only (the requested columns under `columns=`; an empty file under `add_headers=False`) |
 
-For the fan-out calls, a chunk (`stocks.candles`) or a symbol (`options.quotes`) with no data is simply absent from the merged result; the whole call is empty only when every part is. In CSV output the merged file keeps the header the API sent (the requested columns, the human-readable names) and every row of every part; a part whose body is not a CSV of that resource raises `ParseError`. On the other formats the parts are merged on the model's columns among those the API sent, in the order it sent them (the request order under `columns=`), and a part that lacks one of them, carries one that is not a list as long as its others, or whose body is not a JSON object of that resource, raises `ParseError` too: merged, it would put the next part's values on its rows.
+For the fan-out calls, a chunk (`stocks.candles`) or a symbol (`options.quotes`) with no data is simply absent from the merged result; the whole call is empty only when every part is. In CSV output the merged file keeps the header the API sent (the requested columns, the human-readable names) and every row of every part; a part whose body is not a CSV of that resource raises `ParseError`. On the other formats the parts are merged on the model's columns among those the API sent, in the order it sent them (the request order under `columns=`), and a part that lacks one of them, carries one that is not a list as long as its others, or whose body is not a JSON object of that resource, raises `ParseError` too: merged, it would put the next part's values on its rows. A value the model cannot read raises `ParseError` naming the part it came from.
 
 The API renders the CSV empty answer as a `200` with a placeholder body instead of a `404` (MarketData-App/api#422); the SDK recognises it, so CSV output behaves as above.
 

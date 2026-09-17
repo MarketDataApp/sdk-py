@@ -539,9 +539,6 @@ def test_expirations_no_data_dataframe_has_the_shape_of_a_populated_one(
 
 
 # Every resource that renders an empty answer, with a populated fixture.
-# `options.strikes` is left out on purpose: its columns are the expiration
-# dates of the answer itself, so no empty frame can match a populated one; the
-# resource is deprecated and goes away in #73.
 RESOURCES = [
     pytest.param(call, url_pattern, fixture, id=fixture.replace("_response_200", ""))
     for call, url_pattern, fixture in [
