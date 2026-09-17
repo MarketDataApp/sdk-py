@@ -8,27 +8,55 @@ string that grammar is easy to get wrong and invisible to a type checker, so
 each shape has a constructor, the way sdk-go gives them. sdk-csharp names
 three of these shapes and has no filter for ``delta`` at all.
 
-Two of its rules are sharp edges, both measured against production on
-2026-09-15:
+Three of its rules are sharp edges, measured against production on
+2026-09-15 and 2026-09-17:
 
 - ``parse_input`` is ``abs(float(value))``, so a minus sign is dropped without
   a word. ``strike=-250`` answers with the strikes at ``250``.
 - ``parse_input_expression`` skips the range branch when the text opens with a
   minus, so ``-0.5-0.5`` reaches ``float()`` whole and the call fails with a
   ``400``.
+- Otherwise, text with no comma and no comparison is split at a minus as a
+  range, even at a minus inside a number: ``delta=5e-05`` is split into
+  ``5e`` and ``05`` and fails with a ``400``, while ``delta=0.00005`` is
+  read. After a comparison, and in a list of several values, each number is
+  read whole.
 
-Where a negative changes what the caller asked for, it is refused here with a
-message rather than sent. ``delta`` is the exception the API documents: it
+So a number is sent as plain digits, and one a float cannot hold is refused,
+since ``float()`` would read it as an infinity or as zero. Where a negative
+changes what the caller asked for, it is refused here with a message rather
+than sent. ``delta`` is the exception the API documents: it
 filters on the absolute value and answers both sides, so ``0.5`` and ``-0.5``
 return the same rows, verified, and both are accepted for an exact value.
 """
 
 from __future__ import annotations
 
+import math
 import numbers
+import sys
 from decimal import Decimal
 
 __all__ = ["DeltaFilter", "StrikeFilter"]
+
+# The last decimal place a float can hold: that of its smallest step above
+# zero. `from_float` is the conversion a `FloatOperation` trap allows, so
+# importing this module neither trips nor flags a caller who sets one.
+_LAST_PLACE = Decimal.from_float(math.ulp(0.0)).adjusted()
+
+
+def _too_far(argument: str, shown: str) -> str:
+    return (
+        f"{argument} is too far from zero for a float ({shown}): the API would "
+        "read it as an infinity"
+    )
+
+
+def _too_close(argument: str, shown: str) -> str:
+    return (
+        f"{argument} is too close to zero for a float ({shown}): the API would "
+        "read it as 0"
+    )
 
 
 def _render(
@@ -36,41 +64,60 @@ def _render(
 ) -> str:
     """One number as the digits the API should read.
 
-    A ``Decimal`` renders through ``str`` and every other number through
-    ``str`` as well, which for a float is its shortest form. A positive
-    exponent travels fine: ``Decimal("250.00").normalize()`` is
-    ``Decimal("2.5E+2")``, and the API answers ``250`` for it, measured. What
-    cannot travel is a minus anywhere but the front, since the API reads the
-    text around one as a range: ``1e-05`` becomes ``1e`` to ``05``.
+    The digits are the ones the caller named, written out in full: a
+    ``Decimal`` keeps its trailing zeros, a float is written from its shortest
+    form, so ``65.1`` is sent as ``65.1``, and no number travels in exponent
+    form. ``Decimal("250.00").normalize()`` is ``Decimal("2.5E+2")`` and is
+    sent as ``250``. ``1e-05`` is sent as ``0.00001``, which the API reads in
+    every shape, while the exponent form is split at its minus when it stands
+    alone or ends a range.
+
+    The API reads each number with ``float()``, so a number a float cannot
+    hold is refused: too far from zero, it would be read as an infinity, and
+    too close to zero, as 0. Both are checked before the digits are written,
+    since an exponent can ask for more of them than there is memory for. A
+    zero cannot be too close, so one written past a float's last decimal
+    place is sent as ``0``.
     """
     if isinstance(value, bool):
         raise ValueError(f"{argument} cannot be a bool: {value!r}")
     if isinstance(value, Decimal):
         if not value.is_finite():
             raise ValueError(f"{argument} must be a finite number, not {value!r}")
-        rendered = str(value)
+        number, as_float = value, float(value)
+        shown = f"{number:.3e}"
     elif isinstance(value, numbers.Integral):
-        rendered = str(int(value))
+        whole = int(value)
+        shown = f"an integer of {whole.bit_length()} bits"
+        if whole.bit_length() > sys.float_info.max_exp:
+            # Before `Decimal(whole)`, which takes quadratic time on the digits.
+            raise ValueError(_too_far(argument, shown))
+        number = Decimal(whole)
+        as_float = float(number)
     elif isinstance(value, numbers.Real):
-        number = float(value)
-        if number != number or number in (float("inf"), float("-inf")):
+        shown = f"a {type(value).__name__}"
+        try:
+            as_float = float(value)
+        except OverflowError:
+            raise ValueError(_too_far(argument, shown)) from None
+        if math.isnan(as_float) or (math.isinf(as_float) and as_float == value):
             raise ValueError(f"{argument} must be a finite number, not {value!r}")
-        rendered = str(number)
+        number = Decimal(str(as_float))
     else:
         raise ValueError(f"{argument} must be a number, not {type(value).__name__}")
 
-    if Decimal(rendered) == 0:
+    if math.isinf(as_float):
+        raise ValueError(_too_far(argument, shown))
+    if as_float == 0 and value != 0:
+        raise ValueError(_too_close(argument, shown))
+
+    if number == 0:
         # `-0.0` is zero and the API answers `0` for it, so the sign goes
         # rather than the value being refused for a minus nobody wrote.
-        rendered = rendered.lstrip("-")
-    if "-" in rendered[1:]:
-        halves = rendered[1:].split("-")
-        raise ValueError(
-            f"{argument} cannot carry a minus inside it ({rendered}): the API "
-            "reads the text around one as a range, so this would be read as "
-            f"{halves[0]!r} to {halves[1]!r}. Round it, or write the "
-            "expression by hand"
-        )
+        if number.adjusted() < _LAST_PLACE:
+            return "0"
+        return f"{number:f}".lstrip("-")
+    rendered = f"{number:f}"
     if not negative_ok and rendered.startswith("-"):
         if in_a_range:
             raise ValueError(

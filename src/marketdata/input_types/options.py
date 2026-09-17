@@ -134,11 +134,12 @@ class OptionsChainInput(BaseInputType):
     def render_number_filter(cls, value: object, info) -> object:
         """A bare number is checked and rendered the way a filter is.
 
-        `urlencode` stringifies a number on its own, so this is not about the
-        digits: it is the refusals. A bool would travel as `True`, an infinity
-        as `inf`, and a negative strike would come back as its absolute value
-        with no word from the API (#101). A `str`, which a filter is, travels
-        as written.
+        `urlencode` would stringify a number on its own, but a small one in
+        exponent form, which the API can split at its minus, and it would let
+        through what is refused here: a bool would travel as `True`, an
+        infinity as `inf`, and a negative strike would come back as its
+        absolute value with no word from the API (#101). A `str`, which a
+        filter is, travels as written.
         """
         if value is None or isinstance(value, str):
             return value

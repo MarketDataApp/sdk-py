@@ -14,14 +14,26 @@ measured against production on 2026-09-15 with `expiration=2026-09-23`:
     delta=-0.5        -> the same rows, the API filters on the absolute value
     delta=0.3-0.5     -> deltas [0.4445, 0.3632, -0.3168, -0.3918]
     delta=-0.5-0.5    -> 400, not read as a range at all
+
+And on 2026-09-17, with `expiration=2026-10-16&side=call`:
+
+    delta=5e-05       -> 400, split into `5e` and `05` as a range
+    delta=0.00005     -> the contract nearest to it
+    delta=<=5e-05     -> 404, read like `<=0.00005`
+    delta=-1e-05      -> the same rows as `delta=-0.00001`
+    strike=2.5E+2     -> the same rows as `strike=250`
 """
 
+import subprocess
+import sys
 from decimal import Decimal
+from fractions import Fraction
 
 import pytest
 from pydantic import ValidationError
 
 from marketdata import DeltaFilter, StrikeFilter
+from marketdata.input_types import filters
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.options import OptionsChainInput
 
@@ -153,9 +165,6 @@ def test_a_negative_is_refused_with_the_reason_that_applies_to_its_shape(call, m
         (lambda: StrikeFilter.exact(float("inf")), "finite"),
         (lambda: StrikeFilter.exact(float("nan")), "finite"),
         (lambda: StrikeFilter.exact(Decimal("nan")), "finite"),
-        # A positive exponent travels fine and the API answers 250 for it,
-        # measured. What breaks is a minus inside the text (#101, round 2).
-        (lambda: StrikeFilter.exact(1e-05), "cannot carry a minus inside it"),
         (lambda: StrikeFilter.any_of(), "at least one"),
         (lambda: StrikeFilter.between(260, 250), "must not be above"),
         (lambda: StrikeFilter.expression(250), "must be a str"),
@@ -167,6 +176,112 @@ def test_a_value_that_is_not_one_is_refused_where_it_is_written(call, message):
     arriving later as a 400 with the SDK's own parameter inside it."""
     with pytest.raises(ValueError, match=message):
         call()
+
+
+TOO_FAR = "is too far from zero for a float ({}): the API would read it as an infinity"
+TOO_CLOSE = "is too close to zero for a float ({}): the API would read it as 0"
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        (
+            lambda: StrikeFilter.exact(Decimal("1E+400")),
+            "strike " + TOO_FAR.format("1.000e+400"),
+        ),
+        (
+            lambda: StrikeFilter.exact(Decimal("1.8E+308")),
+            "strike " + TOO_FAR.format("1.800e+308"),
+        ),
+        (
+            lambda: StrikeFilter.at_least(Decimal("-1E+999999999999999999")),
+            "strike " + TOO_FAR.format("-1.000e+999999999999999999"),
+        ),
+        (
+            lambda: StrikeFilter.exact(2**1024 - 1),
+            "strike " + TOO_FAR.format("an integer of 1024 bits"),
+        ),
+        (
+            lambda: StrikeFilter.exact(10**400),
+            "strike " + TOO_FAR.format("an integer of 1329 bits"),
+        ),
+        (
+            lambda: StrikeFilter.exact(Fraction(10**400)),
+            "strike " + TOO_FAR.format("a Fraction"),
+        ),
+        (
+            lambda: DeltaFilter.exact(Decimal("1E-400")),
+            "delta " + TOO_CLOSE.format("1.000e-400"),
+        ),
+        (
+            lambda: DeltaFilter.exact(Decimal("-1E-999999999999999999")),
+            "delta " + TOO_CLOSE.format("-1.000e-999999999999999999"),
+        ),
+        (
+            lambda: DeltaFilter.exact(Fraction(1, 10**400)),
+            "delta " + TOO_CLOSE.format("a Fraction"),
+        ),
+        (
+            lambda: StrikeFilter.exact(Fraction(-1, 10**400)),
+            "strike " + TOO_CLOSE.format("a Fraction"),
+        ),
+    ],
+)
+def test_a_number_a_float_cannot_hold_is_refused_with_what_the_api_would_read(
+    call, message
+):
+    """The API reads each number with `float()`, so one a float cannot hold
+    would be read as an infinity or as 0, and a negative that close to zero
+    would lose its sign. The checks run before the digits are written, since
+    `Decimal("1E+999999999999999999")` written out in full needs more memory
+    than there is (#123 review). The whole sentence is asserted, as for the
+    negatives above."""
+    with pytest.raises(ValueError) as refusal:
+        call()
+
+    assert str(refusal.value) == message
+
+
+def test_a_huge_integer_is_refused_before_its_digits_are_read(monkeypatch):
+    """`Decimal(int)` takes time quadratic in the digits: a million of them
+    took over a minute. The size is read from the bit length first, which the
+    message alone cannot show, so building that `Decimal` fails here."""
+
+    class NoHugeDecimal(Decimal):
+        def __new__(cls, value="0", context=None):
+            too_big = isinstance(value, int) and value.bit_length() > 1024
+            assert not too_big, "a Decimal was built from the integer's digits"
+            return super().__new__(cls, value, context)
+
+    monkeypatch.setattr(filters, "Decimal", NoHugeDecimal)
+    huge = 10**100_000
+
+    with pytest.raises(ValueError) as refusal:
+        StrikeFilter.exact(huge)
+
+    assert str(refusal.value) == "strike " + TOO_FAR.format(
+        f"an integer of {huge.bit_length()} bits"
+    )
+
+
+def test_importing_the_filters_leaves_a_decimal_context_alone():
+    """The module builds a constant from a float. `Decimal(float)` raises
+    under a `FloatOperation` trap and flags it otherwise, which would have
+    broken `import marketdata` for a caller strict about floats in money
+    code (#123 review)."""
+    code = (
+        "import decimal\n"
+        "decimal.getcontext().traps[decimal.FloatOperation] = True\n"
+        "import marketdata.input_types.filters\n"
+        "print(decimal.getcontext().flags[decimal.FloatOperation])\n"
+    )
+
+    run = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "False"
 
 
 def test_a_delta_keeps_its_sign_where_the_api_reads_the_same_rows_either_way():
@@ -191,6 +306,11 @@ def test_a_delta_keeps_its_sign_where_the_api_reads_the_same_rows_either_way():
         ("delta", -0.5, "-0.5"),
         ("delta", "0.3-0.5", "0.3-0.5"),
         ("delta", DeltaFilter.at_least(0.5), ">=0.5"),
+        # plain digits, never an exponent (#123 review)
+        ("strike", 1e-05, "0.00001"),
+        ("strike", Decimal("2.5E+2"), "250"),
+        ("delta", -0.00001, "-0.00001"),
+        ("delta", DeltaFilter.at_most(0.00005), "<=0.00005"),
     ],
 )
 @EVERY_FORMAT
@@ -212,15 +332,18 @@ def test_the_query_string_carries_what_the_caller_asked_for(
 
 
 @pytest.mark.parametrize("field", ["strike", "delta"])
-@pytest.mark.parametrize("refused", [True, float("inf"), float("nan"), object(), 1e-05])
+@pytest.mark.parametrize(
+    "refused", [True, float("inf"), float("nan"), object(), Decimal("1E+400")]
+)
 @EVERY_FORMAT
 def test_a_bare_value_the_api_would_misread_never_reaches_a_request(
     respx_mock, client, field, refused, output_format
 ):
     """Without the field check these do not fail, they mean something else:
     pydantic reads `True` as the int 1, so the call becomes a request for
-    strike 1, and an infinity reaches the query as `inf`. The field checks
-    them the way a filter does, and no request is built."""
+    strike 1, and an infinity, or a `Decimal` past what a float holds,
+    reaches the API as a number it reads as infinite. The field checks them
+    the way a filter does, and no request is built."""
     respx_mock.get(url__startswith=CHAIN_URL).respond(
         json={"s": "no_data"}, status_code=404
     )
@@ -259,13 +382,39 @@ def test_a_strike_read_from_a_chain_can_be_passed_back():
     assert passed_back.strike == "262.50"
 
 
-def test_a_positive_exponent_is_sent_as_it_is():
-    """`Decimal("250.00").normalize()` is `Decimal("2.5E+2")`, which is what a
-    caller gets from tidying a strike read off an INTERNAL chain. The API
-    answers `250` for it, measured, so refusing it would have refused a value
-    it understands, with a message telling the caller to pass a Decimal they
-    had already passed (#101, round 2)."""
-    assert StrikeFilter.exact(Decimal("250.00").normalize()) == "2.5E+2"
+@pytest.mark.parametrize(
+    ("build", "expression"),
+    [
+        (lambda: StrikeFilter.exact(Decimal("250.00").normalize()), "250"),
+        (lambda: StrikeFilter.exact(1e16), "10000000000000000"),
+        (lambda: StrikeFilter.exact(1e-05), "0.00001"),
+        (lambda: StrikeFilter.exact(Decimal("1E-5")), "0.00001"),
+        (lambda: DeltaFilter.exact(Decimal("1E-7")), "0.0000001"),
+        (lambda: StrikeFilter.exact(5e-324), "0." + "0" * 323 + "5"),
+        (lambda: StrikeFilter.exact(Decimal("0E-7")), "0.0000000"),
+        # A zero cannot be too close to zero: past a float's last decimal place
+        # it is sent as 0 rather than as more digits than memory holds.
+        (lambda: StrikeFilter.exact(Decimal("0E-400")), "0"),
+        (lambda: StrikeFilter.exact(Decimal("-0E-999999999999999999")), "0"),
+        (lambda: StrikeFilter.exact(Decimal("0E+999999999999999999")), "0"),
+        (lambda: StrikeFilter.exact(Fraction(1, 4)), "0.25"),
+        (lambda: StrikeFilter.any_of(1e-05, 250), "0.00001,250"),
+        (lambda: StrikeFilter.between(0.00001, 0.5), "0.00001-0.5"),
+        (lambda: DeltaFilter.exact(-0.00001), "-0.00001"),
+        (lambda: DeltaFilter.at_most(0.00005), "<=0.00005"),
+    ],
+)
+def test_a_number_travels_as_plain_digits(build, expression):
+    """In text with no comma and no comparison, the API splits at a minus
+    before it reads a number, so `delta=5e-05` failed with a 400 while
+    `delta=0.00005` answers, measured. `Decimal("250.00").normalize()` is
+    `Decimal("2.5E+2")`, which is what a caller gets from tidying a strike
+    read off an INTERNAL chain, and it travels as `250`. Before, a number
+    below 0.0001 was refused even where the API reads it, and
+    `delta=-0.00001`, which `main` sent, was refused too (#123 review). Each
+    case is built inside the test, so a broken one fails alone instead of
+    stopping the whole module from loading."""
+    assert build() == expression
 
 
 def test_a_signed_zero_is_zero():

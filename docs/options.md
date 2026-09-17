@@ -201,7 +201,9 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   inclusive range, `">=250"` or `"<250"` for a bound. `StrikeFilter` builds all of
   them: `StrikeFilter.between(250, 260)`, `StrikeFilter.at_least(250)`. A negative is
   refused: the API reads a number by its absolute value, so `-250` would answer for
-  `250`. A string is passed through as written, so `strike="-250"` still reaches the API
+  `250`. A number is sent as plain digits, never in exponent form, and one a float cannot
+  hold is refused, since the API reads each number with `float()`. A string is passed
+  through as written, so `strike="-250"` still reaches the API
   and the API decides. The vocabulary of `range` does not belong here: `strike="ITM"` is
   a `400`
 - `delta` (str | int | float | Decimal, optional): Filter by delta, built the same way
@@ -210,7 +212,9 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   closest strike per side and never with nothing; it filters on the **absolute value** and
   answers both sides, so `0.5` and `-0.5` give the same rows; and a value above 1 is read
   as a percentage, so `30` means `0.30`. A negative is kept for an exact value and refused
-  in a range or a bound, where the absolute value would change the question. The filter is
+  in a range or a bound, where the absolute value would change the question. A small delta
+  is sent as plain digits too: `delta=5e-05` fails with a `400`, since the API splits that
+  text at its minus, while `delta=0.00005` is read. The filter is
   skipped entirely if any contract in the chain carries a null delta, and it is a `400`
   together with a historical `date`
 - `strike_limit` (int, optional): Limit the number of strikes
