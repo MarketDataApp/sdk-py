@@ -67,8 +67,8 @@ EVERY_FORMAT = pytest.mark.parametrize(
         (StrikeFilter.above(250), ">250"),
         (StrikeFilter.below(250), "<250"),
         (StrikeFilter.expression("240-260"), "240-260"),
-        (DeltaFilter.exact(0.5), "0.5"),
-        (DeltaFilter.exact(-0.5), "-0.5"),
+        (DeltaFilter.nearest(0.5), "0.5"),
+        (DeltaFilter.nearest(-0.5), "-0.5"),
         (DeltaFilter.any_of(-0.3, 0.5), "-0.3,0.5"),
         (DeltaFilter.between(Decimal("0.3"), Decimal("0.5")), "0.3-0.5"),
         (DeltaFilter.at_least(0.5), ">=0.5"),
@@ -85,7 +85,7 @@ def test_each_constructor_renders_the_expression_the_api_reads(built, expression
 @pytest.mark.parametrize(
     "build",
     [
-        lambda f: f.exact(250),
+        lambda f: (f.exact if f is StrikeFilter else f.nearest)(250),
         lambda f: f.any_of(250, 255),
         lambda f: f.between(250, 260),
         lambda f: f.at_least(250),
@@ -94,7 +94,16 @@ def test_each_constructor_renders_the_expression_the_api_reads(built, expression
         lambda f: f.below(250),
         lambda f: f.expression("240-260"),
     ],
-    ids=["exact", "any_of", "between", "at_least", "at_most", "above", "below", "expr"],
+    ids=[
+        "single",
+        "any_of",
+        "between",
+        "at_least",
+        "at_most",
+        "above",
+        "below",
+        "expr",
+    ],
 )
 def test_every_constructor_keeps_its_own_class(filter_type, build):
     """`==` on a `str` subclass is plain string equality, so a constructor
@@ -210,15 +219,15 @@ TOO_CLOSE = "is too close to zero for a float ({}): the API would read it as 0"
             "strike " + TOO_FAR.format("a Fraction"),
         ),
         (
-            lambda: DeltaFilter.exact(Decimal("1E-400")),
+            lambda: DeltaFilter.nearest(Decimal("1E-400")),
             "delta " + TOO_CLOSE.format("1.000e-400"),
         ),
         (
-            lambda: DeltaFilter.exact(Decimal("-1E-999999999999999999")),
+            lambda: DeltaFilter.nearest(Decimal("-1E-999999999999999999")),
             "delta " + TOO_CLOSE.format("-1.000e-999999999999999999"),
         ),
         (
-            lambda: DeltaFilter.exact(Fraction(1, 10**400)),
+            lambda: DeltaFilter.nearest(Fraction(1, 10**400)),
             "delta " + TOO_CLOSE.format("a Fraction"),
         ),
         (
@@ -288,7 +297,7 @@ def test_a_delta_keeps_its_sign_where_the_api_reads_the_same_rows_either_way():
     """The API filters on the absolute value of delta and answers both sides,
     measured: `delta=0.5` and `delta=-0.5` return the same rows. A caller
     thinking in put deltas is not corrected."""
-    assert DeltaFilter.exact(-0.5) == "-0.5"
+    assert DeltaFilter.nearest(-0.5) == "-0.5"
     assert DeltaFilter.any_of(-0.3, -0.5) == "-0.3,-0.5"
 
 
@@ -372,6 +381,25 @@ def test_a_negative_strike_never_reaches_a_request(respx_mock, client, output_fo
     assert not [c for c in respx_mock.calls if "/options/chain/" in str(c.request.url)]
 
 
+def test_each_filter_names_its_single_value_for_what_the_api_does():
+    """The API matches a strike exactly and answers a delta with the nearest
+    contract, so each filter has only the constructor that says so (#123
+    review)."""
+    assert not hasattr(DeltaFilter, "exact")
+    assert not hasattr(StrikeFilter, "nearest")
+
+
+def test_a_number_is_held_as_the_text_that_is_sent():
+    """The fields are annotated `str`, the type they hold: a number passed in
+    is kept as the text the query string carries, and the wider input is
+    declared on the validator instead (#123 review)."""
+    chain_input = OptionsChainInput(symbol="AAPL", strike=250, delta=0.5)
+
+    assert (chain_input.strike, chain_input.delta) == ("250", "0.5")
+    for name in ("strike", "delta"):
+        assert OptionsChainInput.model_fields[name].annotation == (str | None)
+
+
 def test_a_strike_read_from_a_chain_can_be_passed_back():
     """With money exact (#50) an INTERNAL chain answers its strikes as
     `Decimal`, and that value is a legitimate input to the next call."""
@@ -389,7 +417,7 @@ def test_a_strike_read_from_a_chain_can_be_passed_back():
         (lambda: StrikeFilter.exact(1e16), "10000000000000000"),
         (lambda: StrikeFilter.exact(1e-05), "0.00001"),
         (lambda: StrikeFilter.exact(Decimal("1E-5")), "0.00001"),
-        (lambda: DeltaFilter.exact(Decimal("1E-7")), "0.0000001"),
+        (lambda: DeltaFilter.nearest(Decimal("1E-7")), "0.0000001"),
         (lambda: StrikeFilter.exact(5e-324), "0." + "0" * 323 + "5"),
         (lambda: StrikeFilter.exact(Decimal("0E-7")), "0.0000000"),
         # A zero cannot be too close to zero: past a float's last decimal place
@@ -400,7 +428,7 @@ def test_a_strike_read_from_a_chain_can_be_passed_back():
         (lambda: StrikeFilter.exact(Fraction(1, 4)), "0.25"),
         (lambda: StrikeFilter.any_of(1e-05, 250), "0.00001,250"),
         (lambda: StrikeFilter.between(0.00001, 0.5), "0.00001-0.5"),
-        (lambda: DeltaFilter.exact(-0.00001), "-0.00001"),
+        (lambda: DeltaFilter.nearest(-0.00001), "-0.00001"),
         (lambda: DeltaFilter.at_most(0.00005), "<=0.00005"),
     ],
 )

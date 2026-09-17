@@ -64,20 +64,21 @@ class OptionsChainInput(BaseInputType):
 
     # Strike filters
     # `StrikeFilter` is a `str`, so it needs no place of its own here.
-    strike: str | int | float | Decimal | None = Field(
+    strike: str | None = Field(
         description=(
-            "The strikes to filter by: a price, or an expression built with "
-            "`StrikeFilter` (exact, any_of, between, at_least, at_most, above, "
-            "below, expression)"
+            "The strikes to filter by: a price (int, float or Decimal), or an "
+            "expression built with `StrikeFilter` (exact, any_of, between, "
+            "at_least, at_most, above, below, expression)"
         ),
         default=None,
     )
     # `DeltaFilter` is a `str`, so it needs no place of its own here.
-    delta: str | int | float | Decimal | None = Field(
+    delta: str | None = Field(
         description=(
-            "The delta to filter by: a number, or an expression built with "
-            "`DeltaFilter`. The API filters on the absolute value and answers "
-            "both sides"
+            "The delta to filter by: a number (int, float or Decimal), or an "
+            "expression built with `DeltaFilter` (nearest, any_of, between, "
+            "at_least, at_most, above, below, expression). The API filters on "
+            "the absolute value and answers both sides"
         ),
         default=None,
     )
@@ -130,9 +131,17 @@ class OptionsChainInput(BaseInputType):
         description="Whether to include P.M. expirations", default=None
     )
 
-    @field_validator("strike", "delta", mode="before")
+    @field_validator(
+        "strike",
+        "delta",
+        mode="before",
+        json_schema_input_type=str | int | float | Decimal | None,
+    )
     def render_number_filter(cls, value: object, info) -> object:
         """A bare number is checked and rendered the way a filter is.
+
+        The fields accept a number and hold the text that is sent, so they are
+        annotated `str` and the wider input is declared here.
 
         `urlencode` would stringify a number on its own, but a small one in
         exponent form, which the API can split at its minus, and it would let

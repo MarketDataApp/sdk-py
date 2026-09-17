@@ -207,8 +207,9 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   and the API decides. The vocabulary of `range` does not belong here: `strike="ITM"` is
   a `400`
 - `delta` (str | int | float | Decimal, optional): Filter by delta, built the same way
-  with `DeltaFilter`. Three things the API does with it are worth knowing: it matches the
-  **nearest** delta rather than an exact one, so `DeltaFilter.exact(0.5)` answers with the
+  with `DeltaFilter`, whose single-value constructor is `nearest` rather than `exact`.
+  Three things the API does with it are worth knowing: it matches the
+  **nearest** delta rather than an exact one, so `DeltaFilter.nearest(0.5)` answers with the
   closest strike per side and never with nothing; it filters on the **absolute value** and
   answers both sides, so `0.5` and `-0.5` give the same rows; and a value above 1 is read
   as a percentage, so `30` means `0.30`. A negative is kept for an exact value and refused

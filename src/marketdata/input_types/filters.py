@@ -27,7 +27,7 @@ since ``float()`` would read it as an infinity or as zero. Where a negative
 changes what the caller asked for, it is refused here with a message rather
 than sent. ``delta`` is the exception the API documents: it
 filters on the absolute value and answers both sides, so ``0.5`` and ``-0.5``
-return the same rows, verified, and both are accepted for an exact value.
+return the same rows, verified, and both are accepted for a single value.
 """
 
 from __future__ import annotations
@@ -36,8 +36,13 @@ import math
 import numbers
 import sys
 from decimal import Decimal
+from typing import TypeVar
 
 __all__ = ["DeltaFilter", "StrikeFilter"]
+
+# What a constructor returns: the class it was called on, so a type checker
+# sees a `StrikeFilter` or a `DeltaFilter` rather than the private base.
+_Filter = TypeVar("_Filter", bound="_NumericFilter")
 
 # The last decimal place a float can hold: that of its smallest step above
 # zero. `from_float` is the conversion a `FloatOperation` trap allows, so
@@ -149,16 +154,16 @@ class _NumericFilter(str):
     __slots__ = ()
 
     _WHAT = "value"
-    _EXACT_NEGATIVE_OK = False
+    _SINGLE_NEGATIVE_OK = False
 
     @classmethod
-    def exact(cls, value: object) -> _NumericFilter:
-        """One value."""
-        return cls(_render(value, cls._WHAT, negative_ok=cls._EXACT_NEGATIVE_OK))
+    def _single(cls: type[_Filter], value: object) -> _Filter:
+        """One value. Each filter names this for what the API does with it."""
+        return cls(_render(value, cls._WHAT, negative_ok=cls._SINGLE_NEGATIVE_OK))
 
     @classmethod
-    def any_of(cls, *values: object) -> _NumericFilter:
-        """A set of exact values, sent as a comma list.
+    def any_of(cls: type[_Filter], *values: object) -> _Filter:
+        """A set of values, sent as a comma list.
 
         Both sides come back at each one unless ``side`` narrows it, which is
         how a spread is priced in one request instead of one call per leg.
@@ -167,13 +172,13 @@ class _NumericFilter(str):
             raise ValueError(f"any_of needs at least one {cls._WHAT}")
         return cls(
             ",".join(
-                _render(value, cls._WHAT, negative_ok=cls._EXACT_NEGATIVE_OK)
+                _render(value, cls._WHAT, negative_ok=cls._SINGLE_NEGATIVE_OK)
                 for value in values
             )
         )
 
     @classmethod
-    def between(cls, low: object, high: object) -> _NumericFilter:
+    def between(cls: type[_Filter], low: object, high: object) -> _Filter:
         """An inclusive range, sent as ``low-high``."""
         rendered_low = _render(low, "low", negative_ok=False, in_a_range=True)
         rendered_high = _render(high, "high", negative_ok=False, in_a_range=True)
@@ -184,27 +189,27 @@ class _NumericFilter(str):
         return cls(f"{rendered_low}-{rendered_high}")
 
     @classmethod
-    def at_least(cls, value: object) -> _NumericFilter:
+    def at_least(cls: type[_Filter], value: object) -> _Filter:
         """At or above a value, sent as ``>=value``."""
         return cls(f">={_render(value, cls._WHAT, negative_ok=False)}")
 
     @classmethod
-    def at_most(cls, value: object) -> _NumericFilter:
+    def at_most(cls: type[_Filter], value: object) -> _Filter:
         """At or below a value, sent as ``<=value``."""
         return cls(f"<={_render(value, cls._WHAT, negative_ok=False)}")
 
     @classmethod
-    def above(cls, value: object) -> _NumericFilter:
+    def above(cls: type[_Filter], value: object) -> _Filter:
         """Strictly above a value, sent as ``>value``."""
         return cls(f">{_render(value, cls._WHAT, negative_ok=False)}")
 
     @classmethod
-    def below(cls, value: object) -> _NumericFilter:
+    def below(cls: type[_Filter], value: object) -> _Filter:
         """Strictly below a value, sent as ``<value``."""
         return cls(f"<{_render(value, cls._WHAT, negative_ok=False)}")
 
     @classmethod
-    def expression(cls, text: str) -> _NumericFilter:
+    def expression(cls: type[_Filter], text: str) -> _Filter:
         """An expression written by hand, passed through as it is.
 
         The escape hatch for a shape the constructors above do not name, the
@@ -229,7 +234,12 @@ class StrikeFilter(_NumericFilter):
     __slots__ = ()
 
     _WHAT = "strike"
-    _EXACT_NEGATIVE_OK = False
+    _SINGLE_NEGATIVE_OK = False
+
+    @classmethod
+    def exact(cls: type[_Filter], value: object) -> _Filter:
+        """One strike, which the API matches exactly."""
+        return cls._single(value)
 
 
 class DeltaFilter(_NumericFilter):
@@ -240,15 +250,15 @@ class DeltaFilter(_NumericFilter):
 
     It matches the **nearest** delta rather than the one asked for: per
     expiration and side it sorts by distance and takes the closest, so
-    ``exact(0.5)`` answered ``[0.5266, -0.4729]`` when it was measured, and
-    never answers with nothing. ``exact`` names the shape of the expression,
-    not the precision of the match.
+    ``nearest(0.5)`` answered ``[0.5266, -0.4729]`` when it was measured, and
+    it never answers with nothing. That is why its single-value constructor
+    is ``nearest``, where ``StrikeFilter`` has ``exact``.
 
     It filters on the **absolute value** and answers both sides, so ``0.5``
-    and ``-0.5`` return the same rows, measured. Both are accepted for an
-    exact value and for a set.
+    and ``-0.5`` return the same rows, measured. Both are accepted for a
+    single value and for a set.
 
-    A value above 1 is read as a percentage: ``exact(30)`` means ``0.30``.
+    A value above 1 is read as a percentage: ``nearest(30)`` means ``0.30``.
 
     A negative is still refused in a range or a bound, where the absolute
     value changes the question rather than restating it: ``>=-0.5`` would ask
@@ -264,7 +274,13 @@ class DeltaFilter(_NumericFilter):
     __slots__ = ()
 
     _WHAT = "delta"
-    _EXACT_NEGATIVE_OK = True
+    _SINGLE_NEGATIVE_OK = True
+
+    @classmethod
+    def nearest(cls: type[_Filter], value: object) -> _Filter:
+        """One delta. The API answers with the contract whose delta is nearest to
+        it, per expiration and side."""
+        return cls._single(value)
 
 
 def _render_number(value: object, argument: str) -> str:
