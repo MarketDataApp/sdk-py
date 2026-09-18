@@ -392,6 +392,9 @@ def test_parse_csv_errmsg_reports_no_table_when_the_reader_refuses_the_body():
 
 # ----------------------------------------------------------- is_no_data
 
+# Built here, not imported from utils, so a wrong constant there fails these tests.
+BOM = chr(0xFEFF)
+
 CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
 
 
@@ -407,6 +410,13 @@ CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
         (200, "0\r\n", False),
         (200, "", False),
         (500, '0\r\n""\r\n', False),
+        # A byte order mark in front of the placeholder.
+        (200, BOM + '0\r\n""\r\n', True),
+        (200, BOM + '""\r\n', True),
+        (203, BOM + '0\r\n""\r\n', True),
+        # A mark inside a value is data, and so is one that does not open the body.
+        (200, '0\r\n"' + BOM + '"\r\n', False),
+        (200, "0\r\n" + BOM + '""\r\n', False),
     ],
 )
 def test_is_no_data_recognises_the_404_and_the_csv_placeholder(status, body, expected):

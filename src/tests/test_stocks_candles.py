@@ -444,6 +444,9 @@ CSV_BODY = (
     "1704171600,185.6,186.88,182.36,184.1,82488674\r\n"
     "1704258000,182.69,184.34,181.91,182.72,58414460\r\n"
 )
+# Built here, not imported from utils, so a wrong constant there fails these tests.
+BOM = chr(0xFEFF)
+
 CSV_PLACEHOLDER = '0\r\n""\r\n'
 TWO_CHUNKS = dict(from_date="2023-01-01", to_date="2024-06-01")
 CHUNK_STARTS = ["2023-01-01", "2024-01-01"]
@@ -544,12 +547,13 @@ def test_stocks_candles_csv_chunk_the_csv_module_cannot_read_is_a_parse_error(
     assert not (tmp_path / "test.csv").exists()
 
 
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
 def test_stocks_candles_csv_leaves_out_a_chunk_with_no_data(
-    respx_mock, client, tmp_path
+    respx_mock, client, tmp_path, mark
 ):
-    """Issue #89: the API's CSV placeholder for an empty chunk is a 200."""
+    """The 200 CSV placeholder, with or without a BOM, adds no rows to the file."""
     respx_mock.get(HOURLY_URL).mock(
-        side_effect=by_chunk(dict(text=CSV_PLACEHOLDER), dict(text=CSV_BODY))
+        side_effect=by_chunk(dict(text=mark + CSV_PLACEHOLDER), dict(text=CSV_BODY))
     )
 
     output = client.stocks.candles(
@@ -561,6 +565,40 @@ def test_stocks_candles_csv_leaves_out_a_chunk_with_no_data(
     )
 
     assert pathlib.Path(output).read_bytes() == CSV_BODY.encode()
+
+
+JSON_CHUNK = {
+    "s": "ok",
+    "t": [1704171600, 1704258000],
+    "o": [185.6, 182.69],
+    "h": [186.88, 184.34],
+    "l": [182.36, 181.91],
+    "c": [184.1, 182.72],
+    "v": [82488674, 58414460],
+}
+
+
+@pytest.mark.parametrize(
+    "output_format", [OutputFormat.INTERNAL, OutputFormat.JSON, OutputFormat.DATAFRAME]
+)
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
+def test_stocks_candles_leaves_out_a_placeholder_chunk_on_every_format(
+    respx_mock, client, output_format, mark
+):
+    """A chunk answering `""`, with or without a BOM, adds no rows."""
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=by_chunk(dict(text=mark + '""'), dict(json=JSON_CHUNK))
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        result = client.stocks.candles(
+            symbol="AAPL", resolution="H", output_format=output_format, **TWO_CHUNKS
+        )
+
+    if output_format == OutputFormat.JSON:
+        assert result["t"] == JSON_CHUNK["t"]
+    else:
+        assert len(result) == 2
 
 
 def test_stocks_candles_csv_with_every_chunk_empty_is_a_header_only_file(

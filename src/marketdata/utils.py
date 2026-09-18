@@ -105,6 +105,10 @@ def parse_json(response: Response, *, exact: bool = False) -> Any:
         ) from exc
 
 
+# A byte order mark. A proxy may put one in front of a body, where it is not data.
+# Built with chr() so no tool can turn an escape into the invisible character.
+BOM = chr(0xFEFF)
+
 # The API's CSV rendering of the empty answer (MarketData-App/api#422): a
 # one-column table named "0" with one empty cell, the cell alone under
 # ``add_headers=False``. Compared on the non-blank lines of the body. The
@@ -119,15 +123,16 @@ def is_no_data(response: Response) -> bool:
 
     ``MarketDataClient._raise_for_status`` lets exactly one 404 through: the
     one without an ``errmsg``. In CSV format the same answer arrives as a
-    ``200`` whose body is a placeholder table, because the API drops the
-    status when it renders it (MarketData-App/api#422, #89); that rule can go
-    once the API answers ``404`` for CSV too.
+    ``200`` whose body is a placeholder table; byte order marks in front of
+    it are ignored.
     """
     if response.status_code == 404:
         return True
     if response.status_code not in VALID_STATUS_CODES or len(response.content) > 16:
         return False
-    return [line for line in response.text.splitlines() if line] in _CSV_NO_DATA_BODIES
+    # Leading marks only: one after a blank line or inside a value is data.
+    body = response.text.lstrip(BOM)
+    return [line for line in body.splitlines() if line] in _CSV_NO_DATA_BODIES
 
 
 def column_key(name: str) -> str:
@@ -157,25 +162,15 @@ _CSV_ERROR_MAX_LENGTH = 4096
 def _csv_rows(text: str) -> list[list[str]]:
     """The rows of a CSV body, blank lines dropped and a BOM taken off.
 
-    The error envelope and the fan-out merge both read a body through here, so
-    the two cannot drift apart. It is not every CSV the SDK touches: the body
-    of a single-request CSV answer is written to file unread, and
-    ``is_no_data`` matches the placeholder line by line.
-
-    The text is read with ``newline=""``, as the ``csv`` module prescribes, so
-    a body whose lines end in a lone CR reads as rows instead of raising, and
-    a quoted value keeps the line endings it carries.
-
-    ``csv.Error`` (a field past the reader's size limit, or a NUL byte before
-    Python 3.11) propagates: each caller decides what an unreadable body means.
+    Lines ending in a lone CR read as rows, and a quoted value keeps the line
+    endings it carries. Raises ``csv.Error`` for a body the reader refuses (a
+    field past its size limit, or a NUL byte before Python 3.11).
     """
     # Before the parse, so a BOM does not break the quoting of the first value,
     # and after it, for a body that starts with blank lines.
-    rows = [
-        row for row in csv.reader(StringIO(text.lstrip("\ufeff"), newline="")) if row
-    ]
+    rows = [row for row in csv.reader(StringIO(text.lstrip(BOM), newline="")) if row]
     if rows:
-        rows[0][0] = rows[0][0].lstrip("\ufeff")  # a BOM is not data
+        rows[0][0] = rows[0][0].lstrip(BOM)  # a BOM is not data
     return rows
 
 

@@ -704,18 +704,22 @@ def test_an_api_alias_column_filter_does_not_keep_the_no_data_shape(
     assert list(empty.index.names) == ["t"]
 
 
+# Built here, not imported from utils, so a wrong constant there fails these tests.
+BOM = chr(0xFEFF)
+
 CSV_PLACEHOLDER = '0\r\n""\r\n'
 
 
 @pytest.mark.parametrize(("call", "url_pattern", "fixture"), RESOURCES)
+@pytest.mark.parametrize(
+    "placeholder", [CSV_PLACEHOLDER, BOM + CSV_PLACEHOLDER], ids=["plain", "with-bom"]
+)
 def test_every_resource_renders_the_csv_no_data_placeholder_as_a_header_only_file(
-    respx_mock, client, call, url_pattern, fixture, tmp_path
+    respx_mock, client, call, url_pattern, fixture, tmp_path, placeholder
 ):
-    """Issue #89: in CSV format the empty answer arrives as a 200 whose body is
-    a placeholder table (MarketData-App/api#422); it must be the same header-only
-    file as a JSON 404 no_data, on every resource."""
+    """A 200 CSV placeholder, with or without a BOM, is written like a JSON 404."""
     respx_mock.get(url__regex=url_pattern).respond(
-        text=CSV_PLACEHOLDER,
+        text=placeholder,
         status_code=200,
         headers={"content-type": "text/csv; charset=utf-8"},
     )
@@ -733,15 +737,12 @@ def test_every_resource_renders_the_csv_no_data_placeholder_as_a_header_only_fil
 @pytest.mark.parametrize(
     "output_format", [OutputFormat.JSON, OutputFormat.DATAFRAME, OutputFormat.INTERNAL]
 )
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
 def test_the_placeholder_body_is_an_empty_result_on_every_format(
-    respx_mock, client, call, url_pattern, fixture, output_format
+    respx_mock, client, call, url_pattern, fixture, output_format, mark
 ):
-    """The placeholder rule (#89) reads the body, not the format that was
-    asked for, and its `""` is also a JSON document, the empty string. The
-    answer is then the empty result on every resource and format: JSON output
-    used to echo `''` while the other formats returned their empty value,
-    which let the output format decide what the call returns (#91)."""
-    respx_mock.get(url__regex=url_pattern).respond(text='""', status_code=200)
+    """`""`, with or without a BOM, is the empty result, not the JSON string ''."""
+    respx_mock.get(url__regex=url_pattern).respond(text=mark + '""', status_code=200)
     client.default_params.output_format = output_format
 
     with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
