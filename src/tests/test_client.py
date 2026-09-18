@@ -558,6 +558,32 @@ def test_client_pre_and_post_request_logs(client, respx_mock):
             )
 
 
+@pytest.mark.parametrize(
+    "headers, expected, reason",
+    [
+        ({"cf-ray": "abc-EZE"}, "abc-EZE", "an id reaches the line"),
+        ({"cf-ray": "  abc-EZE  "}, "abc-EZE", "trimmed at the ends"),
+        ({"cf-ray": ""}, "N/A", "blank"),
+        ({"cf-ray": "   "}, "N/A", "spaces"),
+        ({}, "N/A", "absent"),
+    ],
+)
+def test_the_response_log_line_names_the_request_id_or_says_n_a(
+    client, respx_mock, headers, expected, reason
+):
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json={}, status_code=200, headers=headers
+    )
+
+    with patch.object(client.logger, "log") as logged:
+        client.stocks.prices(symbols="AAPL")
+
+    message = logged.call_args.args[1]
+    # Anchored on the URL: " abc " alone also matches an untrimmed "  abc  ".
+    assert f" {expected} https://" in message, reason
+    assert "None" not in message
+
+
 def test_client_max_retries_default(client):
     assert client.max_retries == 3
 

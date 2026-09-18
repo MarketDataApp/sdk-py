@@ -144,7 +144,7 @@ prices = client.stocks.prices("AAPL")
 meta = marketdata.get_meta(prices)      # ResponseMeta
 meta.rate_limits.credits_consumed       # what this call cost
 meta.rate_limits.credits_remaining      # the balance after it
-meta.request_id                         # cf-ray, for support
+meta.request_id                         # cf-ray, for support, or None
 meta.responses                          # HTTP responses behind the result
 ```
 
