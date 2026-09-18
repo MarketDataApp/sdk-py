@@ -1,0 +1,254 @@
+name: Tag and release
+
+# The release path (SDK requirements §17.5): validate, run the suite and the
+# live suite on one commit, tag it, create the GitHub release, publish to PyPI
+# and install the published version back. Manual dispatch only, confirmed by
+# typing RELEASE.
+#
+# The version is not set here: the release pull request bumps `pyproject.toml`
+# and promotes `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, and `validate`
+# refuses to run when either disagrees with the requested version.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to release, without a `v` (for example 2.0.0).
+        required: true
+        type: string
+      ref:
+        description: The branch, tag or commit to release from.
+        required: true
+        default: main
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a pre-release.
+        type: boolean
+        default: false
+      confirm:
+        description: Type RELEASE to confirm. Anything else stops the run.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Queued, not cancelled: a cancelled run can leave a tag with nothing published.
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate before spending runner time
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Checkout the ref being released
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Require the typed confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "RELEASE" ]; then
+            echo "::error::confirm must be exactly RELEASE. Nothing was done."
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: "latest"
+
+      - name: Resolve the ref to a commit on `main`
+        id: resolve
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          # Later jobs use this SHA, so a ref that moves mid-run cannot change what ships.
+          sha=$(git rev-parse HEAD)
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "${REF} is ${sha}"
+
+          # A dispatch accepts any ref, a pull request's merge ref included.
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "::error::${sha} is not on main. Merge the release pull request first."
+            exit 1
+          fi
+
+      - name: Check the version, the tag, `pyproject.toml` and the CHANGELOG
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          # VERSION has no `v` and must already be the normalised spelling pip
+          # serves: 2.0.0rc1, not 2.0.0RC1.
+          uv run --no-project --quiet --with packaging --python 3.12 python - "$VERSION" <<'EOF'
+          import sys
+
+          from packaging.version import InvalidVersion, Version
+
+          asked = sys.argv[1]
+          try:
+              parsed = Version(asked)
+          except InvalidVersion:
+              sys.exit(f"::error::{asked} is not a version Python packaging can read. Use X.Y.Z, or X.Y.Zrc1 for a pre-release, with no leading v.")
+          if str(parsed) != asked:
+              sys.exit(f"::error::{asked} is spelled differently from the version it means: pip would serve {parsed}. Use that spelling.")
+          if parsed.local:
+              sys.exit(f"::error::{asked} carries a local version, and PyPI refuses those.")
+          EOF
+
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "::error::The tag v${VERSION} already exists."
+            exit 1
+          fi
+
+          # The build takes its version from pyproject.toml, not from the tag.
+          declared=$(python3 -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])")
+          if [ "$declared" != "$VERSION" ]; then
+            echo "::error::pyproject.toml declares ${declared}, and this run asks for ${VERSION}. Bump it in a pull request first."
+            exit 1
+          fi
+
+          # The version is compared as text: in a regex its dots match any character.
+          awk -v prefix="## [${VERSION}] - " '
+            index($0, prefix) == 1 && substr($0, length(prefix) + 1) ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q '^- [^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md has no section headed ## [${VERSION}] - YYYY-MM-DD with at least one '- ' entry. Promote ## [Unreleased] in a pull request first."
+            exit 1
+          fi
+          echo "Release notes for ${VERSION}:"
+          cat release-notes.md
+
+  gate:
+    name: The suite, on the commit being released
+    needs: validate
+    # Called, not copied, so the release runs the suite every pull request runs.
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ needs.validate.outputs.sha }}
+      run_integration: true
+    # MARKETDATA_TOKEN for the live suite, CODECOV_TOKEN for the coverage upload.
+    secrets: inherit
+
+  release:
+    name: Tag the commit and create the release
+    needs: [validate, gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the commit being released
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Rebuild the release notes
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          # Same extraction and check as in `validate`; keep the two in sync.
+          awk -v prefix="## [${VERSION}] - " '
+            index($0, prefix) == 1 && substr($0, length(prefix) + 1) ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          grep -q '^- [^[:space:]]' release-notes.md
+
+      - name: Refuse a tag that appeared while the suite ran
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "::error::The tag v${VERSION} appeared while this run was in flight. Nothing was created."
+            exit 1
+          fi
+
+      - name: Create the tag and the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ needs.validate.outputs.sha }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          flag="--latest"
+          if [ "$PRERELEASE" = "true" ]; then
+            flag="--prerelease"
+          fi
+          gh release create "v${VERSION}" \
+            --target "$SHA" \
+            --title "Version ${VERSION}" \
+            --notes-file release-notes.md \
+            "$flag"
+
+  publish:
+    name: Publish to PyPI
+    needs: [validate, release]
+    permissions:
+      # Trusted publishing: the OIDC token authorises the upload.
+      id-token: write
+      contents: read
+    # A release created with GITHUB_TOKEN starts no workflow run, so
+    # `publish.yml` is called here instead of by its `release` trigger.
+    uses: ./.github/workflows/publish.yml
+    with:
+      ref: ${{ needs.validate.outputs.sha }}
+      version: ${{ inputs.version }}
+    secrets: inherit
+
+  verify:
+    name: Verify the published version
+    needs: [validate, release, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Wait for PyPI to serve the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          # PyPI can lag the upload. On a timeout, re-run this job: the tag and
+          # the files already exist, so releasing again would fail.
+          for attempt in $(seq 1 30); do
+            if curl -fsS "https://pypi.org/pypi/marketdata-sdk-py/${VERSION}/json" >/dev/null; then
+              echo "PyPI serves ${VERSION} (attempt ${attempt})."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::PyPI did not serve ${VERSION} within five minutes."
+          exit 1
+
+      - name: Install it into a throwaway environment and read its version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          uv venv /tmp/verify
+          VIRTUAL_ENV=/tmp/verify uv pip install --prerelease allow "marketdata-sdk-py==${VERSION}"
+          /tmp/verify/bin/python -c "
+          from importlib.metadata import version
+          import marketdata
+          installed = version('marketdata-sdk-py')
+          print('installed', installed)
+          assert installed == '${VERSION}', installed
+          "
