@@ -32,6 +32,7 @@ from httpx import Response
 from marketdata.exceptions import MarketdataHttpError, RateLimitError
 from marketdata.internal_settings import (
     HEADER_DETECTED_IP,
+    HEADER_REQUEST_ID,
     VALID_STATUS_CODES,
     read_header,
 )
@@ -76,8 +77,8 @@ class ResponseMeta:
 
     On the metadata of a call that raised a ``MarketdataHttpError`` or
     ``RateLimitError``, ``status_code`` and ``request_id`` are those of the
-    exception's response (``None`` for a missing ``cf-ray``, where the
-    exception says ``"N/A"``), or ``0`` and ``None`` when it carries no
+    exception's response (``None`` for a missing or blank ``cf-ray``, where
+    the exception says ``"N/A"``), or ``0`` and ``None`` when it carries no
     response. Any other exception follows the rule of a successful call.
     ``responses`` and the credits cover every response the call recorded.
 
@@ -107,7 +108,7 @@ class ResponseMeta:
     ) -> ResponseMeta:
         return cls(
             status_code=response.status_code,
-            request_id=response.headers.get("cf-ray"),
+            request_id=read_header(response, HEADER_REQUEST_ID),
             rate_limits=rate_limits,
             detected_ip=read_header(response, HEADER_DETECTED_IP),
         )

@@ -194,3 +194,81 @@ def test_validation_errors_raise_before_any_request(respx_mock, client):
     assert not [
         c for c in respx_mock.calls if c.request.url.path.startswith("/v1/stocks/")
     ]
+
+
+@pytest.mark.parametrize(
+    "headers, reason",
+    [
+        ({"cf-ray": ""}, "blank"),
+        ({"cf-ray": "   "}, "spaces"),
+        ({}, "absent"),
+    ],
+)
+def test_an_answer_with_no_usable_request_id_reports_it_as_not_available(
+    headers, reason
+):
+    error = RateLimitError(
+        "Rate limit exceeded",
+        response=Response(429, headers=headers, request=REQUEST),
+        timestamp="2025-02-21 12:00:00",
+    )
+
+    assert error.request_id == "N/A", reason
+    assert "request_id:     N/A" in error.support_info
+
+
+@pytest.mark.parametrize(
+    "output_format",
+    [
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.CSV,
+        OutputFormat.DATAFRAME,
+    ],
+)
+@pytest.mark.parametrize(
+    "headers, reason",
+    [
+        ({"cf-ray": ""}, "blank"),
+        ({"cf-ray": "   "}, "spaces"),
+        ({}, "absent"),
+    ],
+)
+def test_a_failed_call_with_no_usable_request_id_reports_it_as_not_available(
+    respx_mock, client, output_format, headers, reason
+):
+    """A CSV call gets the API's CSV error body."""
+    errmsg = "Bad parameters, please check API documentation."
+
+    def answer(request):
+        if request.url.params.get("format") == "csv":
+            return Response(
+                400,
+                headers={**headers, "content-type": "text/csv; charset=utf-8"},
+                text=f's,errmsg\r\nerror,"{errmsg}"\r\n',
+            )
+        return Response(400, headers=headers, json={"s": "error", "errmsg": errmsg})
+
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").mock(
+        side_effect=answer
+    )
+
+    with pytest.raises(BadRequestError) as exc_info:
+        client.stocks.prices("AAPL", output_format=output_format)
+
+    error = exc_info.value
+    assert error.message == errmsg
+    assert error.request_id == "N/A", reason
+    assert "request_id:     N/A" in error.support_info
+
+
+def test_a_request_id_keeps_the_spacing_the_api_sent_inside_it():
+    error = RateLimitError(
+        "Rate limit exceeded",
+        response=Response(
+            429, headers={"cf-ray": "  8a1b 2c3d-SJC  "}, request=REQUEST
+        ),
+        timestamp="2025-02-21 12:00:00",
+    )
+
+    assert error.request_id == "8a1b 2c3d-SJC"

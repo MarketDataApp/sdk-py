@@ -39,17 +39,15 @@ MAX_CREDIT_WINDOW_SECONDS = 24 * 60 * 60
 # not read: the API is removing it (MarketData-App/api#202).
 HEADER_DETECTED_IP = "x-api-detected-ip"
 HEADER_AUTHORIZED_IP = "x-api-authorized-ip"
+# The id Cloudflare stamps on every answer; support looks a request up by it.
+HEADER_REQUEST_ID = "cf-ray"
 
 
 def read_header(response: Response | None, name: str) -> str | None:
-    """One header's value, or ``None`` when there is nothing to read.
+    """The value of header ``name`` (case-insensitive), trimmed at both ends.
 
-    A header the API sent blank is nothing: ``''`` would read as an address to
-    a caller checking ``if error.authorized_ip``. The rule lives here so the
-    two sites that read an IP header, and anything that joins them, answer the
-    same way. ``_request_id`` in ``exceptions.py`` keeps its own reading: it
-    answers ``N/A`` rather than ``None``, and changing what it makes of a blank
-    ``cf-ray`` is a change to the support block, not a cleanup (#114).
+    Returns ``None`` when ``response`` is ``None`` or the header is missing,
+    empty or only whitespace.
     """
     if response is None:
         return None

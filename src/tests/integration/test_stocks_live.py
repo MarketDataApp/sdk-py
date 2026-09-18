@@ -1,6 +1,7 @@
 """Live tests for the stocks resource: prices, quotes, candles, earnings, news."""
 
 import datetime
+from decimal import Decimal
 
 import pytest
 
@@ -44,7 +45,9 @@ def test_prices_return_expected_shape(live_client: MarketDataClient):
     assert isinstance(price, StockPrice)
     assert price.symbol == SYMBOL
     assert price.mid > 0
-    assert isinstance(price.change, float)
+    # Money is exact (#50); a percentage stays a float.
+    assert isinstance(price.mid, Decimal)
+    assert isinstance(price.change, Decimal)
     assert isinstance(price.changepct, float)
     assert isinstance(price.updated, datetime.datetime)
     assert price.updated.tzinfo is not None
@@ -62,6 +65,10 @@ def test_quotes_return_expected_shape(live_client: MarketDataClient):
     # Outside market hours bid/ask can be 0, so only their ordering is a contract.
     assert 0 <= quote.bid <= quote.ask
     assert quote.mid >= 0
+    assert all(
+        isinstance(price, Decimal)
+        for price in (quote.bid, quote.ask, quote.mid, quote.last)
+    )
     assert isinstance(quote.bidSize, int) and quote.bidSize >= 0
     assert isinstance(quote.askSize, int) and quote.askSize >= 0
     assert isinstance(quote.volume, int) and quote.volume >= 0
@@ -86,6 +93,10 @@ def test_daily_candles_return_expected_shape(live_client: MarketDataClient):
         assert candle.l <= candle.o <= candle.h
         assert candle.l <= candle.c <= candle.h
         assert isinstance(candle.v, int) and candle.v > 0
+        assert all(
+            isinstance(price, Decimal)
+            for price in (candle.o, candle.h, candle.l, candle.c)
+        )
 
 
 def test_long_intraday_range_has_no_duplicate_bars_at_chunk_boundaries(
@@ -131,6 +142,9 @@ def test_earnings_return_expected_shape(live_client: MarketDataClient):
     assert all(quarter in (1, 2, 3, 4) for quarter in earnings.fiscalQuarter)
     assert all(isinstance(day, datetime.datetime) for day in earnings.reportDate)
     assert all(isinstance(day, datetime.datetime) for day in earnings.updated)
+    eps = earnings.reportedEPS + earnings.estimatedEPS + earnings.surpriseEPS
+    assert all(isinstance(value, Decimal) for value in eps if value is not None)
+    assert not any(isinstance(pct, Decimal) for pct in earnings.surpriseEPSpct)
 
 
 def test_news_return_expected_shape(live_client: MarketDataClient):
