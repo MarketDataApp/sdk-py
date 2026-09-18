@@ -34,16 +34,16 @@ def parse_json(response: Response) -> Any:
         ) from exc
 
 
+# A byte order mark. A proxy may put one in front of a body, where it is not data.
+# Built with chr() so no tool can turn an escape into the invisible character.
+BOM = chr(0xFEFF)
+
 # The API's CSV rendering of the empty answer (MarketData-App/api#422): a
 # one-column table named "0" with one empty cell, the cell alone under
 # ``add_headers=False``. Compared on the non-blank lines of the body. The
 # second shape is also what a one-column, one-row answer with a null value
 # renders as under ``add_headers=False``; the API itself reports an all-null
 # answer as ``no_data`` on the JSON path, so reading it as empty agrees.
-# A byte order mark, which a proxy may put in front of a body. Never data.
-# Built with chr() so no tool can turn an escape into the invisible character.
-BOM = chr(0xFEFF)
-
 _CSV_NO_DATA_BODIES = (["0", '""'], ['""'])
 
 
