@@ -205,10 +205,16 @@ grep -q '^- [^[:space:]]' release-notes.md \
   dispatched from, so anyone who can push a branch can push one with `validate` deleted
   and reach those environments with it. Two settings close that, and neither is a file in
   this repository:
-  - **Deployment branches and tags**, on both environments: selected branches, `main`
-    only. A run from any other branch then cannot use them.
+  - **Deployment branches and tags**, on both environments: `main`, plus the tag pattern
+    `v*`. A dispatch from any other branch then cannot use them. The tag is there for
+    the hand path and for the recovery below, which run `publish.yml` on the release's
+    tag; `main` alone would refuse them.
   - **Required reviewers** on `pypi`, so a person other than the one who dispatched it
-    sees what is about to be published.
+    sees what is about to be published. This is also what covers the tag pattern: a tag
+    carries its own copy of `publish.yml`, so a tag pushed with the gate deleted still
+    stops at the reviewer.
+  - **Who can create `v*` tags**, through a tag ruleset limited to maintainers, so the
+    reviewer is not the only thing between a pushed tag and the `pypi` environment.
 - **Coverage is not enforced anywhere** (see the note at the end of §7).
 - **A half-finished release is recovered by hand.** If `publish` fails after the tag and
   the Release exist, the release is real and the files are not. Dispatching
