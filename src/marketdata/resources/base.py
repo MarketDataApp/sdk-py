@@ -303,7 +303,7 @@ class BaseResource:
         result_data.setdefault("filename", None)
         user_universal_params = UserUniversalAPIParams.model_validate(result_data)
 
-        # When using internal output format, we dont filter columns as the internal output format needs all columns
+        # A column-filtered answer can omit `s`, which the INTERNAL models require.
         if user_universal_params.output_format == OutputFormat.INTERNAL:
             user_universal_params.columns = None
 
