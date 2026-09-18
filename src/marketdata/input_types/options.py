@@ -63,7 +63,6 @@ class OptionsChainInput(BaseInputType):
     )
 
     # Strike filters
-    # `StrikeFilter` is a `str`, so it needs no place of its own here.
     strike: str | None = Field(
         description=(
             "The strikes to filter by: a price (int, float or Decimal), or an "
@@ -72,7 +71,6 @@ class OptionsChainInput(BaseInputType):
         ),
         default=None,
     )
-    # `DeltaFilter` is a `str`, so it needs no place of its own here.
     delta: str | None = Field(
         description=(
             "The delta to filter by: a number (int, float or Decimal), or an "
@@ -138,17 +136,11 @@ class OptionsChainInput(BaseInputType):
         json_schema_input_type=str | int | float | Decimal | None,
     )
     def _render_number_filter(cls, value: object, info) -> object:
-        """A bare number is checked and rendered the way a filter is.
+        """Render a bare number as the text sent, with the checks a filter applies.
 
-        The fields accept a number and hold the text that is sent, so they are
-        annotated `str` and the wider input is declared here.
-
-        `urlencode` would stringify a number on its own, but a small one in
-        exponent form, which the API can split at its minus, and it would let
-        through what is refused here: a bool would travel as `True`, an
-        infinity as `inf`, and a negative strike would come back as its
-        absolute value with no word from the API (#101). A `str`, which a
-        filter is, travels as written.
+        ``None`` and a ``str``, a filter included, pass through as written. The
+        fields hold that text, so they are annotated ``str``; the wider input is
+        declared here. Raises ``ValueError`` for a number ``_render`` refuses.
         """
         if value is None or isinstance(value, str):
             return value

@@ -1,33 +1,17 @@
-"""The numeric filters of ``options.chain``: ``strike`` and ``delta`` (#101).
+"""The ``strike`` and ``delta`` filters of ``options.chain``.
 
-The API reads both as a small expression language rather than as one number
-(``common/util/input_validation_helper.py``, ``parse_numeric_query`` and
-``parse_input_expression``): ``250`` is one value, ``250,255`` a set,
-``250-260`` an inclusive range, and ``>=250`` a one-sided bound. Written as a
-string that grammar is easy to get wrong and invisible to a type checker, so
-each shape has a constructor, the way sdk-go gives them. sdk-csharp names
-three of these shapes and has no filter for ``delta`` at all.
+The API reads both as an expression: ``250`` is one value, ``250,255`` a set,
+``250-260`` an inclusive range, and ``>=250`` or ``<250`` a one-sided bound.
+``StrikeFilter`` and ``DeltaFilter`` build each shape from numbers.
 
-Three of its rules are sharp edges, measured against production on
-2026-09-15 and 2026-09-17:
-
-- ``parse_input`` is ``abs(float(value))``, so a minus sign is dropped without
-  a word. ``strike=-250`` answers with the strikes at ``250``.
-- ``parse_input_expression`` skips the range branch when the text opens with a
-  minus, so ``-0.5-0.5`` reaches ``float()`` whole and the call fails with a
-  ``400``.
-- Otherwise, text with no comma and no comparison is split at a minus as a
-  range, even at a minus inside a number: ``delta=5e-05`` is split into
-  ``5e`` and ``05`` and fails with a ``400``, while ``delta=0.00005`` is
-  read. After a comparison, and in a list of several values, each number is
-  read whole.
-
-So a number is sent as plain digits, and one a float cannot hold is refused,
-since ``float()`` would read it as an infinity or as zero. Where a negative
-changes what the caller asked for, it is refused here with a message rather
-than sent. ``delta`` is the exception the API documents: it
-filters on the absolute value and answers both sides, so ``0.5`` and ``-0.5``
-return the same rows, verified, and both are accepted for a single value.
+A number is sent as plain digits, never in exponent form: the API splits a lone
+value or a range at any minus, so ``delta=5e-05`` fails with a ``400``. A number
+a float cannot hold is refused, since the API would read it as an infinity or
+as 0. A negative is refused where the API would answer a different question or
+fail: it reads a number by its absolute value, so ``strike=-250`` answers for
+``250``, and ``-0.5-0.5`` is not read as a range and fails with a ``400``. A
+single ``delta`` or a set of them may be negative, since the API filters delta
+on its absolute value and answers both sides.
 """
 
 from __future__ import annotations
@@ -40,17 +24,14 @@ from typing import TypeVar
 
 __all__ = ["DeltaFilter", "StrikeFilter"]
 
-# What a constructor returns: the class it was called on, so a type checker
-# sees a `StrikeFilter` or a `DeltaFilter` rather than the private base.
 _Filter = TypeVar("_Filter", bound="_NumericFilter")
 
-# The last decimal place a float can hold: that of its smallest step above
-# zero. `from_float` is the conversion a `FloatOperation` trap allows, so
-# importing this module neither trips nor flags a caller who sets one.
+# A float's last decimal place; `from_float` keeps a FloatOperation trap quiet.
 _LAST_PLACE = Decimal.from_float(math.ulp(0.0)).adjusted()
 
 
 def _too_far(argument: str, shown: str) -> str:
+    """The refusal for a number a float would read as an infinity."""
     return (
         f"{argument} is too far from zero for a float ({shown}): the API would "
         "read it as an infinity"
@@ -58,6 +39,7 @@ def _too_far(argument: str, shown: str) -> str:
 
 
 def _too_close(argument: str, shown: str) -> str:
+    """The refusal for a nonzero number a float would read as 0."""
     return (
         f"{argument} is too close to zero for a float ({shown}): the API would "
         "read it as 0"
@@ -67,24 +49,18 @@ def _too_close(argument: str, shown: str) -> str:
 def _render(
     value: object, argument: str, *, negative_ok: bool, in_a_range: bool = False
 ) -> str:
-    """One number as the digits the API should read.
+    """Render ``value`` as the plain digits the API reads.
 
-    The digits are the ones the caller named, written out in full: a
-    ``Decimal`` keeps its trailing zeros, a float is written from its shortest
-    form, so ``65.1`` is sent as ``65.1``, and no number travels in exponent
-    form. Any other real number is turned into a float first, so a numpy
-    ``float32`` travels with the digits of that float.
-    ``Decimal("250.00").normalize()`` is ``Decimal("2.5E+2")`` and is sent as
-    ``250``. ``1e-05`` is sent as ``0.00001``, which the API reads in every
-    shape, while the exponent form is split at its minus when it stands alone
-    or sits in a range.
+    ``argument`` names the value in error messages. A ``Decimal`` or an integer
+    keeps its digits, a float is written from its shortest repr, and any other
+    real number is converted to a float first. No number is written in exponent
+    form. A zero is sent without its sign, and as ``0`` past a float's last
+    decimal place.
 
-    The API reads each number with ``float()``, so a number a float cannot
-    hold is refused: too far from zero, it would be read as an infinity, and
-    too close to zero, as 0. Both are checked before the digits are written,
-    since an exponent can ask for more of them than there is memory for. A
-    zero cannot be too close, so one written past a float's last decimal
-    place is sent as ``0``.
+    Raises ``ValueError`` for a bool, a value that is not a real number, a NaN or
+    an infinity, a number a float would read as an infinity or as 0, and a
+    negative unless ``negative_ok``; ``in_a_range`` words that refusal for a
+    range end.
     """
     if isinstance(value, bool):
         raise ValueError(f"{argument} cannot be a bool: {value!r}")
@@ -97,7 +73,7 @@ def _render(
         whole = int(value)
         shown = f"an integer of {whole.bit_length()} bits"
         if whole.bit_length() > sys.float_info.max_exp:
-            # Before `Decimal(whole)`, which takes quadratic time on the digits.
+            # Before `Decimal(whole)`, which takes quadratic time in the digits.
             raise ValueError(_too_far(argument, shown))
         number = Decimal(whole)
         as_float = float(number)
@@ -119,8 +95,6 @@ def _render(
         raise ValueError(_too_close(argument, shown))
 
     if number == 0:
-        # `-0.0` is zero and the API answers `0` for it, so the sign goes
-        # rather than the value being refused for a minus nobody wrote.
         if number.adjusted() < _LAST_PLACE:
             return "0"
         return f"{number:f}".lstrip("-")
@@ -141,14 +115,10 @@ def _render(
 
 
 class _NumericFilter(str):
-    """A filter rendered as the expression the API reads.
+    """A ``str`` holding the filter expression, sent to the API as written.
 
-    A ``str``, so it reaches the query string with no handling of its own and
-    a caller can print or compare it like any other string. Being a ``str``
-    also means the class is open: ``StrikeFilter("ATM")`` builds an instance
-    without passing through any constructor here, and the API answers that one
-    with a ``400``. The constructors are the checked way in, not a wall;
-    sdk-csharp, whose union is sealed, can close what Python cannot.
+    The classmethods are the checked constructors; calling the class directly
+    builds an instance without any check.
     """
 
     __slots__ = ()
@@ -158,15 +128,15 @@ class _NumericFilter(str):
 
     @classmethod
     def _single(cls: type[_Filter], value: object) -> _Filter:
-        """One value. Each filter names this for what the API does with it."""
+        """Build a one-value filter; ``exact`` and ``nearest`` expose it."""
         return cls(_render(value, cls._WHAT, negative_ok=cls._SINGLE_NEGATIVE_OK))
 
     @classmethod
     def any_of(cls: type[_Filter], *values: object) -> _Filter:
-        """A set of values, sent as a comma list.
+        """Match any of ``values``, sent as a comma list such as ``250,255``.
 
-        Both sides come back at each one unless ``side`` narrows it, which is
-        how a spread is priced in one request instead of one call per leg.
+        Returns the filter. Raises ``ValueError`` if no value is given or a value
+        is refused; a negative is refused for a strike and accepted for a delta.
         """
         if not values:
             raise ValueError(f"any_of needs at least one {cls._WHAT}")
@@ -179,7 +149,11 @@ class _NumericFilter(str):
 
     @classmethod
     def between(cls: type[_Filter], low: object, high: object) -> _Filter:
-        """An inclusive range, sent as ``low-high``."""
+        """Match ``low`` to ``high`` inclusive, sent as ``low-high``.
+
+        Returns the filter. Raises ``ValueError`` if a bound is refused or
+        negative, or if ``low`` is above ``high``.
+        """
         rendered_low = _render(low, "low", negative_ok=False, in_a_range=True)
         rendered_high = _render(high, "high", negative_ok=False, in_a_range=True)
         if Decimal(rendered_low) > Decimal(rendered_high):
@@ -190,31 +164,47 @@ class _NumericFilter(str):
 
     @classmethod
     def at_least(cls: type[_Filter], value: object) -> _Filter:
-        """At or above a value, sent as ``>=value``."""
+        """Match ``value`` and above, sent as ``>=value``.
+
+        Returns the filter. Raises ``ValueError`` if ``value`` is refused or
+        negative.
+        """
         return cls(f">={_render(value, cls._WHAT, negative_ok=False)}")
 
     @classmethod
     def at_most(cls: type[_Filter], value: object) -> _Filter:
-        """At or below a value, sent as ``<=value``."""
+        """Match ``value`` and below, sent as ``<=value``.
+
+        Returns the filter. Raises ``ValueError`` if ``value`` is refused or
+        negative.
+        """
         return cls(f"<={_render(value, cls._WHAT, negative_ok=False)}")
 
     @classmethod
     def above(cls: type[_Filter], value: object) -> _Filter:
-        """Strictly above a value, sent as ``>value``."""
+        """Match strictly above ``value``, sent as ``>value``.
+
+        Returns the filter. Raises ``ValueError`` if ``value`` is refused or
+        negative.
+        """
         return cls(f">{_render(value, cls._WHAT, negative_ok=False)}")
 
     @classmethod
     def below(cls: type[_Filter], value: object) -> _Filter:
-        """Strictly below a value, sent as ``<value``."""
+        """Match strictly below ``value``, sent as ``<value``.
+
+        Returns the filter. Raises ``ValueError`` if ``value`` is refused or
+        negative.
+        """
         return cls(f"<{_render(value, cls._WHAT, negative_ok=False)}")
 
     @classmethod
     def expression(cls: type[_Filter], text: str) -> _Filter:
-        """An expression written by hand, passed through as it is.
+        """Pass ``text``, an expression written by hand, through as it is.
 
-        The escape hatch for a shape the constructors above do not name, the
-        way ``StrikeExpr`` is in sdk-go. Nothing is checked beyond it being a
-        non-empty string: the API decides.
+        For a shape the other constructors do not build. Only its type and that
+        it is not blank are checked; the API reads the rest. Returns the filter.
+        Raises ``ValueError`` if ``text`` is not a ``str`` or is blank.
         """
         if not isinstance(text, str):
             raise ValueError(f"an expression must be a str, not {type(text).__name__}")
@@ -224,11 +214,13 @@ class _NumericFilter(str):
 
 
 class StrikeFilter(_NumericFilter):
-    """The ``strike`` filter of ``options.chain``.
+    """The ``strike`` filter of ``options.chain``, a ``str`` holding the expression.
 
-    ``StrikeFilter.between(250, 260)`` renders ``250-260``. A negative is
-    refused everywhere: there is no negative strike, and the API would answer
-    for its absolute value without saying so.
+    ``StrikeFilter.between(250, 260)`` is ``"250-260"``. Every constructor but
+    ``expression`` takes numbers (``int``, ``float`` or ``Decimal``), sends them
+    as plain digits, and raises ``ValueError`` for a bool, a NaN, an infinity, a
+    number a float would read as an infinity or as 0, or a negative, which the
+    API would answer for its absolute value.
     """
 
     __slots__ = ()
@@ -238,37 +230,30 @@ class StrikeFilter(_NumericFilter):
 
     @classmethod
     def exact(cls: type[_Filter], value: object) -> _Filter:
-        """One strike, which the API matches exactly."""
+        """Match one strike exactly.
+
+        Returns the filter. Raises ``ValueError`` if ``value`` is refused or
+        negative.
+        """
         return cls._single(value)
 
 
 class DeltaFilter(_NumericFilter):
-    """The ``delta`` filter of ``options.chain``.
+    """The ``delta`` filter of ``options.chain``, a ``str`` holding the expression.
 
-    Three things the API does with this parameter are worth knowing before
-    the constructors make sense.
+    ``DeltaFilter.between(0.3, 0.5)`` is ``"0.3-0.5"``. The API answers a single
+    value with the contract whose delta is nearest, per expiration and side, so
+    that answer is never empty. It filters on the absolute value and answers both
+    sides, so ``0.5`` and ``-0.5`` return the same rows, and it reads a value
+    above 1 as a percentage (``30`` is ``0.30``). If any contract in the chain has
+    a null delta, the API skips the filter and returns the whole chain; with a
+    historical ``date`` it answers ``400``.
 
-    It matches the **nearest** delta rather than the one asked for: per
-    expiration and side it sorts by distance and takes the closest, so
-    ``nearest(0.5)`` answered ``[0.5266, -0.4729]`` when it was measured, and
-    it never answers with nothing. That is why its single-value constructor
-    is ``nearest``, where ``StrikeFilter`` has ``exact``.
-
-    It filters on the **absolute value** and answers both sides, so ``0.5``
-    and ``-0.5`` return the same rows, measured. Both are accepted for a
-    single value and for a set.
-
-    A value above 1 is read as a percentage: ``nearest(30)`` means ``0.30``.
-
-    A negative is still refused in a range or a bound, where the absolute
-    value changes the question rather than restating it: ``>=-0.5`` would ask
-    the API for ``>=0.5``, and ``-0.5-0.5`` is not read as a range at all and
-    fails with a ``400``.
-
-    The filter can also do nothing at all: if any contract in the chain the
-    API fetched carries a null delta, the whole filter is skipped and the full
-    chain comes back with a ``200`` (MarketData-App/api#352). Together with a
-    historical ``date`` it is refused with a ``400``.
+    Every constructor but ``expression`` takes numbers (``int``, ``float`` or
+    ``Decimal``), sends them as plain digits, and raises ``ValueError`` for a
+    bool, a NaN, an infinity, or a number a float would read as an infinity or
+    as 0. A negative is accepted by ``nearest`` and ``any_of`` and refused in a
+    range or a bound, where the absolute value would change the question.
     """
 
     __slots__ = ()
@@ -278,15 +263,17 @@ class DeltaFilter(_NumericFilter):
 
     @classmethod
     def nearest(cls: type[_Filter], value: object) -> _Filter:
-        """One delta. The API answers with the contract whose delta is nearest to
-        it, per expiration and side."""
+        """Match the delta nearest ``value``, per expiration and side.
+
+        ``value`` may be negative. Returns the filter. Raises ``ValueError`` if
+        ``value`` is refused.
+        """
         return cls._single(value)
 
 
 def _render_number(value: object, argument: str) -> str:
-    """A bare number for one of these parameters, as its digits.
+    """Render a bare ``strike`` or ``delta`` number the way a filter does.
 
-    The field validators use it so a caller who passes a plain number gets the
-    same reading, and the same refusals, as one who builds a filter.
+    Raises ``ValueError`` as ``_render`` does; a negative is accepted for ``delta``.
     """
     return _render(value, argument, negative_ok=argument == "delta")
