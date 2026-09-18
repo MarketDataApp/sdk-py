@@ -146,11 +146,6 @@ def test_validate_user_universal_params__function_json(monkeypatch):
 def test_validate_user_universal_params__internal_drops_a_function_column_filter(
     load_json, respx_mock, client
 ):
-    """The API applies `columns` to the answer it sends, so a filtered answer
-    arrives without the fields the INTERNAL models require, its `s` among them.
-    The INTERNAL path therefore leaves the filter out of the request and builds
-    the model from the whole answer (#23, #34).
-    """
     mock_data = load_json("stocks_prices_response_200")
     respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
         json=mock_data,
@@ -201,10 +196,6 @@ def test_validate_user_universal_params__internal_drops_a_settings_column_filter
 def test_validate_user_universal_params__every_other_format_sends_the_column_filter(
     output_format, load_json, respx_mock, client
 ):
-    """The filter is dropped for the INTERNAL format alone: the other three
-    hand the answer over as it arrives, so a narrower answer is what the
-    caller asked for.
-    """
     mock_data = load_json("stocks_prices_response_200")
     respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
         json=mock_data,

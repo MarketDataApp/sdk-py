@@ -191,16 +191,12 @@ def test_options_expirations_optional_updated():
 
 
 def test_get_options_expirations_columns_filter_dataframe_pandas(respx_mock, client):
-    """Issue #23: a `columns` filter narrows the answer the API sends, and a
-    one-column answer must NOT come back as an empty DataFrame with the data
-    silently moved into the index.
-    """
+    """A one-column answer stays a column, not the DataFrame index."""
     with patch(
         "marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY",
         ["pandas"],
     ):
         expiration_timestamps = [1764910800, 1765515600, 1766120400]
-        # Server-side column filtering: only the columns it kept come back.
         partial_data = {
             "s": "ok",
             "expirations": expiration_timestamps,
@@ -295,10 +291,6 @@ def test_get_options_expirations_partial_response_internal(respx_mock, client):
 
 
 def test_get_options_expirations_internal_ignores_a_column_filter(respx_mock, client):
-    """Issue #34: `columns` is applied by the API, so honouring it here would
-    hand the model an answer without the fields it requires. The INTERNAL path
-    drops the filter instead, and the object comes back whole.
-    """
     expiration_timestamps = [1764910800, 1765515600, 1766120400]
     respx_mock.get("https://api.marketdata.app/v1/options/expirations/AAPL/").respond(
         json={

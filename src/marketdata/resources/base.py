@@ -242,10 +242,7 @@ class BaseResource:
         result_data.setdefault("filename", None)
         user_universal_params = UserUniversalAPIParams.model_validate(result_data)
 
-        # The API applies `columns` to the answer it sends, `s` being a column
-        # like any other, so a filtered answer is missing fields the INTERNAL
-        # models require. That format asks for the whole answer instead; the
-        # others pass the filter through (#23, #34).
+        # A column-filtered answer can omit `s`, which the INTERNAL models require.
         if user_universal_params.output_format == OutputFormat.INTERNAL:
             user_universal_params.columns = None
 
