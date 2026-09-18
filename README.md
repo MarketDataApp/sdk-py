@@ -24,7 +24,7 @@
 ## Features
 
 - **Real-time Stock Data**: Prices, quotes, candles (OHLCV), earnings, and news
-- **Options Trading Data**: Complete options chains, expirations, strikes, quotes, and lookup
+- **Options Trading Data**: Complete options chains, expirations, quotes, and lookup
 - **Mutual Funds**: Historical candles and pricing data
 - **Market Status**: Real-time market open/closed status for multiple countries
 - **Utilities**: API service status, an echo of your request headers, and your account's credit counters
@@ -152,11 +152,11 @@ meta = marketdata.get_meta(prices)          # ResponseMeta
 print(meta.rate_limits.credits_consumed)    # what this call cost
 print(meta.rate_limits.credits_remaining)   # the balance after it
 print(meta.rate_limits.reset_time)          # datetime of the next reset
-print(meta.request_id)                      # the cf-ray id, for support
+print(meta.request_id)                      # the cf-ray id, for support, or None
 print(meta.rate_limits)                     # "Credits used X/Y, remaining: Z, reset at: ISO timestamp"
 ```
 
-`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `status_code` and `request_id` describe one response, so they come from the last one that could have contributed to the result, never from a symbol or chunk that answered "no data" and was dropped from the merge, which matters because `request_id` is what you quote in a support ticket. On the metadata of a call that raised, the same rule points the other way: there they come from the last response that failed, so the id names the request the ticket is about. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data). `meta.detected_ip` is the address the API saw the call come from, on every answer it serves, the empty one included.
+`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `status_code` and `request_id` describe one response, so they come from the last one that could have contributed to the result, never from a symbol or chunk that answered "no data" and was dropped from the merge, which matters because `request_id` is what you quote in a support ticket; it is `None` when the answer carried no usable `cf-ray`. On the metadata of a call that raised, the same rule points the other way: there they come from the last response that failed, so the id names the request the ticket is about. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data). `meta.detected_ip` is the address the API saw the call come from, on every answer it serves, the empty one included.
 
 A failed call is billed too, so the exception carries the same metadata a result would:
 
@@ -212,8 +212,8 @@ The SDK provides access to different market data resources:
   - Methods: `prices()`, `quotes()`, `candles()`, `earnings()`, `news()`
   - See [Stocks Documentation](docs/stocks.md) for detailed usage
 
-- **Options**: Access options chains, expiration data, strikes, quotes, and lookup
-  - Methods: `chain()`, `expirations()`, `strikes()`, `quotes()`, `lookup()`
+- **Options**: Access options chains, expiration data, quotes, and lookup
+  - Methods: `chain()`, `expirations()`, `quotes()`, `lookup()`
   - See [Options Documentation](docs/options.md) for detailed usage
 
 - **Funds**: Access funds candles (OHLC) for mutual funds
@@ -255,12 +255,6 @@ chain = client.options.chain("AAPL")
 chain = client.options.chain(symbol="AAPL")
 print(chain)
 
-# Get options strikes (symbol can be passed positionally or as keyword)
-strikes = client.options.strikes("AAPL")
-# or
-strikes = client.options.strikes(symbol="AAPL")
-print(strikes)
-
 # Get options quotes (symbols can be passed positionally or as keyword)
 # Note: quotes() takes option symbols (e.g., "AAPL240120C00150000"), not stock symbols
 quotes = client.options.quotes("AAPL240120C00150000")
@@ -291,13 +285,13 @@ print(df)
 The SDK supports multiple output formats for API responses. See the [Universal Parameters](#universal-parameters) section for details on how to specify output formats.
 
 - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (default). Requires installing pandas or polars as an optional dependency. See [Optional Dependencies](#optional-dependencies) for installation instructions.
-- `OutputFormat.INTERNAL`: Returns internal Python objects (see resource-specific documentation for details)
-- `OutputFormat.JSON`: Returns raw JSON data (dictionary)
+- `OutputFormat.INTERNAL`: Returns internal Python objects (see resource-specific documentation for details). Money fields are `decimal.Decimal`, see [Money values](#money-values)
+- `OutputFormat.JSON`: Returns the decoded JSON as a dictionary, the way `httpx`'s `response.json()` does (numbers with a fraction are `float`)
 - `OutputFormat.CSV`: Writes CSV data to file and returns filename string
 
 For detailed information about return types and object structures for each resource, see the specific resource documentation:
 - [Stocks Documentation](docs/stocks.md) - Object types: `StockPrice`, `StockQuote`, `StockCandle`, `StockEarnings`, `StockNews`
-- [Options Documentation](docs/options.md) - Object types: `OptionsExpirations`, `OptionsChain`, `OptionsStrikes`, `OptionsQuotes`, `OptionsLookup`
+- [Options Documentation](docs/options.md) - Object types: `OptionsExpirations`, `OptionsChain`, `OptionsQuotes`, `OptionsLookup`
 - [Funds Documentation](docs/funds.md) - Object type: `FundsCandle`
 - [Markets Documentation](docs/markets.md) - Object type: `MarketStatus`
 - [Utilities Documentation](docs/utilities.md) - Object types: `ServiceStatus`, `RequestHeaders`, `User`
@@ -338,6 +332,26 @@ csv_file = client.options.chain("AAPL", output_format=OutputFormat.CSV)
 When using `OutputFormat.CSV`, all resources write CSV data to a file and return the filename as a string. If `filename` is not provided, a timestamped file is automatically created in the `output/` directory (the directory is created when the file is written, never for other output formats).
 
 **Note:** When specifying a custom `filename`, the directory must exist and the file must not already exist. The file is created exclusively: if the path appears between validation and the write, the call fails instead of overwriting it. CSV bytes are written exactly as the API sent them on every platform. See resource-specific documentation for details on CSV output format.
+
+### Money values
+
+With `OutputFormat.INTERNAL`, every money field is a `decimal.Decimal` holding the digits the API sent: the prices of quotes, prices and candles (`ask`, `bid`, `mid`, `last`, `change`, `o`, `h`, `l`, `c`), earnings per share, and the option strike, bid, mid, ask, last, intrinsic value, extrinsic value and underlying price. A binary `float` cannot hold most decimal amounts, so arithmetic on them drifts (`0.3 - 0.1` is `0.19999999999999998`); with `Decimal`, `quote.ask - quote.bid` is exact. Everything else keeps its usual type: greeks, implied volatility and percentages are `float`, sizes and counts are `int`.
+
+```python
+from decimal import Decimal
+
+from marketdata import MarketDataClient, OutputFormat
+
+client = MarketDataClient()
+quote = client.stocks.quotes("AAPL", output_format=OutputFormat.INTERNAL)[0]
+spread = quote.ask - quote.bid       # Decimal, exact
+quote.bid == Decimal("65.1")         # compare with Decimal literals
+float(quote.mid)                     # a float, when a float is what you need
+```
+
+Mixing `Decimal` and `float` in arithmetic raises `TypeError`, and comparing them compares against the float's binary value, so `Decimal("65.1") == 65.1` is `False`. Use `Decimal` literals, or `int`, which mixes freely. For the same reason `json.dumps(..., default=str)` writes a model's money as strings, and a pandas DataFrame built from models has `object` columns (polars infers its own decimal dtype): `OutputFormat.DATAFRAME` is the float path for analysis.
+
+The other formats keep the plain parse. A DataFrame never holds a `Decimal`: it keeps the plain parse, so every column has the dtype it always had on both pandas and polars (`float64` for prices with a fraction). A DataFrame is for vectorized analysis, pandas has no decimal dtype, and the same call returning a different dtype depending on which library is installed would be a trap. `OutputFormat.JSON` returns the decoded JSON with standard `float` numbers, and `OutputFormat.CSV` writes the API's text as it came (`client.utilities` builds its CSV from the decoded body). A `NaN` or an `Infinity` in a JSON body is not JSON and fails the call on every format that decodes the body; a number past what a float holds (`1e400`) is `inf` on `JSON` and `DATAFRAME` and exact on `INTERNAL`.
 
 ## Universal Parameters
 
@@ -423,7 +437,7 @@ Connection failures and undecodable bodies are wrapped (`NetworkError`, `ParseEr
 
 ### `BaseMarketdataException` and `support_info`
 
-Every SDK exception exposes the same six attributes, `request_id` (the `cf-ray` header), `request_url`, `status_code`, `timestamp` (US/Eastern), `message` and `exception_type`, as plain attributes, as a `support_context` dict and as the formatted `support_info` block. Failures that never reached the API (validation, the rate-limit pre-flight) report `N/A` and `0` for the request fields.
+Every SDK exception exposes the same six attributes, `request_id` (the `cf-ray` header), `request_url`, `status_code`, `timestamp` (US/Eastern), `message` and `exception_type`, as plain attributes, as a `support_context` dict and as the formatted `support_info` block. Failures that never reached the API (validation, the rate-limit pre-flight) report `N/A` and `0` for the request fields. An answer that carried no usable `cf-ray` reports `N/A` for `request_id` alone; the status and the URL are the real ones.
 
 ```
 --- MARKET DATA SUPPORT INFO ---
@@ -473,7 +487,7 @@ One class per kind of failure, mapped from the HTTP status the API answered (SDK
 | 500 | `InternalError` | no |
 | 501 and above | `ServerError` | yes, exponential backoff |
 | connection failure, timeout, protocol or proxy error | `NetworkError` | yes, unless the client caused it: a base URL without a scheme, a malformed request, a proxy that refuses the connection |
-| undecodable body, or a body that does not match its `Content-Encoding` | `ParseError` | no |
+| undecodable body, a body that does not match its `Content-Encoding`, a `NaN` or `Infinity` in a JSON body, or a value an `INTERNAL` model cannot read | `ParseError` | no |
 | any other 4xx | `MarketdataHttpError` | no |
 
 A `500` means the API itself failed on your request, so retrying would not help; `501` and above mean the API was unavailable or a gateway answered for it, which is why only those are retried. The two are separate classes: catching one never catches the other.
@@ -493,7 +507,7 @@ When the API has no data for a valid question (candles over a weekend, news for 
 | `JSON` | the API's `{"s": "no_data"}` body |
 | `CSV` | a file with the header row only (the requested columns under `columns=`; an empty file under `add_headers=False`) |
 
-For the fan-out calls, a chunk (`stocks.candles`) or a symbol (`options.quotes`) with no data is simply absent from the merged result; the whole call is empty only when every part is. In CSV output the merged file keeps the header the API sent (the requested columns, the human-readable names) and every row of every part; a part whose body is not a CSV of that resource raises `ParseError`. On the other formats the parts are merged on the model's columns among those the API sent, in the order it sent them (the request order under `columns=`), and a part that lacks one of them, carries one that is not a list as long as its others, or whose body is not a JSON object of that resource, raises `ParseError` too: merged, it would put the next part's values on its rows.
+For the fan-out calls, a chunk (`stocks.candles`) or a symbol (`options.quotes`) with no data is simply absent from the merged result; the whole call is empty only when every part is. In CSV output the merged file keeps the header the API sent (the requested columns, the human-readable names) and every row of every part; a part whose body is not a CSV of that resource raises `ParseError`. On the other formats the parts are merged on the model's columns among those the API sent, in the order it sent them (the request order under `columns=`), and a part that lacks one of them, carries one that is not a list as long as its others, or whose body is not a JSON object of that resource, raises `ParseError` too: merged, it would put the next part's values on its rows. A value the model cannot read raises `ParseError` naming the part it came from.
 
 The API renders the CSV empty answer as a `200` with a placeholder body instead of a `404` (MarketData-App/api#422); the SDK recognises it, so CSV output behaves as above.
 
@@ -728,7 +742,7 @@ MARKETDATA_MODE=live
 │       │   ├── stocks.py      # Stocks input types (StocksPricesInput, StocksQuotesInput, StocksCandlesInput)
 │       │   ├── funds.py       # Funds input types (FundsCandlesInput)
 │       │   ├── markets.py     # Markets input types (MarketStatusInput)
-│       │   └── options.py     # Options input types (OptionsChainInput, OptionsExpirationsInput, OptionsStrikesInput, OptionsQuotesInput, OptionsLookupInput)
+│       │   └── options.py     # Options input types (OptionsChainInput, OptionsExpirationsInput, OptionsQuotesInput, OptionsLookupInput)
 │       ├── output_types/      # Output data types
 │       │   ├── __init__.py
 │       │   ├── stocks_prices.py  # Stock prices output types (StockPrice, StockPricesHumanReadable)
@@ -741,7 +755,6 @@ MARKETDATA_MODE=live
 │       │   ├── options_chain.py   # Options chain output types (OptionsChain)
 │       │   ├── options_expirations.py  # Options expirations output types (OptionsExpirations)
 │       │   ├── options_quotes.py  # Options quotes output types (OptionsQuotes)
-│       │   ├── options_strikes.py  # Options strikes output types (OptionsStrikes)
 │       │   └── options_lookup.py  # Options lookup output types (OptionsLookup)
 │       └── resources/
 │           ├── __init__.py
@@ -763,7 +776,6 @@ MARKETDATA_MODE=live
 │               ├── __init__.py  # OptionsResource class definition
 │               ├── chain.py   # Options chain endpoint
 │               ├── expirations.py  # Options expirations endpoint
-│               ├── strikes.py  # Options strikes endpoint
 │               ├── quotes.py  # Options quotes endpoint
 │               └── lookup.py  # Options lookup endpoint
 └── pyproject.toml        # Project configuration and dependencies

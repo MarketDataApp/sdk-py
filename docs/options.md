@@ -27,7 +27,7 @@ Fetches available expiration dates for a given symbol. This method includes API 
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns an `OptionsExpirations` object
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 - `strike` (float, optional): Filter by strike price
 - `date` (datetime.date, optional): Filter by specific date
@@ -51,7 +51,7 @@ Fetches available expiration dates for a given symbol. This method includes API 
   - The DataFrame is indexed by the `expirations` column if present
   - All timestamp fields are automatically converted to `datetime.datetime` objects
 - If `output_format=OutputFormat.INTERNAL`: An `OptionsExpirations` object (or `OptionsExpirationsHumanReadable` if `use_human_readable=True`) (single object, not a list)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's decoded JSON body
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
@@ -166,7 +166,7 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns an `OptionsChain` object
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 
 **Universal Parameters** (available for all options methods):
@@ -226,7 +226,7 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   - The DataFrame is indexed by the `optionSymbol` column if present
   - All timestamp fields are automatically converted to `datetime.datetime` objects
 - If `output_format=OutputFormat.INTERNAL`: An `OptionsChain` object (or `OptionsChainHumanReadable` if `use_human_readable=True`) (single object, not a list)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's decoded JSON body
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
@@ -427,7 +427,7 @@ Fetches the option symbol for a given lookup string. The lookup string should co
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns an `OptionsLookup` or `OptionsLookupHumanReadable` object
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 
 **Universal Parameters** (available for all options methods):
@@ -448,7 +448,7 @@ Fetches the option symbol for a given lookup string. The lookup string should co
   - The `s` column (status) is removed from the DataFrame
   - The DataFrame is indexed by the `optionSymbol` column if present (or `Symbol` if human-readable)
 - If `output_format=OutputFormat.INTERNAL`: An `OptionsLookup` object (or `OptionsLookupHumanReadable` if `use_human_readable=True`) (single object, not a list)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's decoded JSON body
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
 
@@ -556,7 +556,7 @@ Fetches options quotes for one or more option symbols. This method includes API 
 - `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
   - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
   - `OutputFormat.INTERNAL`: Returns an `OptionsQuotes` object
-  - `OutputFormat.JSON`: Returns raw JSON data
+  - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
 
 **Universal Parameters** (available for all options methods):
@@ -695,204 +695,6 @@ quotes = client.options.quotes(
 )
 ```
 
-### `strikes()`
-
-Fetches available strike prices for a given symbol. This method includes API status checking and automatic retry logic. It can filter strikes by expiration date or specific date.
-
-> **Note:** The `symbol` parameter can be passed as the first positional argument or as a keyword argument. All other parameters must be keyword-only.
-
-#### Parameters
-
-- `symbol` (str): Stock symbol (e.g., "AAPL")
-- `output_format` (OutputFormat, optional): The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
-  - `OutputFormat.DATAFRAME`: Returns a pandas or polars DataFrame (requires pandas or polars to be installed)
-  - `OutputFormat.INTERNAL`: Returns an `OptionsStrikes` object
-  - `OutputFormat.JSON`: Returns raw JSON data
-  - `OutputFormat.CSV`: Writes CSV to file and returns filename string
-- `expiration` (datetime.date, optional): Filter by expiration date
-- `date` (datetime.date, optional): Filter by specific date
-
-**Universal Parameters** (available for all options methods):
-
-- `date_format` (DateFormat, optional): The date format to use. Defaults to `DateFormat.UNIX`.
-  - `DateFormat.TIMESTAMP`: ISO timestamp format
-  - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
-  - `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
-- `columns` (list[str], optional): List of column names to include in the response. The API applies it to the answer it sends, so it is ignored when `output_format=OutputFormat.INTERNAL`, which needs the whole answer to build its model
-- `add_headers` (bool, optional): Whether to add headers to the response
-- `use_human_readable` (bool, optional): Whether to use human-readable format
-- `mode` (Mode, optional): The data feed mode to use (`Mode.LIVE`, `Mode.CACHED`, `Mode.DELAYED`)
-- `filename` (str | Path, optional): File path for CSV output (only used with `output_format=OutputFormat.CSV`). Must end with `.csv`, directory must exist, and file must not already exist. If not provided, a timestamped file is created in `output/` directory (the directory is automatically created if it doesn't exist).
-
-#### Returns
-
-- If `output_format=OutputFormat.DATAFRAME`: A pandas or polars DataFrame with strike prices. The DataFrame is automatically processed:
-  - The `s` column (status) is removed from the DataFrame
-  - Strike prices are returned as columns where each column name corresponds to an expiration date (e.g., "2025-12-12", "2025-12-19")
-  - The `updated` column contains the Unix timestamp (not converted to datetime in DataFrame format)
-  - Each expiration date column contains a list of strike prices (floats) for that expiration
-- If `output_format=OutputFormat.INTERNAL`: An `OptionsStrikes` object (or `OptionsStrikesHumanReadable` if `use_human_readable=True`) (single object, not a list)
-  - The `updated` field (or `Date` if human-readable) is automatically converted to a `datetime.datetime` object
-  - Dynamic fields correspond to expiration dates, each containing a list of strike prices (floats)
-- If `output_format=OutputFormat.JSON`: A dictionary with raw JSON data from the API
-- If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written
-- Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, etc.); see the [README](../README.md#error-handling)
-
-> **Note:** The method returns the requested output, an empty result when the API has no data for the query (`404` with `s: "no_data"`, see the [README](../README.md#no-data-is-not-an-error)), or raises.
-
-#### Examples
-
-**Get all strikes for a symbol:**
-
-```python
-from marketdata import MarketDataClient
-
-client = MarketDataClient()
-# symbol can be passed positionally or as keyword argument
-df = client.options.strikes("AAPL")
-# or
-df = client.options.strikes(symbol="AAPL")
-print(df)
-```
-
-**Filter strikes by expiration date:**
-
-```python
-import datetime
-from marketdata import MarketDataClient
-
-client = MarketDataClient()
-# symbol can be passed positionally or as keyword argument
-df = client.options.strikes(
-    "AAPL",
-    expiration=datetime.date(2024, 12, 20)
-)
-# or
-df = client.options.strikes(
-    symbol="AAPL",
-    expiration=datetime.date(2024, 12, 20)
-)
-print(df)
-# DataFrame structure: columns are expiration dates (e.g., "2024-12-20"), 
-# plus an "updated" column with Unix timestamp
-```
-
-**Filter strikes by date:**
-
-```python
-import datetime
-from marketdata import MarketDataClient
-
-client = MarketDataClient()
-# symbol can be passed positionally or as keyword argument
-df = client.options.strikes(
-    "AAPL",
-    date=datetime.date(2024, 12, 20)
-)
-# or
-df = client.options.strikes(
-    symbol="AAPL",
-    date=datetime.date(2024, 12, 20)
-)
-print(df)
-# DataFrame structure: columns are expiration dates, plus an "updated" column
-```
-
-**Get strikes as internal object:**
-
-```python
-from marketdata import MarketDataClient, OutputFormat
-
-client = MarketDataClient()
-# symbol can be passed positionally or as keyword argument
-strikes = client.options.strikes("AAPL", output_format=OutputFormat.INTERNAL)
-# or
-strikes = client.options.strikes(symbol="AAPL", output_format=OutputFormat.INTERNAL)
-
-if strikes:
-    print(f"Status: {strikes.s}")
-    print(f"Updated: {strikes.updated}")
-    # Access strike prices by expiration date (dynamic fields)
-    # Strike fields are named by expiration date (e.g., "2024-12-20")
-    for key, value in strikes.__dict__.items():
-        if key not in ["s", "updated"]:
-            print(f"{key}: {len(value)} strikes")
-```
-
-Note: `strikes()` returns a single `OptionsStrikes` object, not a list. The `OptionsStrikes` object contains strike prices as dynamic fields where each field name corresponds to an expiration date, and the field value is a list of strike prices (floats).
-
-**Get strikes as JSON:**
-
-```python
-from marketdata import MarketDataClient, OutputFormat
-
-client = MarketDataClient()
-# symbol can be passed positionally or as keyword argument
-json_data = client.options.strikes("AAPL", output_format=OutputFormat.JSON)
-# or
-json_data = client.options.strikes(symbol="AAPL", output_format=OutputFormat.JSON)
-print(json_data)
-```
-
-**Get strikes as CSV:**
-
-```python
-from pathlib import Path
-from marketdata import MarketDataClient, OutputFormat
-
-client = MarketDataClient()
-# symbol can be passed positionally or as keyword argument
-# CSV is written to file and filename is returned
-# If filename is not provided, a timestamped file is created in output/ directory
-csv_file = client.options.strikes("AAPL", output_format=OutputFormat.CSV)
-# or with custom filename (directory must exist and file must not exist)
-csv_file = client.options.strikes(
-    "AAPL",
-    output_format=OutputFormat.CSV,
-    filename=Path("data/strikes.csv")
-)
-# or
-csv_file = client.options.strikes(
-    symbol="AAPL",
-    output_format=OutputFormat.CSV,
-    filename=Path("data/strikes.csv")
-)
-
-if csv_file:
-    print(f"CSV saved to: {csv_file}")
-```
-
-**Using universal parameters:**
-
-```python
-import datetime
-from marketdata import MarketDataClient, DateFormat, Mode
-
-client = MarketDataClient()
-# Use custom date format and mode
-strikes = client.options.strikes(
-    "AAPL",
-    expiration=datetime.date(2024, 12, 20),
-    date_format=DateFormat.TIMESTAMP,
-    mode=Mode.LIVE
-)
-```
-
-**Understanding the DataFrame structure:**
-
-The strikes DataFrame has a unique structure where:
-- Each column (except `updated`) represents an expiration date (e.g., "2025-12-12", "2025-12-19")
-- Each expiration date column contains a list of strike prices (floats) for that expiration
-- The `updated` column contains a Unix timestamp (seconds since epoch)
-- Different expiration dates may have different numbers of strikes, so columns may have different lengths
-
-```python
-df = client.options.strikes("AAPL")
-print(df.columns)  # Shows: Index(['updated', '2025-12-12', '2025-12-19', ...], dtype='object')
-print(df['2025-12-12'].dropna().tolist())  # List of strikes for Dec 12, 2025
-print(df['updated'].iloc[0])  # Unix timestamp
-```
-
 ## OptionsExpirations Object
 
 When using `OutputFormat.INTERNAL` with `expirations()`, the method returns an `OptionsExpirations` object (or `OptionsExpirationsHumanReadable` if `use_human_readable=True`) with the following properties:
@@ -940,22 +742,22 @@ All properties are lists with the same length, where each index represents a sin
 - `underlying` (list[str]): List of underlying stock symbols
 - `expiration` (list[datetime.datetime]): List of expiration dates
 - `side` (list[str]): List of option sides ("call" or "put")
-- `strike` (list[float]): List of strike prices
+- `strike` (list[Decimal]): List of strike prices
 - `firstTraded` (list[datetime.datetime]): List of first traded dates
 - `dte` (list[int]): List of days to expiration
 - `updated` (list[datetime.datetime]): List of last update timestamps
-- `bid` (list[float]): List of bid prices
+- `bid` (list[Decimal]): List of bid prices
 - `bidSize` (list[int]): List of bid sizes
-- `mid` (list[float]): List of mid prices
-- `ask` (list[float]): List of ask prices
+- `mid` (list[Decimal]): List of mid prices
+- `ask` (list[Decimal]): List of ask prices
 - `askSize` (list[int]): List of ask sizes
-- `last` (list[float]): List of last trade prices
+- `last` (list[Decimal]): List of last trade prices
 - `openInterest` (list[int]): List of open interest values
 - `volume` (list[int]): List of volume values
 - `inTheMoney` (list[bool]): List indicating if options are in the money
-- `intrinsicValue` (list[float]): List of intrinsic values
-- `extrinsicValue` (list[float]): List of extrinsic values
-- `underlyingPrice` (list[float]): List of underlying prices
+- `intrinsicValue` (list[Decimal]): List of intrinsic values
+- `extrinsicValue` (list[Decimal]): List of extrinsic values
+- `underlyingPrice` (list[Decimal]): List of underlying prices
 - `iv` (list[float]): List of implied volatilities
 - `delta` (list[float]): List of delta values
 - `gamma` (list[float]): List of gamma values
@@ -1000,7 +802,7 @@ When `use_human_readable=True`, the object uses human-readable field names simil
 - `Underlying` (list[str]): List of underlying stock symbols
 - `Expiration_Date` (list[datetime.datetime]): List of expiration dates (replaces `expiration`)
 - `Option_Side` (list[str]): List of option sides (replaces `side`)
-- `Strike` (list[float | int]): List of strike prices
+- `Strike` (list[Decimal]): List of strike prices
 - `First_Traded` (list[datetime.datetime]): List of first traded dates (replaces `firstTraded`)
 - `Days_To_Expiration` (list[int]): List of days to expiration (replaces `dte`)
 - `Date` (list[datetime.datetime]): List of last update timestamps (replaces `updated`)
@@ -1020,22 +822,22 @@ All properties are lists with the same length, where each index represents a sin
 - `underlying` (list[str]): List of underlying stock symbols
 - `expiration` (list[datetime.datetime]): List of expiration dates
 - `side` (list[str]): List of option sides ("call" or "put")
-- `strike` (list[float]): List of strike prices
+- `strike` (list[Decimal]): List of strike prices
 - `firstTraded` (list[datetime.datetime]): List of first traded dates
 - `dte` (list[int]): List of days to expiration
 - `updated` (list[datetime.datetime]): List of last update timestamps
-- `bid` (list[float]): List of bid prices
+- `bid` (list[Decimal]): List of bid prices
 - `bidSize` (list[int]): List of bid sizes
-- `mid` (list[float]): List of mid prices
-- `ask` (list[float]): List of ask prices
+- `mid` (list[Decimal]): List of mid prices
+- `ask` (list[Decimal]): List of ask prices
 - `askSize` (list[int]): List of ask sizes
-- `last` (list[float]): List of last trade prices
+- `last` (list[Decimal]): List of last trade prices
 - `openInterest` (list[int]): List of open interest values
 - `volume` (list[int]): List of volume values
 - `inTheMoney` (list[bool]): List indicating if options are in the money
-- `intrinsicValue` (list[float]): List of intrinsic values
-- `extrinsicValue` (list[float]): List of extrinsic values
-- `underlyingPrice` (list[float]): List of underlying prices
+- `intrinsicValue` (list[Decimal]): List of intrinsic values
+- `extrinsicValue` (list[Decimal]): List of extrinsic values
+- `underlyingPrice` (list[Decimal]): List of underlying prices
 - `iv` (list[float]): List of implied volatilities
 - `delta` (list[float]): List of delta values
 - `gamma` (list[float]): List of gamma values
@@ -1049,22 +851,22 @@ When `use_human_readable=True`:
 - `Underlying` (list[str]): List of underlying stock symbols
 - `Expiration_Date` (list[datetime.datetime]): List of expiration dates (replaces `expiration`)
 - `Option_Side` (list[str]): List of option sides (replaces `side`)
-- `Strike` (list[float | int]): List of strike prices
+- `Strike` (list[Decimal]): List of strike prices
 - `First_Traded` (list[datetime.datetime]): List of first traded dates (replaces `firstTraded`)
 - `Days_To_Expiration` (list[int]): List of days to expiration (replaces `dte`)
 - `Date` (list[datetime.datetime]): List of last update timestamps (replaces `updated`)
-- `Bid` (list[float]): List of bid prices
+- `Bid` (list[Decimal]): List of bid prices
 - `Bid_Size` (list[int]): List of bid sizes (replaces `bidSize`)
-- `Mid` (list[float]): List of mid prices
-- `Ask` (list[float]): List of ask prices
+- `Mid` (list[Decimal]): List of mid prices
+- `Ask` (list[Decimal]): List of ask prices
 - `Ask_Size` (list[int]): List of ask sizes (replaces `askSize`)
-- `Last` (list[float]): List of last trade prices
+- `Last` (list[Decimal]): List of last trade prices
 - `Open_Interest` (list[int]): List of open interest values (replaces `openInterest`)
 - `Volume` (list[int]): List of volume values
 - `In_The_Money` (list[bool]): List indicating if options are in the money (replaces `inTheMoney`)
-- `Intrinsic_Value` (list[float]): List of intrinsic values (replaces `intrinsicValue`)
-- `Extrinsic_Value` (list[float]): List of extrinsic values (replaces `extrinsicValue`)
-- `Underlying_Price` (list[float]): List of underlying prices (replaces `underlyingPrice`)
+- `Intrinsic_Value` (list[Decimal]): List of intrinsic values (replaces `intrinsicValue`)
+- `Extrinsic_Value` (list[Decimal]): List of extrinsic values (replaces `extrinsicValue`)
+- `Underlying_Price` (list[Decimal]): List of underlying prices (replaces `underlyingPrice`)
 - `IV` (list[float]): List of implied volatilities (replaces `iv`)
 - `Delta` (list[float]): List of delta values
 - `Gamma` (list[float]): List of gamma values
@@ -1132,48 +934,6 @@ if quotes:
 ```
 
 **Note:** When requesting quotes for multiple symbols, the `OptionsQuotes` object merges all data into a single object. All properties remain lists where each index corresponds to a single option contract from any of the requested symbols.
-
-## OptionsStrikes Object
-
-When using `OutputFormat.INTERNAL` with `strikes()`, the method returns an `OptionsStrikes` object (or `OptionsStrikesHumanReadable` if `use_human_readable=True`) with the following properties:
-
-### OptionsStrikes Properties
-
-- `s` (str): Status string
-- `updated` (datetime.datetime): Last update timestamp
-- Dynamic strike fields: The object contains additional fields where each field name corresponds to an expiration date (e.g., "2024-12-20"), and the field value is a list of strike prices (list[float])
-
-### OptionsStrikesHumanReadable Properties
-
-When `use_human_readable=True`:
-- `Date` (datetime.datetime): Last update timestamp (replaces `updated`)
-- Dynamic strike fields: Same structure as `OptionsStrikes`, where field names correspond to expiration dates and values are lists of strike prices
-
-### Example Usage
-
-```python
-from marketdata import MarketDataClient, OutputFormat
-
-client = MarketDataClient()
-# symbol can be passed positionally or as keyword argument
-strikes = client.options.strikes("AAPL", output_format=OutputFormat.INTERNAL)
-# or
-strikes = client.options.strikes(symbol="AAPL", output_format=OutputFormat.INTERNAL)
-
-if strikes:
-    print(f"Status: {strikes.s}")
-    print(f"Updated: {strikes.updated}")
-    
-    # Access strike prices by expiration date
-    # The field names are dynamic and correspond to expiration dates
-    for key, value in strikes.__dict__.items():
-        if key not in ["s", "updated"]:
-            print(f"\nExpiration {key}:")
-            print(f"  Number of strikes: {len(value)}")
-            print(f"  Strikes: {value[:5]}...")  # Show first 5 strikes
-```
-
-**Note:** The `OptionsStrikes` object uses dynamic fields to store strike prices. Each expiration date becomes a field name, and the value is a list of strike prices (floats) for that expiration. This allows flexible access to strikes organized by expiration date.
 
 ## OptionsLookup Object
 

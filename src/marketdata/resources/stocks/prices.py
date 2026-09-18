@@ -10,7 +10,7 @@ from marketdata.input_types.stocks import StocksPricesInput
 from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.stocks_prices import StockPrice, StockPricesHumanReadable
 from marketdata.params import universal_params
-from marketdata.resources.base import no_data_result
+from marketdata.resources.base import model_errors, no_data_result
 from marketdata.utils import get_data_records, is_no_data, parse_json
 
 
@@ -67,8 +67,9 @@ def prices(
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = get_data_records(parse_json(response))
-        return [output_model.from_dict(row) for row in data]
+        data = get_data_records(parse_json(response, exact=True))
+        with model_errors(response):
+            return [output_model.from_dict(row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         return parse_json(response)

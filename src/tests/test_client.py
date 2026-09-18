@@ -1,4 +1,5 @@
 import datetime
+import importlib
 import os
 import time
 from dataclasses import fields
@@ -9,6 +10,7 @@ import pytest
 import pytz
 from httpx import Request, Response
 
+import marketdata.input_types.options as options_input_types
 from marketdata.client import MarketDataClient
 from marketdata.exceptions import BadRequestError, RateLimitError, ServerError
 from marketdata.input_types.base import OutputFormat
@@ -620,6 +622,32 @@ def test_client_pre_and_post_request_logs(client, respx_mock):
             )
 
 
+@pytest.mark.parametrize(
+    "headers, expected, reason",
+    [
+        ({"cf-ray": "abc-EZE"}, "abc-EZE", "an id reaches the line"),
+        ({"cf-ray": "  abc-EZE  "}, "abc-EZE", "trimmed at the ends"),
+        ({"cf-ray": ""}, "N/A", "blank"),
+        ({"cf-ray": "   "}, "N/A", "spaces"),
+        ({}, "N/A", "absent"),
+    ],
+)
+def test_the_response_log_line_names_the_request_id_or_says_n_a(
+    client, respx_mock, headers, expected, reason
+):
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json={}, status_code=200, headers=headers
+    )
+
+    with patch.object(client.logger, "log") as logged:
+        client.stocks.prices(symbols="AAPL")
+
+    message = logged.call_args.args[1]
+    # Anchored on the URL: " abc " alone also matches an untrimmed "  abc  ".
+    assert f" {expected} https://" in message, reason
+    assert "None" not in message
+
+
 def test_client_max_retries_default(client):
     assert client.max_retries == 3
 
@@ -944,3 +972,22 @@ def test_rate_limits_use_the_api_credits_nomenclature():
     assert str(rate_limits) == (
         f"Credits used 50/100, remaining: 50, reset at: {rate_limits.reset_time.isoformat()}"
     )
+
+
+def test_options_no_longer_carries_the_deprecated_strikes_surface(client):
+    """The absence is deliberate: strike lists come from `options.chain`."""
+    assert not hasattr(client.options, "strikes")
+    with pytest.raises(AttributeError, match="strikes"):
+        client.options.strikes("AAPL")
+
+    for module in (
+        "marketdata.resources.options.strikes",
+        "marketdata.output_types.options_strikes",
+    ):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(module)
+
+    assert not hasattr(options_input_types, "OptionsStrikesInput")
+    assert sorted(
+        name for name in vars(type(client.options)) if not name.startswith("_")
+    ) == ["chain", "expirations", "lookup", "quotes"]

@@ -7,7 +7,7 @@ from marketdata.input_types.funds import FundsCandlesInput
 from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.funds_candles import FundsCandle, FundsCandlesHumanReadable
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.resources.base import BaseResource, model_errors, no_data_result
 from marketdata.utils import (
     encode_path_segment,
     get_data_records,
@@ -68,10 +68,11 @@ def candles(
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = parse_json(response)
+        data = parse_json(response, exact=True)
         data = get_data_records(data, exclude_keys=["s"])
 
-        return [output_model(**row) for row in data]
+        with model_errors(response):
+            return [output_model(**row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         return parse_json(response)

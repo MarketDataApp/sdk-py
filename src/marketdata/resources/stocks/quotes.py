@@ -7,7 +7,7 @@ from marketdata.input_types.stocks import StocksQuotesInput
 from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.stocks_quotes import StockQuote, StockQuotesHumanReadable
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, no_data_result
+from marketdata.resources.base import BaseResource, model_errors, no_data_result
 from marketdata.utils import get_data_records, is_no_data, parse_json
 
 
@@ -64,8 +64,9 @@ def quotes(
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = get_data_records(parse_json(response), exclude_keys=["s"])
-        return [output_model.from_dict(row) for row in data]
+        data = get_data_records(parse_json(response, exact=True), exclude_keys=["s"])
+        with model_errors(response):
+            return [output_model.from_dict(row) for row in data]
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         return parse_json(response)

@@ -586,3 +586,41 @@ def test_merge_of_nothing_is_a_value_error():
     to surface as a bare IndexError."""
     with pytest.raises(ValueError, match="empty list"):
         ResponseMeta.merge([])
+
+
+@pytest.mark.parametrize(
+    ("output_format", "library"),
+    [
+        (OutputFormat.INTERNAL, None),
+        (OutputFormat.JSON, None),
+        (OutputFormat.CSV, None),
+        (OutputFormat.DATAFRAME, "pandas"),
+        (OutputFormat.DATAFRAME, "polars"),
+    ],
+)
+@pytest.mark.parametrize(
+    "sent, reason", [("", "blank"), ("   ", "spaces"), (None, "absent")]
+)
+def test_a_request_id_the_api_sent_blank_reads_as_no_id(
+    respx_mock, real_headers, sent, reason, output_format, library, tmp_path
+):
+    """A blank, whitespace-only or absent `cf-ray` reads as `None`."""
+    client = real_headers
+    headers = credit_headers(1, 99)
+    if sent is None:
+        del headers["cf-ray"]
+    else:
+        headers["cf-ray"] = sent
+    respx_mock.get(PRICES_URL).respond(
+        json=prices_body(), status_code=200, headers=headers
+    )
+    kwargs = {"output_format": output_format}
+    if output_format == OutputFormat.CSV:
+        kwargs["filename"] = str(tmp_path / "p.csv")
+
+    with patch(
+        "marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [library or "pandas"]
+    ):
+        result = client.stocks.prices("AAPL", **kwargs)
+
+    assert get_meta(result).request_id is None, reason
