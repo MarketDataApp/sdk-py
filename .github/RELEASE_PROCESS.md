@@ -67,8 +67,10 @@ avoiding: the shipped wheel currently depends only on `httpx`, `pydantic`,
    - Add a fresh, empty `## [Unreleased]` section above it.
    - Confirm every breaking change carries migration guidance.
 
-   > `tag-and-release` refuses to run without a `## [X.Y.Z]` section for the version it
-   > was asked for, and it takes the release notes from that section alone.
+   > `tag-and-release` refuses to run unless the version it was asked for has a heading
+   > that is exactly `## [X.Y.Z] - YYYY-MM-DD`, with nothing after the date, and a section
+   > under it with at least one `- ` entry. It takes the release notes from that section
+   > alone.
 
 5. Confirm `README.md` and `docs/` (`stocks.md`, `options.md`, `funds.md`, `markets.md`)
    describe the behavior you are about to ship.
@@ -104,7 +106,7 @@ What runs, in order:
 
 | Stage | What it does |
 |---|---|
-| `validate` | Before any runner time is spent: `confirm` is `RELEASE`, the version is well formed, the tag `vX.Y.Z` does not exist, `pyproject.toml` declares exactly that version, and `CHANGELOG.md` has a `## [X.Y.Z]` section. It prints the notes it extracted |
+| `validate` | Before any runner time is spent: `confirm` is `RELEASE`, the version is well formed, the tag `vX.Y.Z` does not exist, `pyproject.toml` declares exactly that version, and `CHANGELOG.md` has a section headed exactly `## [X.Y.Z] - YYYY-MM-DD` with at least one `- ` entry. It prints the notes it extracted |
 | `gate` | Calls `test.yml` on that ref with `run_integration: true`: the suite on Python 3.10, 3.11 and 3.12 **and** the live integration suite, which here must run rather than skip |
 | `release` | Resolves the ref to a commit, checks the tag again in case one appeared while the suite ran, and creates the tag and the GitHub Release on that commit, titled `Version X.Y.Z`, with the notes from the CHANGELOG |
 | `publish` | Calls `publish.yml` on that commit: TestPyPI first, then PyPI, both through Trusted Publishing. It refuses to upload a build whose version is not the one asked for. Its own gate is skipped here, since `gate` above already ran the suite on this commit |
@@ -131,16 +133,23 @@ If the workflow itself is broken, the manual path still works: tag the commit, p
 tag, and create the Release. The `release: published` event starts `publish.yml`, which
 carries the same gates on that path, since a release anyone with write access can create
 must not be a way around them: it resolves the tag to a commit once, refuses one `main`
-does not contain or that the CHANGELOG has no section for, runs the suite and the live
-suite on that commit, and checks the version against `pyproject.toml` before it uploads.
+does not contain or whose CHANGELOG has no `## [X.Y.Z] - YYYY-MM-DD` section with a `- `
+entry, runs the suite and the live suite on that commit, and checks the version against
+`pyproject.toml` before it uploads.
 What it cannot do is check anything before the tag exists.
 
 ```bash
 git fetch --tags && git tag -l "vX.Y.Z"     # must print nothing
 git checkout main && git pull
+awk -v prefix="## [X.Y.Z] - " '
+  index($0, prefix) == 1 && substr($0, length(prefix) + 1) ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { found = 1; next }
+  found && /^## \[/ { exit }
+  found { print }
+' CHANGELOG.md > release-notes.md
+grep -c '^- [^[:space:]]' release-notes.md  # must not print 0
 git tag -a vX.Y.Z -m "Version X.Y.Z"
 git push origin vX.Y.Z
-gh release create vX.Y.Z --title "Version X.Y.Z" --notes-file <(awk '/^## \[X\.Y\.Z\]/{f=1;next} /^## \[/{f=0} f' CHANGELOG.md)
+gh release create vX.Y.Z --title "Version X.Y.Z" --notes-file release-notes.md
 ```
 
 ## 5. Post-release checks

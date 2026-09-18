@@ -9,27 +9,17 @@ on:
   pull_request:
   # Manual runs exist for the live suite: an ordinary push never triggers it.
   workflow_dispatch:
-  # `tag-and-release` calls this workflow as its gate rather than copying the
-  # steps: a second copy of the suite drifts from this one, and the release
-  # would then be gated by something that is not what CI runs (SDK
-  # requirements §17.5).
-  #
-  # `inputs` is empty on every other event, so `inputs.ref` reads as the empty
-  # string there, which is what `actions/checkout` already defaults to.
+  # The release gate of `tag-and-release` and `publish.yml`. On every other
+  # event `inputs.ref` is empty, which `actions/checkout` reads as the event's
+  # own ref.
   workflow_call:
     inputs:
       ref:
-        description: >
-          The commit to test. Empty means the ref the event itself carries.
-          The release gate passes the commit it is about to tag, so a branch
-          that moves mid-run cannot change what was tested.
+        description: The commit to test. Empty means the ref the event itself carries.
         type: string
         default: ''
       run_integration:
-        description: >
-          Run the live suite, and require it to have run. `Tests passed`
-          treats a skipped live suite as a pass on an ordinary push, and a
-          release gate must not.
+        description: Run the live suite, and fail if it is skipped.
         type: boolean
         default: false
 
@@ -233,7 +223,7 @@ jobs:
           CODE: ${{ needs.changes.outputs.code }}
           R0: ${{ needs.test.result }}
           R1: ${{ needs.integration.result }}
-          # Empty on every event but a call that asked for the live suite.
+          # `true` only when a caller asked for the live suite.
           ASKED_FOR_INTEGRATION: ${{ inputs.run_integration }}
         run: |
           echo "gate said code=${CODE:-<nothing: the gate itself failed>}"
@@ -265,9 +255,8 @@ jobs:
           # treats those skips as passing, so this must too. A FAILURE still
           # fails.
           #
-          # Unless the caller asked for it. The release gate does, and there a
-          # skip is the failure: a release must not pass on a live suite that
-          # never ran (SDK requirements §17.5).
+          # Unless the caller asked for the live suite: a release gate fails on
+          # a skip (SDK requirements §17.5).
           for result in "${R1}"; do
             case "$result" in
               success) ;;

@@ -1,21 +1,12 @@
 name: Publish to PyPI
 
-# WHAT MAY START A PUBLISH. Two things, and neither of them is a person with a
-# runner to spare:
-#
-# - `tag-and-release` calls this workflow after its gate and its tag. A release
-#   that a workflow creates with `GITHUB_TOKEN` starts no other workflow run
-#   (SDK requirements §17.5), so the publish is chained explicitly instead of
-#   waiting for the `release` event that will never arrive.
-# - A release published by hand in the web interface, which does fire the
-#   event. That path is the fallback for a broken release workflow, so it
-#   carries the same gates rather than trusting the person who cut it: the
-#   `gate` job below runs the suite and the live suite on the tag, and the
-#   commit still has to be one `main` contains. Without that, anyone who can
-#   create a release could publish an unreviewed commit.
-#
-# `workflow_dispatch` is deliberately absent: it published to TestPyPI with no
-# gate at all (#61), and a TestPyPI version is as permanent as a PyPI one.
+# Two triggers:
+# - `tag-and-release` calls this workflow after its own gate and tag, since a
+#   release created with `GITHUB_TOKEN` starts no workflow run.
+# - A release published by hand fires `release`; `resolve` and `gate` then run
+#   the same checks and the suite on the tagged commit before any upload.
+# No `workflow_dispatch`: it would upload to TestPyPI, where versions are
+# permanent, with no gate.
 on:
   release:
     types: [published]
@@ -31,9 +22,7 @@ on:
         type: string
 
 jobs:
-  # The three jobs below exist for a release cut by hand. `tag-and-release`
-  # resolved the commit, checked it and ran the suite on it before it tagged
-  # anything, so when it calls this workflow they are skipped.
+  # `resolve` and `gate` run only for a release published by hand.
   resolve:
     name: Resolve the tag and check what it names
     if: github.event_name == 'release'
@@ -49,7 +38,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@v10.1.0
         with:
           version: "latest"
 
@@ -58,25 +47,19 @@ jobs:
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
-          # A tag can be moved. Resolving it once, here, is what keeps the
-          # suite, the build and the upload on the same commit: every later
-          # job takes this SHA rather than the name.
+          # Later jobs use this SHA, not the tag, which can be moved.
           sha=$(git rev-parse HEAD)
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
           echo "${TAG} is ${sha}"
 
-          # The same two checks `tag-and-release` runs before it tags, because
-          # this path reaches the same upload with the same credentials.
+          # The checks below mirror `validate` in tag-and-release.yml; keep them in sync.
           git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
           if ! git merge-base --is-ancestor "$sha" origin/main; then
             echo "::error::${sha} is not on main. A release is cut from a commit that was merged."
             exit 1
           fi
 
-          # The tag contract is `vX.Y.Z`, and the version is what follows
-          # the `v`, spelled the way pip serves it. `tag-and-release` checks
-          # this before it tags; here the tag exists already, so the check is
-          # what stops the upload.
+          # The tag is `v` plus the version, spelled the way pip serves it.
           case "$TAG" in
             v*) version="${TAG#v}" ;;
             *)
@@ -100,15 +83,13 @@ jobs:
               sys.exit(f"::error::{asked} carries a local version, and PyPI refuses those.")
           PYEOF
 
-          awk -v heading="## [${version}]" '
-            index($0, heading) == 1 { found = 1; next }
+          awk -v prefix="## [${version}] - " '
+            index($0, prefix) == 1 && substr($0, length(prefix) + 1) ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { found = 1; next }
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
-          # Not `-s`: a section with no entries still extracts the blank
-          # line under its heading.
-          if ! grep -q '[^[:space:]]' release-notes.md; then
-            echo "::error::CHANGELOG.md has no ## [${version}] section, or it has no entries."
+          if ! grep -q '^- [^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md has no section headed ## [${version}] - YYYY-MM-DD with at least one '- ' entry."
             exit 1
           fi
 
@@ -132,9 +113,9 @@ jobs:
     permissions:
       id-token: write
     needs: [resolve, gate]
-    # Both are skipped when this workflow is called, and a skipped job is not a
-    # passed one for `needs`, so the condition says which results may publish.
-    # A cancelled or failed one may not.
+    # Both are skipped when this workflow is called, and a skipped dependency
+    # skips this job by default, so the condition lists the results that may
+    # publish.
     if: >-
       ${{ !cancelled()
       && (needs.resolve.result == 'success' || needs.resolve.result == 'skipped')
@@ -143,9 +124,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
-          # A commit either way: the caller resolved one before tagging it,
-          # and `resolve` above turned the release's tag into one. A bare
-          # checkout would build the default branch instead.
+          # The SHA the gate tested, from the caller or from `resolve`.
           ref: ${{ inputs.ref || needs.resolve.outputs.sha }}
 
       - name: Install uv
@@ -166,10 +145,7 @@ jobs:
           # A release published by hand names its version in the tag.
           ASKED: ${{ inputs.version || github.event.release.tag_name }}
         run: |
-          # The version is a static string in `pyproject.toml` (hatchling), so
-          # nothing else compares it with the tag: an upload of the previous
-          # number is rejected by PyPI as a duplicate, and a number nobody
-          # tagged is accepted and cannot be taken back (#61).
+          # The version in pyproject.toml is static; this is what ties it to the release.
           expected="${ASKED#v}"
           declared=$(python -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])")
           echo "asked for: ${expected}"
@@ -179,8 +155,6 @@ jobs:
             exit 1
           fi
           ls -l dist/
-          # A wheel whose name does not carry that version means the build read
-          # something else, and the upload would put it on the index anyway.
           if ! ls dist/*.whl | grep -qF "marketdata_sdk_py-${declared}-"; then
             echo "::error::No wheel in dist/ carries version ${declared}."
             exit 1
@@ -190,11 +164,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@v1.14.2
         with:
           repository-url: https://test.pypi.org/legacy/
-          # A publish that failed after this leg left these files on TestPyPI,
-          # where they are as permanent as PyPI's. Without this, re-running
-          # the release's publish stops here with a 400 and PyPI never gets
-          # the upload it is missing. A duplicate on PyPI itself still fails
-          # the run, which is what should happen.
+          # Lets a re-run after a failed PyPI upload skip what TestPyPI already has.
           skip-existing: true
 
   publish-pypi:
@@ -206,9 +176,7 @@ jobs:
       url: https://pypi.org/project/marketdata-sdk-py/
     permissions:
       id-token: write
-    # TestPyPI first: it is the same upload against the same immutability
-    # rules, so a build that fails there would have failed on PyPI, where it
-    # could not be taken back.
+    # TestPyPI first: a build it rejects never reaches PyPI.
     needs: [resolve, publish-testpypi]
     if: >-
       ${{ !cancelled() && needs.publish-testpypi.result == 'success'

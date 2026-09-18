@@ -1,21 +1,13 @@
 name: Tag and release
 
-# THE RELEASE PATH FOR THIS SDK (#61, SDK requirements §17.5).
+# The release path (SDK requirements §17.5): validate, run the suite and the
+# live suite on one commit, tag it, create the GitHub release, publish to PyPI
+# and install the published version back. Manual dispatch only, confirmed by
+# typing RELEASE.
 #
-# Before this workflow existed, a release was a tag pushed by hand and a
-# `publish.yml` that ran no tests and never compared the tag with the version
-# in `pyproject.toml`. A PyPI upload cannot be taken back: a `(name, version)`
-# pair is permanent, and yanking only hides it. So everything that can be
-# checked is checked before the tag exists, and the tag is the last thing
-# created before the upload.
-#
-# Manual dispatch only, and `confirm` must be typed. Nothing about a push or a
-# merge should be able to reach PyPI.
-#
-# The version is NOT set here. `pyproject.toml` carries it as a static string
-# (hatchling), and the release pull request bumps it and promotes
-# `## [Unreleased]` to `## [X.Y.Z]`. This workflow refuses to run when the two
-# disagree, which is the check #61 asks for.
+# The version is not set here: the release pull request bumps `pyproject.toml`
+# and promotes `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, and `validate`
+# refuses to run when either disagrees with the requested version.
 on:
   workflow_dispatch:
     inputs:
@@ -40,8 +32,7 @@ on:
 permissions:
   contents: read
 
-# Two runs for the same version would race for the same tag. Queued, not
-# cancelled: a cancelled run can leave a tag behind with nothing published.
+# Queued, not cancelled: a cancelled run can leave a tag with nothing published.
 concurrency:
   group: release-${{ inputs.version }}
   cancel-in-progress: false
@@ -70,7 +61,7 @@ jobs:
           fi
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@v10.1.0
         with:
           version: "latest"
 
@@ -79,18 +70,12 @@ jobs:
         env:
           REF: ${{ inputs.ref }}
         run: |
-          # Everything from here on names this commit: the suite runs on it,
-          # the tag points at it and the publish builds it. Resolving it later
-          # would leave a window where a branch moves between the gate and the
-          # tag, and untested code ships.
+          # Later jobs use this SHA, so a ref that moves mid-run cannot change what ships.
           sha=$(git rev-parse HEAD)
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
           echo "${REF} is ${sha}"
 
-          # And it has to be on `main`. A dispatch takes any ref this
-          # repository can check out, including a pull request's merge ref,
-          # and what is released then runs with the publishing credentials
-          # without ever having been merged or reviewed.
+          # A dispatch accepts any ref, a pull request's merge ref included.
           git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
           if ! git merge-base --is-ancestor "$sha" origin/main; then
             echo "::error::${sha} is not on main. Merge the release pull request first."
@@ -101,13 +86,8 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          # No `v`: the tag carries it, the package version never does.
-          #
-          # And it must be spelled the way Python packaging spells it, not
-          # merely be readable as it: `2.0.0post1`, `2.0.0RC1` and `2.0.01`
-          # all mean something to `packaging`, and each normalises to a
-          # different string, which is what the wheel is named and what pip
-          # serves. A tag would already exist by the time that surfaced.
+          # VERSION has no `v` and must already be the normalised spelling pip
+          # serves: 2.0.0rc1, not 2.0.0RC1.
           uv run --no-project --quiet --with packaging --python 3.12 python - "$VERSION" <<'EOF'
           import sys
 
@@ -124,36 +104,26 @@ jobs:
               sys.exit(f"::error::{asked} carries a local version, and PyPI refuses those.")
           EOF
 
-          # A tag that already exists means this version was released, or a
-          # run left one behind. Either way, not here.
           if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then
             echo "::error::The tag v${VERSION} already exists."
             exit 1
           fi
 
-          # The upload takes its number from here, not from the tag (#61).
+          # The build takes its version from pyproject.toml, not from the tag.
           declared=$(python3 -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])")
           if [ "$declared" != "$VERSION" ]; then
             echo "::error::pyproject.toml declares ${declared}, and this run asks for ${VERSION}. Bump it in a pull request first."
             exit 1
           fi
 
-          # The release notes come from the CHANGELOG, matched exactly, so a
-          # release cannot ship with the notes of another version.
-          # The heading is matched as text, not as a pattern: a version read
-          # as a regular expression has dots that match anything, so
-          # `## [2-0-0]` would answer for 2.0.0. It is the start of the line,
-          # since Keep a Changelog writes the date after it.
-          awk -v heading="## [${VERSION}]" '
-            index($0, heading) == 1 { found = 1; next }
+          # The version is compared as text: in a regex its dots match any character.
+          awk -v prefix="## [${VERSION}] - " '
+            index($0, prefix) == 1 && substr($0, length(prefix) + 1) ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { found = 1; next }
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
-          # Not `-s`: a section with no entries still extracts the blank
-          # line under its heading, and a release with empty notes is one
-          # nobody can read.
-          if ! grep -q '[^[:space:]]' release-notes.md; then
-            echo "::error::CHANGELOG.md has no ## [${VERSION}] section, or it has no entries. Promote ## [Unreleased] in a pull request first."
+          if ! grep -q '^- [^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md has no section headed ## [${VERSION}] - YYYY-MM-DD with at least one '- ' entry. Promote ## [Unreleased] in a pull request first."
             exit 1
           fi
           echo "Release notes for ${VERSION}:"
@@ -162,14 +132,12 @@ jobs:
   gate:
     name: The suite, on the commit being released
     needs: validate
-    # Called, not copied: a second copy of the suite drifts from the one every
-    # pull request runs, and the release would be gated by something else.
+    # Called, not copied, so the release runs the suite every pull request runs.
     uses: ./.github/workflows/test.yml
     with:
       ref: ${{ needs.validate.outputs.sha }}
       run_integration: true
-    # The live suite reads MARKETDATA_TOKEN, and the coverage upload reads
-    # CODECOV_TOKEN.
+    # MARKETDATA_TOKEN for the live suite, CODECOV_TOKEN for the coverage upload.
     secrets: inherit
 
   release:
@@ -190,18 +158,13 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          # Extracted again rather than carried from `validate`: a job output
-          # is a single line, and these notes are not.
-          # The heading is matched as text, not as a pattern: a version read
-          # as a regular expression has dots that match anything, so
-          # `## [2-0-0]` would answer for 2.0.0. It is the start of the line,
-          # since Keep a Changelog writes the date after it.
-          awk -v heading="## [${VERSION}]" '
-            index($0, heading) == 1 { found = 1; next }
+          # Same extraction and check as in `validate`; keep the two in sync.
+          awk -v prefix="## [${VERSION}] - " '
+            index($0, prefix) == 1 && substr($0, length(prefix) + 1) ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { found = 1; next }
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
-          grep -q '[^[:space:]]' release-notes.md
+          grep -q '^- [^[:space:]]' release-notes.md
 
       - name: Refuse a tag that appeared while the suite ran
         env:
@@ -233,13 +196,11 @@ jobs:
     name: Publish to PyPI
     needs: [validate, release]
     permissions:
-      # Trusted publishing: the upload is authorised by this token, and there
-      # is no API key in the repository.
+      # Trusted publishing: the OIDC token authorises the upload.
       id-token: write
       contents: read
-    # A release this workflow creates with GITHUB_TOKEN starts no other
-    # workflow run, so `publish.yml` is called rather than left to its
-    # `release: published` trigger.
+    # A release created with GITHUB_TOKEN starts no workflow run, so
+    # `publish.yml` is called here instead of by its `release` trigger.
     uses: ./.github/workflows/publish.yml
     with:
       ref: ${{ needs.validate.outputs.sha }}
@@ -253,7 +214,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@v10.1.0
         with:
           version: "latest"
 
@@ -266,9 +227,8 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          # The index takes a moment to catch up with the upload. A failure
-          # here is not a failed release: the tag and the files exist, so
-          # re-run this job rather than releasing again.
+          # PyPI can lag the upload. On a timeout, re-run this job: the tag and
+          # the files already exist, so releasing again would fail.
           for attempt in $(seq 1 30); do
             if curl -fsS "https://pypi.org/pypi/marketdata-sdk-py/${VERSION}/json" >/dev/null; then
               echo "PyPI serves ${VERSION} (attempt ${attempt})."
@@ -283,8 +243,6 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          # What a customer gets: the published artifact, installed by name,
-          # answering with the number this run released.
           uv venv /tmp/verify
           VIRTUAL_ENV=/tmp/verify uv pip install --prerelease allow "marketdata-sdk-py==${VERSION}"
           /tmp/verify/bin/python -c "
