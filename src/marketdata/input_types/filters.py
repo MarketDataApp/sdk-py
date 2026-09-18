@@ -11,7 +11,7 @@ as 0. A negative is refused where the API would answer a different question or
 fail: it reads a number by its absolute value, so ``strike=-250`` answers for
 ``250``, and ``-0.5-0.5`` is not read as a range and fails with a ``400``. A
 single ``delta`` or a set of them may be negative, since the API filters delta
-on its absolute value and answers both sides.
+on its absolute value and answers both sides. A delta outside -1 to 1 is refused.
 """
 
 from __future__ import annotations
@@ -114,6 +114,19 @@ def _render(
     return rendered
 
 
+def _within_one(rendered: str, argument: str) -> str:
+    """Return ``rendered``, a delta written by ``_render``, if it is within -1 to 1.
+
+    ``argument`` names the value in the error message. Raises ``ValueError`` if
+    it is outside.
+    """
+    if abs(Decimal(rendered)) > 1:
+        raise ValueError(
+            f"{argument} is out of range ({rendered}): a delta is between -1 and 1"
+        )
+    return rendered
+
+
 class _NumericFilter(str):
     """A ``str`` holding the filter expression, sent to the API as written.
 
@@ -125,11 +138,31 @@ class _NumericFilter(str):
 
     _WHAT = "value"
     _SINGLE_NEGATIVE_OK = False
+    _WITHIN_ONE = False
+
+    @classmethod
+    def _checked(
+        cls,
+        value: object,
+        argument: str,
+        *,
+        negative_ok: bool,
+        in_a_range: bool = False,
+    ) -> str:
+        """Render ``value`` with ``_render`` and, for a delta, ``_within_one``.
+
+        ``argument``, ``negative_ok`` and ``in_a_range`` are passed to
+        ``_render``. Returns the text. Raises ``ValueError`` as those two do.
+        """
+        rendered = _render(
+            value, argument, negative_ok=negative_ok, in_a_range=in_a_range
+        )
+        return _within_one(rendered, argument) if cls._WITHIN_ONE else rendered
 
     @classmethod
     def _single(cls: type[_Filter], value: object) -> _Filter:
         """Build a one-value filter; ``exact`` and ``nearest`` expose it."""
-        return cls(_render(value, cls._WHAT, negative_ok=cls._SINGLE_NEGATIVE_OK))
+        return cls(cls._checked(value, cls._WHAT, negative_ok=cls._SINGLE_NEGATIVE_OK))
 
     @classmethod
     def any_of(cls: type[_Filter], *values: object) -> _Filter:
@@ -142,7 +175,7 @@ class _NumericFilter(str):
             raise ValueError(f"any_of needs at least one {cls._WHAT}")
         return cls(
             ",".join(
-                _render(value, cls._WHAT, negative_ok=cls._SINGLE_NEGATIVE_OK)
+                cls._checked(value, cls._WHAT, negative_ok=cls._SINGLE_NEGATIVE_OK)
                 for value in values
             )
         )
@@ -154,8 +187,8 @@ class _NumericFilter(str):
         Returns the filter. Raises ``ValueError`` if a bound is refused or
         negative, or if ``low`` is above ``high``.
         """
-        rendered_low = _render(low, "low", negative_ok=False, in_a_range=True)
-        rendered_high = _render(high, "high", negative_ok=False, in_a_range=True)
+        rendered_low = cls._checked(low, "low", negative_ok=False, in_a_range=True)
+        rendered_high = cls._checked(high, "high", negative_ok=False, in_a_range=True)
         if Decimal(rendered_low) > Decimal(rendered_high):
             raise ValueError(
                 f"low must not be above high: {rendered_low}-{rendered_high}"
@@ -169,7 +202,7 @@ class _NumericFilter(str):
         Returns the filter. Raises ``ValueError`` if ``value`` is refused or
         negative.
         """
-        return cls(f">={_render(value, cls._WHAT, negative_ok=False)}")
+        return cls(f">={cls._checked(value, cls._WHAT, negative_ok=False)}")
 
     @classmethod
     def at_most(cls: type[_Filter], value: object) -> _Filter:
@@ -178,7 +211,7 @@ class _NumericFilter(str):
         Returns the filter. Raises ``ValueError`` if ``value`` is refused or
         negative.
         """
-        return cls(f"<={_render(value, cls._WHAT, negative_ok=False)}")
+        return cls(f"<={cls._checked(value, cls._WHAT, negative_ok=False)}")
 
     @classmethod
     def above(cls: type[_Filter], value: object) -> _Filter:
@@ -187,7 +220,7 @@ class _NumericFilter(str):
         Returns the filter. Raises ``ValueError`` if ``value`` is refused or
         negative.
         """
-        return cls(f">{_render(value, cls._WHAT, negative_ok=False)}")
+        return cls(f">{cls._checked(value, cls._WHAT, negative_ok=False)}")
 
     @classmethod
     def below(cls: type[_Filter], value: object) -> _Filter:
@@ -196,7 +229,7 @@ class _NumericFilter(str):
         Returns the filter. Raises ``ValueError`` if ``value`` is refused or
         negative.
         """
-        return cls(f"<{_render(value, cls._WHAT, negative_ok=False)}")
+        return cls(f"<{cls._checked(value, cls._WHAT, negative_ok=False)}")
 
     @classmethod
     def expression(cls: type[_Filter], text: str) -> _Filter:
@@ -244,22 +277,23 @@ class DeltaFilter(_NumericFilter):
     ``DeltaFilter.between(0.3, 0.5)`` is ``"0.3-0.5"``. The API answers a single
     value with the contract whose delta is nearest, per expiration and side, so
     that answer is never empty. It filters on the absolute value and answers both
-    sides, so ``0.5`` and ``-0.5`` return the same rows, and it reads a value
-    above 1 as a percentage (``30`` is ``0.30``). If any contract in the chain has
-    a null delta, the API skips the filter and returns the whole chain; with a
-    historical ``date`` it answers ``400``.
+    sides, so ``0.5`` and ``-0.5`` return the same rows. If any contract in the
+    chain has a null delta, the API skips the filter and returns the whole chain;
+    with a historical ``date`` it answers ``400``.
 
     Every constructor but ``expression`` takes numbers (``int``, ``float`` or
     ``Decimal``), sends them as plain digits, and raises ``ValueError`` for a
-    bool, a NaN, an infinity, or a number a float would read as an infinity or
-    as 0. A negative is accepted by ``nearest`` and ``any_of`` and refused in a
-    range or a bound, where the absolute value would change the question.
+    bool, a NaN, an infinity, a number a float would read as an infinity or as
+    0, or a number outside -1 to 1. A negative is accepted by ``nearest`` and
+    ``any_of`` and refused in a range or a bound, where the absolute value would
+    change the question.
     """
 
     __slots__ = ()
 
     _WHAT = "delta"
     _SINGLE_NEGATIVE_OK = True
+    _WITHIN_ONE = True
 
     @classmethod
     def nearest(cls: type[_Filter], value: object) -> _Filter:
@@ -274,6 +308,9 @@ class DeltaFilter(_NumericFilter):
 def _render_number(value: object, argument: str) -> str:
     """Render a bare ``strike`` or ``delta`` number the way a filter does.
 
-    Raises ``ValueError`` as ``_render`` does; a negative is accepted for ``delta``.
+    Returns the text. Raises ``ValueError`` as ``_render`` does, or for a
+    ``delta`` outside -1 to 1; a negative is accepted for ``delta``.
     """
-    return _render(value, argument, negative_ok=argument == "delta")
+    if argument == "delta":
+        return _within_one(_render(value, argument, negative_ok=True), argument)
+    return _render(value, argument, negative_ok=False)

@@ -208,11 +208,12 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   a `400`
 - `delta` (str | int | float | Decimal, optional): Filter by delta, built the same way
   with `DeltaFilter`, whose single-value constructor is `nearest` rather than `exact`.
-  Three things the API does with it are worth knowing: it matches the
+  Two things the API does with it are worth knowing: it matches the
   **nearest** delta rather than an exact one, so `DeltaFilter.nearest(0.5)` answers with the
-  closest strike per side and never with nothing; it filters on the **absolute value** and
-  answers both sides, so `0.5` and `-0.5` give the same rows; and a value above 1 is read
-  as a percentage, so `30` means `0.30`. A negative is kept for an exact value and refused
+  closest strike per side and never with nothing; and it filters on the **absolute value**
+  and answers both sides, so `0.5` and `-0.5` give the same rows. A delta is a number from
+  -1 to 1, and one outside that, such as `30`, is refused before any request. A negative is
+  kept for a single value or a set and refused
   in a range or a bound, where the absolute value would change the question. A small delta
   is sent as plain digits too, `0.00005` rather than `5e-05`: the API answers a query of
   `delta=5e-05` with a `400`, since it splits that text at its minus. A `bool`, a NaN or an

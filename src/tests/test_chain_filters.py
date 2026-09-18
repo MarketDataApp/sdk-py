@@ -57,13 +57,13 @@ def test_each_constructor_renders_the_expression_the_api_reads(built, expression
 @pytest.mark.parametrize(
     "build",
     [
-        lambda f: (f.exact if f is StrikeFilter else f.nearest)(250),
-        lambda f: f.any_of(250, 255),
-        lambda f: f.between(250, 260),
-        lambda f: f.at_least(250),
-        lambda f: f.at_most(250),
-        lambda f: f.above(250),
-        lambda f: f.below(250),
+        lambda f: (f.exact if f is StrikeFilter else f.nearest)(0.5),
+        lambda f: f.any_of(0.25, 0.5),
+        lambda f: f.between(0.25, 0.5),
+        lambda f: f.at_least(0.5),
+        lambda f: f.at_most(0.5),
+        lambda f: f.above(0.5),
+        lambda f: f.below(0.5),
         lambda f: f.expression("240-260"),
     ],
     ids=[
@@ -261,6 +261,9 @@ def test_a_delta_keeps_its_sign_where_the_api_reads_the_same_rows_either_way():
         ("strike", StrikeFilter.between(250, 260), "250-260"),
         ("delta", 0.5, "0.5"),
         ("delta", -0.5, "-0.5"),
+        ("delta", 1, "1"),
+        ("delta", -1, "-1"),
+        ("strike", 30, "30"),
         ("delta", "0.3-0.5", "0.3-0.5"),
         ("delta", DeltaFilter.at_least(0.5), ">=0.5"),
         # plain digits, never an exponent
@@ -369,3 +372,128 @@ def test_a_number_travels_as_plain_digits(build, expression):
 def test_a_signed_zero_is_zero():
     assert StrikeFilter.exact(-0.0) == "0.0"
     assert StrikeFilter.exact(Decimal("-0")) == "0"
+
+
+OUT_OF_RANGE = "is out of range ({}): a delta is between -1 and 1"
+TOO_LARGE = pytest.mark.parametrize(
+    ("outside", "shown"), [(1.0001, "1.0001"), (30, "30"), (Decimal("30"), "30")]
+)
+
+
+@TOO_LARGE
+@pytest.mark.parametrize(
+    ("build", "argument"),
+    [
+        (DeltaFilter.nearest, "delta"),
+        (DeltaFilter.any_of, "delta"),
+        (lambda value: DeltaFilter.any_of(0.5, value), "delta"),
+        (lambda value: DeltaFilter.between(value, 0.5), "low"),
+        (lambda value: DeltaFilter.between(0.5, value), "high"),
+        (DeltaFilter.at_least, "delta"),
+        (DeltaFilter.at_most, "delta"),
+        (DeltaFilter.above, "delta"),
+        (DeltaFilter.below, "delta"),
+    ],
+    ids=[
+        "nearest",
+        "any_of",
+        "any_of_second",
+        "between_low",
+        "between_high",
+        "at_least",
+        "at_most",
+        "above",
+        "below",
+    ],
+)
+def test_a_delta_above_one_is_refused_by_every_constructor(
+    build, argument, outside, shown
+):
+    with pytest.raises(ValueError) as refusal:
+        build(outside)
+
+    assert str(refusal.value) == f"{argument} " + OUT_OF_RANGE.format(shown)
+
+
+@pytest.mark.parametrize(("outside", "shown"), [(-1.0001, "-1.0001"), (-30, "-30")])
+@pytest.mark.parametrize(
+    "build",
+    [
+        DeltaFilter.nearest,
+        DeltaFilter.any_of,
+        lambda value: DeltaFilter.any_of(-0.5, value),
+    ],
+    ids=["nearest", "any_of", "any_of_second"],
+)
+def test_a_negative_delta_below_minus_one_is_refused(build, outside, shown):
+    with pytest.raises(ValueError) as refusal:
+        build(outside)
+
+    assert str(refusal.value) == "delta " + OUT_OF_RANGE.format(shown)
+
+
+@pytest.mark.parametrize(
+    ("build", "expression"),
+    [
+        (lambda: DeltaFilter.nearest(1), "1"),
+        (lambda: DeltaFilter.nearest(-1), "-1"),
+        (lambda: DeltaFilter.nearest(Decimal("-1.000")), "-1.000"),
+        (lambda: DeltaFilter.any_of(-1, 1), "-1,1"),
+        (lambda: DeltaFilter.between(0.5, 1), "0.5-1"),
+        (lambda: DeltaFilter.between(1, 1), "1-1"),
+        (lambda: DeltaFilter.between(0.3, 0.5), "0.3-0.5"),
+        (lambda: DeltaFilter.at_least(1), ">=1"),
+        (lambda: DeltaFilter.at_most(1.0), "<=1.0"),
+        (lambda: DeltaFilter.above(1), ">1"),
+        (lambda: DeltaFilter.below(1), "<1"),
+    ],
+)
+def test_a_delta_from_minus_one_to_one_is_sent(build, expression):
+    assert build() == expression
+
+
+def test_a_delta_range_is_ordered_as_written():
+    with pytest.raises(ValueError) as refusal:
+        DeltaFilter.between(0.5, 0.3)
+
+    assert str(refusal.value) == "low must not be above high: 0.5-0.3"
+
+
+@pytest.mark.parametrize(
+    ("build", "expression"),
+    [
+        (lambda: StrikeFilter.exact(30), "30"),
+        (lambda: StrikeFilter.any_of(0.5, 30), "0.5,30"),
+        (lambda: StrikeFilter.between(0.5, 30), "0.5-30"),
+        (lambda: StrikeFilter.at_least(30), ">=30"),
+        (lambda: StrikeFilter.at_most(30), "<=30"),
+        (lambda: StrikeFilter.above(30), ">30"),
+        (lambda: StrikeFilter.below(30), "<30"),
+    ],
+)
+def test_a_strike_above_one_is_sent(build, expression):
+    assert build() == expression
+
+
+def test_a_delta_expression_is_not_checked_against_the_range():
+    assert DeltaFilter.expression("0.5-30") == "0.5-30"
+
+
+@pytest.mark.parametrize(
+    ("outside", "shown"),
+    [(30, "30"), (-30, "-30"), (1.0001, "1.0001"), (Decimal("30"), "30")],
+)
+@EVERY_FORMAT
+def test_a_bare_delta_outside_minus_one_to_one_never_reaches_a_request(
+    respx_mock, client, outside, shown, output_format
+):
+    respx_mock.get(url__startswith=CHAIN_URL).respond(
+        json={"s": "no_data"}, status_code=404
+    )
+
+    with pytest.raises(ValidationError) as refusal:
+        client.options.chain("AAPL", delta=outside, output_format=output_format)
+
+    assert "delta " + OUT_OF_RANGE.format(shown) in str(refusal.value)
+    # the client fixture makes its own startup call
+    assert not [c for c in respx_mock.calls if "/options/chain/" in str(c.request.url)]

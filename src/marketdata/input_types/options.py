@@ -73,10 +73,10 @@ class OptionsChainInput(BaseInputType):
     )
     delta: str | None = Field(
         description=(
-            "The delta to filter by: a number (int, float or Decimal), or an "
-            "expression built with `DeltaFilter` (nearest, any_of, between, "
-            "at_least, at_most, above, below, expression). The API filters on "
-            "the absolute value and answers both sides"
+            "The delta to filter by: a number from -1 to 1 (int, float or "
+            "Decimal), or an expression built with `DeltaFilter` (nearest, "
+            "any_of, between, at_least, at_most, above, below, expression). The "
+            "API filters on the absolute value and answers both sides"
         ),
         default=None,
     )
@@ -140,7 +140,8 @@ class OptionsChainInput(BaseInputType):
 
         ``None`` and a ``str``, a filter included, pass through as written. The
         fields hold that text, so they are annotated ``str``; the wider input is
-        declared here. Raises ``ValueError`` for a number ``_render`` refuses.
+        declared here. Raises ``ValueError`` for a number ``_render_number``
+        refuses.
         """
         if value is None or isinstance(value, str):
             return value
