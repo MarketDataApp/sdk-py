@@ -37,9 +37,7 @@ from marketdata.internal_settings import (
 )
 from marketdata.types import UserRateLimits
 
-# The SDK's logger by name, without `get_logger()`: this module is imported
-# with the package, and a handler added at import is one more copy of every
-# log line (#104). The client installs the handler.
+# By name, not `get_logger()`: importing the package must not attach a handler.
 logger = logging.getLogger("marketdata.logger")
 
 PANDAS_ATTRS_KEY = "marketdata"
@@ -76,29 +74,12 @@ class ResponseMeta:
     matters most for ``request_id``: it is the id to quote in a support
     ticket, and it must name a request that produced part of this result.
 
-    On the metadata of a call that raised, three cases (#104):
-
-    - An SDK HTTP exception (``MarketdataHttpError``, ``RateLimitError``)
-      carries the response of the request it is about, the one a support
-      ticket is about, and ``status_code`` and ``request_id`` are read from
-      it, so they agree with the exception's own, except that a missing
-      ``cf-ray`` is ``None`` here and the sentinel ``"N/A"`` there.
-    - The same exceptions without a response have nothing to describe, and
-      report ``0`` and ``None`` (the exception: ``0`` and ``"N/A"``): the
-      request got no answer (a transport failure, the pre-flight refusal), or
-      got one the SDK could not read (a body that does not match its
-      ``Content-Encoding``; that response is not recorded, so its credits are
-      not counted either).
-    - Any other exception (a CSV path that already exists, a bare
-      ``KeyError`` from an answer the resource could not use) says nothing
-      about which request caused it, and the rule of a successful call
-      applies: the metadata may then speak for a sibling that answered fine.
-
-    No rule over the responses could pick the failed one: they are listed in
-    the order the requests finished, so a sibling that answered later, or an
-    attempt that failed and then recovered, would take its place.
-    ``responses`` and the credits cover every response the call recorded:
-    the failure was billed for them.
+    On the metadata of a call that raised a ``MarketdataHttpError`` or
+    ``RateLimitError``, ``status_code`` and ``request_id`` are those of the
+    exception's response (``None`` for a missing ``cf-ray``, where the
+    exception says ``"N/A"``), or ``0`` and ``None`` when it carries no
+    response. Any other exception follows the rule of a successful call.
+    ``responses`` and the credits cover every response the call recorded.
 
     ``detected_ip`` is the address the API saw the call come from, sent as
     ``X-API-Detected-IP`` on any answer it serves, the empty ``no_data`` one
@@ -135,8 +116,11 @@ class ResponseMeta:
     def _merge(
         cls, metas: list[ResponseMeta], *, error: BaseException | None = None
     ) -> ResponseMeta:
-        """The metadata of one call, from every response behind it. ``error``
-        is the exception the call raised, if it did."""
+        """Merge the metadata of every response behind one call.
+
+        ``error`` is the exception the call raised, if any. Raises
+        ``ValueError`` when ``metas`` is empty.
+        """
         if not metas:
             raise ValueError("cannot merge an empty list of ResponseMeta")
         speaker = cls._speaker(metas, error)
@@ -177,24 +161,18 @@ class ResponseMeta:
     def _speaker(
         cls, metas: list[ResponseMeta], error: BaseException | None
     ) -> ResponseMeta:
-        """The one response that ``status_code`` and ``request_id`` describe."""
+        """The response that ``status_code`` and ``request_id`` describe.
+
+        The one an SDK HTTP ``error`` carries (a blank one when it carries
+        none), else the last one in ``metas`` with a usable status, else the
+        last one.
+        """
         if isinstance(error, (MarketdataHttpError, RateLimitError)):
-            # The exception names the request that failed (#104). Only that
-            # response's own fields are read from it; the credits come from
-            # the whole list. Anything but an httpx response there (a caller's
-            # subclass, a test double) falls through to the rule below rather
-            # than raise inside the decorator's `except` and replace the
-            # caller's exception.
+            # A non-httpx response falls through: raising here would mask `error`.
             if error.response is None:
                 return cls(status_code=0, request_id=None, rate_limits=None)
             if isinstance(error.response, Response):
                 return cls.from_response(error.response, None)
-        # The last response that could have contributed to the result: the
-        # same `VALID_STATUS_CODES` the fan-outs use to build their `usable`
-        # list. Otherwise a symbol answering 404 `no_data` (recorded, then
-        # dropped from the merge) could label a successful call as a 404 and
-        # hand support the request id of the one response that returned
-        # nothing. With no usable response the last one is the honest answer.
         usable = [meta for meta in metas if meta.status_code in VALID_STATUS_CODES]
         return usable[-1] if usable else metas[-1]
 

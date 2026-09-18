@@ -509,8 +509,7 @@ def test_merge_sums_credits_and_keeps_the_newest_window():
 
 
 def test_merge_takes_the_lowest_balance_inside_the_newest_window():
-    """Two responses of the same window: the lowest count is the balance after
-    the call, whatever order they completed in."""
+    """Two responses of the same window, recorded out of order."""
     first = ResponseMeta(200, "r1", limits(2, 98, reset=RESET))
     second = ResponseMeta(200, "r2", limits(3, 95, reset=RESET))
 
@@ -521,9 +520,7 @@ def test_merge_takes_the_lowest_balance_inside_the_newest_window():
 
 
 def test_merge_does_not_carry_a_closed_window_balance_across_a_reset():
-    """A call whose retry crosses the reset: the credits went back up, so the
-    pre-reset count paired with the new window's `reset_time` would report a
-    state that never existed (the rule `RateLimitTracker` already applies)."""
+    """A 503 before the reset, retried successfully after it."""
     before = ResponseMeta(503, "r1", limits(0, 2, reset=RESET))
     after = ResponseMeta(200, "r2", limits(1, 99, reset=RESET + 60))
 
@@ -545,9 +542,7 @@ def test_merge_without_credit_headers_has_no_rate_limits():
 
 
 def test_merge_speaks_for_the_last_response_that_could_have_contributed():
-    """A dropped `no_data` answer must not label the call: `status_code` and
-    `request_id` come from the last usable response, whatever the order the
-    responses were recorded in. `responses` still counts every one of them."""
+    """A 200 and a 404 `no_data`, recorded in either order."""
     empty = ResponseMeta(404, "no-data", limits(0, 99))
     good = ResponseMeta(200, "has-data", limits(1, 98))
 
@@ -560,8 +555,6 @@ def test_merge_speaks_for_the_last_response_that_could_have_contributed():
 
 
 def test_merge_falls_back_to_the_last_response_when_none_was_usable():
-    """Every attempt failed: there is no usable response to speak for the
-    call, so the last one is reported as it stands."""
     first = ResponseMeta(503, "try-1", limits(0, 99))
     second = ResponseMeta(503, "try-2", limits(0, 99))
 
@@ -573,8 +566,6 @@ def test_merge_falls_back_to_the_last_response_when_none_was_usable():
 
 
 def test_merge_accepts_a_203_as_a_usable_answer():
-    """`VALID_STATUS_CODES` is the same list the fan-outs filter on, so a 203
-    speaks for the call exactly as a 200 does."""
     partial = ResponseMeta(203, "partial", limits(1, 98))
     empty = ResponseMeta(404, "no-data", limits(0, 99))
 
@@ -582,7 +573,5 @@ def test_merge_accepts_a_203_as_a_usable_answer():
 
 
 def test_merge_of_nothing_is_a_value_error():
-    """`ResponseMeta` is exported from the package root; an empty merge used
-    to surface as a bare IndexError."""
     with pytest.raises(ValueError, match="empty list"):
         ResponseMeta._merge([])

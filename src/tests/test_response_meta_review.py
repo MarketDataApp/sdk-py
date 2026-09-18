@@ -145,9 +145,6 @@ def test_an_authoritative_update_skips_the_ordering_rule():
 def test_a_partial_fan_out_failure_reports_the_request_that_failed(
     load_json, respx_mock, client
 ):
-    """The metadata of a failure names the request that failed, as the
-    exception does: that is the request a support ticket is about, not the
-    sibling that came back fine."""
     respx_mock.get(CALL_URL).respond(
         json=load_json("options_quotes_response_200"),
         status_code=200,
@@ -214,20 +211,10 @@ def test_a_successful_call_still_speaks_for_a_usable_response(
     assert (meta.status_code, meta.request_id) == (200, "ok-1")
 
 
-# The review of #88 (#104): the responses are recorded in the order the
-# requests finished, so no rule over that list can tell which one failed. The
-# exception can: the metadata of a failure describes the request it is about.
-
-
 class Order:
-    """Answers the requests of one call in a fixed order, by handshake rather
-    than by the clock (#108 review). What `after_the_others` answers is
-    recorded last, the order in which a rule over the list went wrong.
-
-    The wait is on `record_meta`, where that order is decided, so the answers
-    cannot be recorded the other way around on a loaded machine; a sleep only
-    made that unlikely. A failure that never reaches `record_meta`, a
-    transport error, counts itself through `answering`."""
+    """Answers the requests of one call in a fixed order, by handshake on
+    `record_meta` rather than by the clock, so `after_the_others` is recorded
+    last."""
 
     def __init__(self, monkeypatch, others: int):
         self._left = others
@@ -249,7 +236,8 @@ class Order:
                     self._recorded.set()
 
     def answering(self, failure: BaseException):
-        """A route that fails now, before any other answer is recorded."""
+        """A route that raises `failure` at once. It counts itself, because a
+        transport failure never reaches `record_meta`."""
 
         def answer(request: httpx.Request) -> httpx.Response:
             self._count()
@@ -269,8 +257,7 @@ class Order:
 
 @pytest.fixture
 def answer_order(monkeypatch):
-    """An `Order` over the answers of one call, `others` of which are recorded
-    before the late one is given."""
+    """Builds an `Order` that records `others` answers before the late one."""
 
     def build(others: int = 1) -> Order:
         return Order(monkeypatch, others)
@@ -317,9 +304,7 @@ def test_a_failure_names_the_request_that_failed_not_a_later_empty_symbol(
 def test_a_failure_names_the_request_that_failed_on_every_output_format(
     respx_mock, client, answer_order, tmp_path, output_format
 ):
-    """The output format decides what a call gives back, not which request a
-    failure is about: the rule lives in the decorator, above the renderers
-    (#108 review). The empty symbol is answered last on every one of them."""
+    """The empty symbol is answered last on every output format."""
     respx_mock.get(CALL_URL).respond(
         json={"s": "error", "errmsg": "Bad parameters"},
         status_code=400,
@@ -369,8 +354,6 @@ def test_a_failure_names_the_request_that_failed_not_a_later_server_error(
 def test_an_undecodable_chunk_is_named_even_though_every_status_was_usable(
     respx_mock, client, answer_order
 ):
-    """Every answer is a 200, so no status says which one broke the call; only
-    the `ParseError` does."""
     starts = iter(["html", "ok"])
     order = answer_order()
     late = order.after_the_others(
@@ -402,12 +385,9 @@ def test_an_undecodable_chunk_is_named_even_though_every_status_was_usable(
 def test_a_request_that_got_no_answer_lends_the_failure_no_sibling_id(
     respx_mock, client, answer_order
 ):
-    """A transport failure has no response, so its metadata has no status and
-    no id to report, as the exception itself says (`0` and `N/A`); the credits
-    of the sibling that did answer are still reported."""
+    """One request times out; the credits of the sibling that answered remain."""
     client.max_retries = 0
     order = answer_order()
-    # The timeout records nothing, so it is what counts itself here.
     respx_mock.get(CALL_URL).mock(
         side_effect=order.answering(httpx.ConnectTimeout("timed out"))
     )
@@ -471,8 +451,7 @@ def test_a_failure_without_a_response_has_no_speaker(error):
 
 
 def test_a_response_without_a_cf_ray_gives_no_request_id():
-    """The exception reads a missing `cf-ray` as the sentinel `"N/A"`; the
-    metadata reads it as `None`, as on a successful call."""
+    """The exception reports `"N/A"`; the metadata reports `None`."""
     error = BadRequestError(
         "bad", request=REQUEST, response=httpx.Response(400, request=REQUEST)
     )
@@ -484,10 +463,7 @@ def test_a_response_without_a_cf_ray_gives_no_request_id():
 
 
 def test_a_response_that_is_not_an_httpx_response_does_not_break_the_merge():
-    """The merge runs inside the decorator's `except`: were it to raise there,
-    the caller would get that error instead of their own. A `response` of
-    another type (a caller's subclass, a test double) falls back to the rule
-    of a successful call."""
+    """A `response` of another type falls back to the rule of a success."""
     error = BadRequestError("bad", request=REQUEST, response=_response(400, "bad-1"))
     error.response = object()
     metas = [ResponseMeta(200, "ok-1", None), ResponseMeta(404, "empty-1", None)]
@@ -498,10 +474,7 @@ def test_a_response_that_is_not_an_httpx_response_does_not_break_the_merge():
 def test_the_no_usable_answer_error_names_the_answer_that_is_not_empty(
     respx_mock, client, answer_order
 ):
-    """`options.quotes` raises its own `MarketdataHttpError` when no symbol
-    answered with anything usable. It used to hand over the first response,
-    which can be a symbol that simply had no data, and the metadata now reads
-    the exception's response."""
+    """One symbol has no data and the other answers a 204."""
     respx_mock.get(CALL_URL).respond(
         json={"s": "no_data"}, status_code=404, headers={"cf-ray": "empty-1"}
     )
@@ -522,8 +495,7 @@ def test_the_no_usable_answer_error_names_the_answer_that_is_not_empty(
 def test_the_no_usable_answer_error_names_the_first_such_answer(
     respx_mock, client, answer_order
 ):
-    """With more than one answer that is neither usable nor empty, the first
-    in request order is named, whichever arrives last (#108 review)."""
+    """The first such answer in request order is named although it arrives last."""
     third = "AAPL250117C00155000"
     respx_mock.get(CALL_URL).respond(
         json={"s": "no_data"}, status_code=404, headers={"cf-ray": "empty-1"}
@@ -544,9 +516,7 @@ def test_the_no_usable_answer_error_names_the_first_such_answer(
 
 
 def test_an_exception_not_about_a_request_keeps_the_rule_of_a_success():
-    """A CSV path that already exists: every request answered, so neither an
-    empty symbol nor an attempt that failed and recovered is what went wrong,
-    and the metadata speaks for the last usable response."""
+    """A CSV path that already exists gets the last usable response."""
     metas = [
         ResponseMeta(200, "ok-1", None),
         ResponseMeta(503, "down-1", None),
@@ -616,9 +586,5 @@ def test_a_result_that_cannot_be_weak_referenced_says_so(caplog):
 
 
 def test_merging_the_metadata_of_a_call_is_not_public():
-    """`ResponseMeta` is public, but combining the metadata of the requests
-    behind one call is the SDK's own step. `merge` never shipped in a release
-    (#88 added it for 2.0.0), so it is private, and this keeps a public name
-    from coming back without a decision."""
     assert not hasattr(ResponseMeta, "merge")
     assert callable(ResponseMeta._merge)

@@ -79,10 +79,7 @@ def quotes(
         else OptionsQuotes
     )
 
-    # Per-symbol answers: a symbol with no data (a 404 no_data, or its CSV
-    # placeholder, #89) contributes no rows; only when every symbol is empty
-    # is the whole call empty. One filter answers both that and which answer
-    # an exception names, so the two cannot drift apart again (#104).
+    # An error names an answer with data, never a symbol that only had none.
     answered = [response for response in responses if not is_no_data(response)]
     usable = [
         response for response in answered if response.status_code in VALID_STATUS_CODES
@@ -96,11 +93,7 @@ def quotes(
                 index_columns=["optionSymbol", "Symbol"],
                 response=responses[0],
             )
-        # The API answered, just not with anything usable. Terminal on purpose:
-        # raising a retryable class here would re-run the whole fan-out. The
-        # exception names an answer that is neither usable nor empty, since
-        # its metadata describes that request (#104): the first response could
-        # be a symbol that simply had no data.
+        # Terminal on purpose: a retryable class would re-run the whole fan-out.
         raise MarketdataHttpError(
             message="No responses from API",
             request=answered[0].request,

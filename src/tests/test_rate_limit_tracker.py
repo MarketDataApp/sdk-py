@@ -71,12 +71,7 @@ def test_reset_bypasses_the_ordering_rule():
 
 
 def test_an_authoritative_update_goes_past_the_ordering_rule():
-    """One way past the ordering rule (#104): `client.utilities.user()` is
-    asked precisely to learn the balance, so its answer replaces the state
-    even when it reports more credits than the tracker holds, which the
-    ordering rule reads as a late response. A zero-limit envelope is refused
-    before it gets there: the API answers an unknown token with demo data and
-    a `0/0` envelope, which would otherwise say this account has nothing."""
+    """A higher balance replaces the state; a zero-limit envelope is still refused."""
     tracker = RateLimitTracker()
     tracker.update(limits(10))
 
@@ -93,12 +88,6 @@ def test_an_authoritative_update_goes_past_the_ordering_rule():
     ids=["a higher balance", "a lower one", "an older window", "the same state"],
 )
 def test_an_authoritative_update_leaves_what_reset_leaves(state):
-    """The two ways to replace the state are one write in production, and this
-    is what a caller can see of that: from the same starting point both end at
-    the same state, whatever the ordering rule would have made of it, so a
-    change to how a state is replaced cannot land in one path and not the
-    other (#104). The zero-limit envelope is the one input where they differ
-    on purpose, and the test above is about that."""
     seeded = RateLimitTracker()
     seeded.update(limits(10))
     seeded.update(state, authoritative=True)

@@ -1,5 +1,4 @@
-"""The SDK's stream handler (#104): one for the process, however many clients
-are built, and none added by importing the package."""
+"""Tests for the SDK logger and its shared stderr handler."""
 
 import contextlib
 import importlib
@@ -21,11 +20,8 @@ logger_module = importlib.import_module("marketdata.logger")
 
 @pytest.fixture(autouse=True)
 def _a_logger_nobody_configured(monkeypatch):
-    """The logger's level, the level the SDK last applied to it and the SDK
-    handler's level and stream are process state. Each test starts from a
-    logger with no level of its own and leaves them as it found them, so the
-    order the tests run in, and a `MARKETDATA_LOGGING_LEVEL` in the
-    environment, do not decide what they see (#108 review)."""
+    """Start each test from a logger with no level, and restore the logger's
+    and the handler's level and stream afterwards."""
     logger = logging.getLogger(LOGGER_NAME)
     handler = logger_module._HANDLER
     saved = (logger.level, handler.level, handler._stream)
@@ -37,8 +33,7 @@ def _a_logger_nobody_configured(monkeypatch):
     handler._stream = saved[2]
 
 
-# Run in a fresh interpreter: the handler count is process state, and every
-# test in this session builds clients.
+# Runs in a fresh interpreter: the handler count is process-wide state.
 FRESH_PROCESS = """
 import logging
 
@@ -58,9 +53,6 @@ logger.warning("one record")
 
 
 def test_a_process_gets_one_handler_and_one_line_per_record():
-    """Measured before the fix: 1 handler after `import marketdata`, 2 after
-    one client and 3 after a second, so each record reached stderr once per
-    handler."""
     result = subprocess.run(
         [sys.executable, "-c", FRESH_PROCESS],
         capture_output=True,
@@ -96,9 +88,6 @@ def test_a_handler_the_caller_attached_stands_in_for_the_sdks(monkeypatch):
 
 
 def test_the_handler_writes_to_the_stderr_of_the_moment(monkeypatch, capsys):
-    """With one handler for the process, the stream cannot be fixed when it is
-    built: a first client built under a redirected stderr would otherwise take
-    every later line with it (a captured test, `redirect_stderr`)."""
     logger = logging.getLogger(LOGGER_NAME)
     monkeypatch.setattr(logger, "handlers", [])
     monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
@@ -113,8 +102,6 @@ def test_the_handler_writes_to_the_stderr_of_the_moment(monkeypatch, capsys):
 
 
 def test_the_handler_takes_a_stream_set_on_it(monkeypatch):
-    """`StreamHandler.setStream` is public, and an application may point its
-    stream handlers somewhere else: the current stderr is only the default."""
     logger = logging.getLogger(LOGGER_NAME)
     monkeypatch.setattr(logger, "handlers", [])
     monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
@@ -132,10 +119,7 @@ def test_the_handler_takes_a_stream_set_on_it(monkeypatch):
 
 
 def test_setting_the_current_stderr_fixes_it(monkeypatch):
-    """`StreamHandler.setStream` skips a stream that is already the handler's,
-    and this handler answers the live `sys.stderr` while none is set, so the
-    standard `setStream(sys.stderr)` would do nothing, and a line logged under
-    a later redirection would go there instead (#108 review)."""
+    """`setStream(sys.stderr)` pins that stream against a later redirection."""
     logger = logging.getLogger(LOGGER_NAME)
     monkeypatch.setattr(logger, "handlers", [])
     monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
@@ -165,9 +149,7 @@ class FlushCounting(io.StringIO):
 
 
 def test_set_stream_returns_the_stream_it_leaves_and_flushes_it(monkeypatch):
-    """As the standard library's `setStream` does: the stream the handler
-    leaves comes back, flushed, and the one it takes is not touched (#108
-    review)."""
+    """Only the stream being replaced is flushed."""
     logger = logging.getLogger(LOGGER_NAME)
     monkeypatch.setattr(logger, "handlers", [])
     handler = get_logger().handlers[0]
@@ -183,11 +165,7 @@ def test_set_stream_returns_the_stream_it_leaves_and_flushes_it(monkeypatch):
 
 
 def test_two_callers_swapping_the_stream_share_no_previous_one(monkeypatch):
-    """The comparison and the stream it answers are read under the lock, so
-    of two callers swapping at once each is told about the stream it actually
-    replaced. Read before the lock, as the standard library does it, both
-    would have been handed the first stream, and putting that one back would
-    have restored a stream nobody was writing to (#108 review)."""
+    """Two concurrent swaps each get back the stream they actually replaced."""
     logger = logging.getLogger(LOGGER_NAME)
     monkeypatch.setattr(logger, "handlers", [])
     handler = get_logger().handlers[0]
@@ -197,15 +175,12 @@ def test_two_callers_swapping_the_stream_share_no_previous_one(monkeypatch):
     flush = handler.flush
 
     def slow_flush():
-        # Inside the swap, holding the lock: the moment the second caller
-        # used to read the stream the first one is about to replace.
+        # Pauses the first caller inside the swap while it holds the lock.
         inside.set()
         assert held.wait(timeout=10), "the second caller never reached the lock"
         flush()
 
-    # By caller, not in the order they return: they release the lock at the
-    # same moment, and which of the two writes its answer first says nothing
-    # about the swap.
+    # Keyed by caller: the order the two threads return in is not deterministic.
     left = {}
 
     def swap(caller, stream):
@@ -258,9 +233,6 @@ print(kept.count("Initializing MarketDataClient"))
 
 
 def test_a_level_the_application_set_is_kept():
-    """The reproduction from the #108 review, in a fresh interpreter: an
-    application configured the SDK's logger, built a client, and got
-    `WARNING` back, losing its own records and the SDK's `INFO` lines."""
     env = {**os.environ}
     env.pop("MARKETDATA_LOGGING_LEVEL", None)
 
@@ -297,8 +269,6 @@ def test_the_logger_follows_the_settings_while_nobody_else_set_a_level(
 
 
 def test_a_logger_reset_to_notset_follows_the_settings_again(monkeypatch):
-    """An application that takes its level back off the logger hands it to
-    the settings again (#108 review)."""
     logger = logging.getLogger(LOGGER_NAME)
     monkeypatch.setattr(logger, "handlers", [])
     monkeypatch.setattr(settings, "marketdata_logging_level", "ERROR")
@@ -314,9 +284,7 @@ def test_a_logger_reset_to_notset_follows_the_settings_again(monkeypatch):
 
 
 def test_the_handler_keeps_the_level_of_the_settings(monkeypatch, capsys):
-    """Each handler used to carry the settings' level, so a caller lowering the
-    logger's own level did not open the SDK's stream to DEBUG. The one handler
-    keeps doing that, and follows the settings each time a client asks."""
+    """Lowering the logger's level does not lower the SDK handler's."""
     logger = logging.getLogger(LOGGER_NAME)
     level = logger.level
     monkeypatch.setattr(logger, "handlers", [])
@@ -336,10 +304,7 @@ def test_the_handler_keeps_the_level_of_the_settings(monkeypatch, capsys):
 
 
 def test_clients_built_at_once_attach_one_handler(monkeypatch):
-    """Sixteen threads released together all see a logger with no handler.
-    Only one handler ends up attached, because it is always the same one and
-    `addHandler` does not add a handler twice. Repeated, since a race shows
-    up in some rounds only."""
+    """Sixteen threads at once, repeated because a race shows in some rounds only."""
     logger = logging.getLogger(LOGGER_NAME)
     for _ in range(20):
         monkeypatch.setattr(logger, "handlers", [])

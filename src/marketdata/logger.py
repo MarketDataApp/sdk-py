@@ -5,15 +5,8 @@ from marketdata.settings import settings
 
 
 class _StderrHandler(StreamHandler):
-    """A stream handler that writes to whatever ``sys.stderr`` is when a
-    record is emitted, as the standard library's last-resort handler does,
-    unless a stream was set on it (``setStream``, or an assignment).
-
-    One handler serves the whole process (#104), so it cannot keep the stream
-    of the moment it was built: had the first client been built while stderr
-    was redirected (``contextlib.redirect_stderr``, a captured test), every
-    later line would have gone to that stream.
-    """
+    """Stream handler that writes to the current ``sys.stderr`` unless a stream
+    is set on it."""
 
     def __init__(self) -> None:
         Handler.__init__(self)
@@ -28,29 +21,17 @@ class _StderrHandler(StreamHandler):
         self._stream = value
 
     def setStream(self, stream):
-        """Set the stream to write to, and return the one written to before.
+        """Set the stream to write to, under the handler's lock.
 
-        The standard library skips the change when ``stream is self.stream``,
-        and ``self.stream`` answers the live ``sys.stderr`` while none is set,
-        so ``setStream(sys.stderr)`` did nothing and the handler went on
-        following every redirection (#108 review). The comparison here is with
-        the stream that was set. ``None`` goes back to the live ``sys.stderr``,
-        and is also the way back after ``old = handler.setStream(stream)``:
-        setting ``old`` again pins the stderr of that moment.
-
-        The comparison and the stream it answers are read under the handler's
-        lock, which the standard library takes only for the swap itself: two
-        callers changing the stream at the same moment would otherwise read
-        the same previous stream and both be told they own it, and one of the
-        two would put back a stream that is no longer there (#108 review).
+        Returns the stream replaced, or ``None`` when ``stream`` is already the
+        one set. ``None`` makes the handler follow the current ``sys.stderr``.
         """
         self.acquire()
         try:
             if stream is self._stream:
                 return None
             result = self.stream
-            # `flush` takes the lock again. It is reentrant: the logging
-            # module makes it with `threading.RLock`.
+            # The handler's lock is reentrant, so `flush` can take it again here.
             self.flush()
             self.stream = stream
         finally:
@@ -58,38 +39,19 @@ class _StderrHandler(StreamHandler):
         return result
 
 
-# The one handler, attached on first use. `addHandler` ignores a handler the
-# logger already has, and checks under the logging module's own lock, so two
-# clients built at the same moment cannot attach two. That is why the SDK
-# takes no lock of its own: one would have to be reset after a fork, and be
-# taken in the same order as the logging module's.
 _HANDLER = _StderrHandler()
 _HANDLER.setFormatter(Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
 
-# The level `get_logger` last put on the logger. A level that differs from it
-# was set by someone else, and is kept (#108 review).
+# The level `get_logger` last applied; any other level was set elsewhere and is kept.
 _applied_level = NOTSET
 
 
 def get_logger() -> Logger:
-    """The SDK's logger, with one stream handler for the whole process.
+    """Return the SDK's logger, ``marketdata.logger``.
 
-    Every client built without a ``logger=`` asks for it. The handler is
-    attached only when the logger has none: a handler per call wrote every
-    record once per client built (#104), and a handler the caller attached to
-    ``marketdata.logger`` before the first client stands in for it.
-
-    The SDK's handler takes its level from the settings on every call, as each
-    new handler used to, and so does the logger, unless a level was set on it
-    by someone else since: an application that set ``marketdata.logger`` to
-    ``DEBUG`` got ``WARNING`` back from the next client built, and the
-    handlers it had attached lost that logger's records below ``WARNING``
-    (#108 review). A level set above the settings' drops the records below
-    it before any handler sees them, the SDK's included. Two limits. A level
-    set only on a parent logger (``marketdata``, or the root through
-    ``basicConfig``) is not inherited, since the SDK gives its own logger the
-    settings' level while it has none. And a level set to the one the SDK
-    applied cannot be told apart from it, so it keeps following the settings.
+    Attaches the shared stderr handler when the logger has none. The handler's
+    level follows the settings on every call, and so does the logger's unless
+    another level was set on it.
     """
     global _applied_level
     level = settings.marketdata_logging_level
