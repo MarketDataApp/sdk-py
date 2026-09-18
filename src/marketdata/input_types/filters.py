@@ -120,7 +120,8 @@ def _within_one(rendered: str, argument: str) -> str:
     ``argument`` names the value in the error message. Raises ``ValueError`` if
     it is outside.
     """
-    if abs(Decimal(rendered)) > 1:
+    # `copy_abs` is exact under any decimal context, where `abs()` rounds to it.
+    if Decimal(rendered).copy_abs() > 1:
         raise ValueError(
             f"{argument} is out of range ({rendered}): a delta is between -1 and 1"
         )

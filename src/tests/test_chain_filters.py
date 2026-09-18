@@ -2,7 +2,7 @@
 
 import subprocess
 import sys
-from decimal import Decimal
+from decimal import Context, Decimal, Rounded, localcontext
 from fractions import Fraction
 
 import pytest
@@ -375,6 +375,8 @@ def test_a_signed_zero_is_zero():
 
 
 OUT_OF_RANGE = "is out of range ({}): a delta is between -1 and 1"
+# more significant digits than the default decimal context keeps
+LONG_ABOVE_ONE = "1." + "0" * 28 + "1"
 TOO_LARGE = pytest.mark.parametrize(
     ("outside", "shown"),
     [
@@ -383,6 +385,7 @@ TOO_LARGE = pytest.mark.parametrize(
         (Decimal("30"), "30"),
         # checked on the digits written, though a float reads them as 1.0
         (Decimal("1.0000000000000001"), "1.0000000000000001"),
+        (Decimal(LONG_ABOVE_ONE), LONG_ABOVE_ONE),
     ],
 )
 
@@ -422,7 +425,14 @@ def test_a_delta_above_one_is_refused_by_every_constructor(
     assert str(refusal.value) == f"{argument} " + OUT_OF_RANGE.format(shown)
 
 
-@pytest.mark.parametrize(("outside", "shown"), [(-1.0001, "-1.0001"), (-30, "-30")])
+@pytest.mark.parametrize(
+    ("outside", "shown"),
+    [
+        (-1.0001, "-1.0001"),
+        (-30, "-30"),
+        (Decimal("-" + LONG_ABOVE_ONE), "-" + LONG_ABOVE_ONE),
+    ],
+)
 @pytest.mark.parametrize(
     "build",
     [
@@ -488,7 +498,13 @@ def test_a_delta_expression_is_not_checked_against_the_range():
 
 @pytest.mark.parametrize(
     ("outside", "shown"),
-    [(30, "30"), (-30, "-30"), (1.0001, "1.0001"), (Decimal("30"), "30")],
+    [
+        (30, "30"),
+        (-30, "-30"),
+        (1.0001, "1.0001"),
+        (Decimal("30"), "30"),
+        (Decimal(LONG_ABOVE_ONE), LONG_ABOVE_ONE),
+    ],
 )
 @EVERY_FORMAT
 def test_a_bare_delta_outside_minus_one_to_one_never_reaches_a_request(
@@ -504,3 +520,23 @@ def test_a_bare_delta_outside_minus_one_to_one_never_reaches_a_request(
     assert "delta " + OUT_OF_RANGE.format(shown) in str(refusal.value)
     # the client fixture makes its own startup call
     assert not [c for c in respx_mock.calls if "/options/chain/" in str(c.request.url)]
+
+
+@pytest.mark.parametrize(
+    "context",
+    [Context(prec=6), Context(prec=6, traps=[Rounded])],
+    ids=["prec_6", "rounded_trapped"],
+)
+@pytest.mark.parametrize("outside", ["1.0000001", "-1.0000001"])
+def test_a_delta_is_checked_the_same_under_the_callers_decimal_context(
+    context, outside
+):
+    with localcontext(context):
+        with pytest.raises(ValueError) as refusal:
+            DeltaFilter.nearest(Decimal(outside))
+        with pytest.raises(ValidationError) as bare_refusal:
+            OptionsChainInput(delta=Decimal(outside))
+
+    message = "delta " + OUT_OF_RANGE.format(outside)
+    assert str(refusal.value) == message
+    assert message in str(bare_refusal.value)
