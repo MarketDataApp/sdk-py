@@ -842,9 +842,7 @@ def test_every_money_case_lists_its_dates():
 
 @pytest.mark.parametrize("name", MONEY_CASES)
 def test_a_spreadsheet_date_still_reads(respx_mock, client, name):
-    """Under `dateformat=spreadsheet` a date is a number with a fraction, so
-    the exact parse makes it a Decimal, which `format_timestamp` does not
-    read. The model gives it back its float before formatting it."""
+    """Under `dateformat=spreadsheet` a fractional date still formats as a datetime."""
     case = MONEY_CASES[name]
     data = _load_fixture(case.fixture)
     for key in DATE_KEYS[name]:

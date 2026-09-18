@@ -885,11 +885,7 @@ def test_rate_limits_use_the_api_credits_nomenclature():
 
 
 def test_options_no_longer_carries_the_deprecated_strikes_surface(client):
-    """#73: `/v1/options/strikes/` is deprecated, so 2.0.0 drops the method
-    that calls it. The endpoint still answers and the SDK still has every
-    piece it was built from, so this test is what says the absence is meant:
-    the options chain carries the strike filters and answers the same
-    strikes."""
+    """The absence is deliberate: strike lists come from `options.chain`."""
     assert not hasattr(client.options, "strikes")
     with pytest.raises(AttributeError, match="strikes"):
         client.options.strikes("AAPL")
