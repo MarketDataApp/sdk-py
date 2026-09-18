@@ -604,13 +604,7 @@ def test_merge_of_nothing_is_a_value_error():
 def test_a_request_id_the_api_sent_blank_reads_as_no_id(
     respx_mock, real_headers, sent, reason, output_format, library, tmp_path
 ):
-    """`None` is how this dataclass says it does not have a value, and a
-    blank `cf-ray` is a value it does not have: `""` would read as an id to
-    a caller pasting it into a ticket (#114).
-
-    The absent case answered `None` before this change too; it is here so the
-    three ways an answer can carry no id are pinned as one behavior rather
-    than two that happen to agree."""
+    """A blank, whitespace-only or absent `cf-ray` reads as `None`."""
     client = real_headers
     headers = credit_headers(1, 99)
     if sent is None:

@@ -104,12 +104,7 @@ class BaseMarketdataException(Exception):
 
 
 def _request_id(response: Response | None) -> str:
-    """The id for a support ticket, or ``N/A`` when the answer carries none.
-
-    A blank ``cf-ray`` is no id: rendering it would print ``request_id:``
-    followed by nothing, which reads as a bug in the block rather than as an
-    absent id (#114).
-    """
+    """The response's ``cf-ray`` request id, or ``N/A`` when there is none."""
     return read_header(response, HEADER_REQUEST_ID) or NOT_AVAILABLE
 
 

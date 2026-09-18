@@ -569,9 +569,6 @@ def test_client_pre_and_post_request_logs(client, respx_mock):
 def test_the_response_log_line_names_the_request_id_or_says_n_a(
     client, respx_mock, headers, expected, reason
 ):
-    """The log line is read by a person looking for the id to quote. Without
-    a usable one it used to print the word `None`, or a gap where a blank
-    header was, neither of which is an id (#114)."""
     respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
         json={}, status_code=200, headers=headers
     )
@@ -580,8 +577,7 @@ def test_the_response_log_line_names_the_request_id_or_says_n_a(
         client.stocks.prices(symbols="AAPL")
 
     message = logged.call_args.args[1]
-    # Anchored on the URL that follows: `f" {expected} "` alone is satisfied by
-    # an untrimmed id, since " abc " sits inside "  abc  " (#114, second pass).
+    # Anchored on the URL: " abc " alone also matches an untrimmed "  abc  ".
     assert f" {expected} https://" in message, reason
     assert "None" not in message
 

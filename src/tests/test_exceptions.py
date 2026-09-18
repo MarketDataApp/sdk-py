@@ -207,9 +207,6 @@ def test_validation_errors_raise_before_any_request(respx_mock, client):
 def test_an_answer_with_no_usable_request_id_reports_it_as_not_available(
     headers, reason
 ):
-    """A blank `cf-ray` is not an id (#114). Rendering it printed
-    `request_id:` followed by nothing, which reads as a bug in the block
-    rather than as an answer that carried no id."""
     error = RateLimitError(
         "Rate limit exceeded",
         response=Response(429, headers=headers, request=REQUEST),
@@ -240,9 +237,7 @@ def test_an_answer_with_no_usable_request_id_reports_it_as_not_available(
 def test_a_failed_call_with_no_usable_request_id_reports_it_as_not_available(
     respx_mock, client, output_format, headers, reason
 ):
-    """The same answer through the client, on every output format: the block a
-    caller pastes into a ticket is built from the response the resource got
-    back (#114). A CSV call gets the API's CSV error body."""
+    """A CSV call gets the API's CSV error body."""
     errmsg = "Bad parameters, please check API documentation."
 
     def answer(request):
@@ -268,8 +263,6 @@ def test_a_failed_call_with_no_usable_request_id_reports_it_as_not_available(
 
 
 def test_a_request_id_keeps_the_spacing_the_api_sent_inside_it():
-    """Only the ends are trimmed: the id itself is quoted verbatim in a
-    ticket, so nothing inside it is rewritten."""
     error = RateLimitError(
         "Rate limit exceeded",
         response=Response(
