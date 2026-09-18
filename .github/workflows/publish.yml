@@ -164,7 +164,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@v1.14.2
         with:
           repository-url: https://test.pypi.org/legacy/
-          # Lets a re-run after a failed PyPI upload skip what TestPyPI already has.
+          # TestPyPI only: a re-run skips what it already has, while a duplicate on PyPI still fails.
           skip-existing: true
 
   publish-pypi:

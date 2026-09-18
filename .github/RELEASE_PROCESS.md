@@ -136,7 +136,8 @@ must not be a way around them: it resolves the tag to a commit once, refuses one
 does not contain or whose CHANGELOG has no `## [X.Y.Z] - YYYY-MM-DD` section with a `- `
 entry, runs the suite and the live suite on that commit, and checks the version against
 `pyproject.toml` before it uploads.
-What it cannot do is check anything before the tag exists.
+What it cannot do is check anything before the tag exists, so the commands below run the
+same CHANGELOG check first and only tag when it passes.
 
 ```bash
 git fetch --tags && git tag -l "vX.Y.Z"     # must print nothing
@@ -146,10 +147,11 @@ awk -v prefix="## [X.Y.Z] - " '
   found && /^## \[/ { exit }
   found { print }
 ' CHANGELOG.md > release-notes.md
-grep -c '^- [^[:space:]]' release-notes.md  # must not print 0
-git tag -a vX.Y.Z -m "Version X.Y.Z"
-git push origin vX.Y.Z
-gh release create vX.Y.Z --title "Version X.Y.Z" --notes-file release-notes.md
+grep -q '^- [^[:space:]]' release-notes.md \
+  && git tag -a vX.Y.Z -m "Version X.Y.Z" \
+  && git push origin vX.Y.Z \
+  && gh release create vX.Y.Z --title "Version X.Y.Z" --notes-file release-notes.md \
+  && rm release-notes.md
 ```
 
 ## 5. Post-release checks
