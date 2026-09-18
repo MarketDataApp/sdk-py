@@ -376,7 +376,14 @@ def test_a_signed_zero_is_zero():
 
 OUT_OF_RANGE = "is out of range ({}): a delta is between -1 and 1"
 TOO_LARGE = pytest.mark.parametrize(
-    ("outside", "shown"), [(1.0001, "1.0001"), (30, "30"), (Decimal("30"), "30")]
+    ("outside", "shown"),
+    [
+        (1.0001, "1.0001"),
+        (30, "30"),
+        (Decimal("30"), "30"),
+        # checked on the digits written, though a float reads them as 1.0
+        (Decimal("1.0000000000000001"), "1.0000000000000001"),
+    ],
 )
 
 
