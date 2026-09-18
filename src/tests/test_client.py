@@ -1,4 +1,5 @@
 import datetime
+import importlib
 import os
 import time
 from dataclasses import fields
@@ -9,6 +10,7 @@ import pytest
 import pytz
 from httpx import Request, Response
 
+import marketdata.input_types.options as options_input_types
 from marketdata.client import MarketDataClient
 from marketdata.exceptions import BadRequestError, RateLimitError, ServerError
 from marketdata.input_types.base import OutputFormat
@@ -880,3 +882,22 @@ def test_rate_limits_use_the_api_credits_nomenclature():
     assert str(rate_limits) == (
         f"Credits used 50/100, remaining: 50, reset at: {rate_limits.reset_time.isoformat()}"
     )
+
+
+def test_options_no_longer_carries_the_deprecated_strikes_surface(client):
+    """The absence is deliberate: strike lists come from `options.chain`."""
+    assert not hasattr(client.options, "strikes")
+    with pytest.raises(AttributeError, match="strikes"):
+        client.options.strikes("AAPL")
+
+    for module in (
+        "marketdata.resources.options.strikes",
+        "marketdata.output_types.options_strikes",
+    ):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(module)
+
+    assert not hasattr(options_input_types, "OptionsStrikesInput")
+    assert sorted(
+        name for name in vars(type(client.options)) if not name.startswith("_")
+    ) == ["chain", "expirations", "lookup", "quotes"]
