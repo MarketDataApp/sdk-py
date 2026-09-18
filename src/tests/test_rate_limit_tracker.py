@@ -3,6 +3,8 @@
 import random
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
+
 from marketdata.rate_limit_tracker import RateLimitTracker
 from marketdata.types import UserRateLimits
 
@@ -66,6 +68,35 @@ def test_reset_bypasses_the_ordering_rule():
 
     tracker.reset()
     assert tracker.state is None
+
+
+def test_an_authoritative_update_goes_past_the_ordering_rule():
+    """A higher balance replaces the state; a zero-limit envelope is still refused."""
+    tracker = RateLimitTracker()
+    tracker.update(limits(10))
+
+    tracker.update(limits(95), authoritative=True)
+    assert tracker.state == limits(95)
+
+    tracker.update(UserRateLimits(0, 0, RESET, 0), authoritative=True)
+    assert tracker.state == limits(95)
+
+
+@pytest.mark.parametrize(
+    "state",
+    [limits(95), limits(1), limits(50, reset=RESET - 3600), limits(10)],
+    ids=["a higher balance", "a lower one", "an older window", "the same state"],
+)
+def test_an_authoritative_update_leaves_what_reset_leaves(state):
+    seeded = RateLimitTracker()
+    seeded.update(limits(10))
+    seeded.update(state, authoritative=True)
+
+    directly = RateLimitTracker()
+    directly.update(limits(10))
+    directly.reset(state)
+
+    assert seeded.state == directly.state == state
 
 
 def test_concurrent_updates_end_at_the_lowest_balance():
