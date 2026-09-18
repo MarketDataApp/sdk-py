@@ -1,0 +1,81 @@
+name: Build
+
+# Builds the wheel and the sdist of one commit, checks that both carry the
+# version being released, and uploads them as the `dist` artifact.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to build.
+        required: true
+        type: string
+      version:
+        description: The version that commit must declare, without a `v`.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the commit being released
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Build package
+        run: uv build
+
+      - name: Check the build carries the version this release names
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          declared=$(python -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])")
+          echo "asked for: ${VERSION}"
+          echo "pyproject.toml declares: ${declared}"
+          if [ "$declared" != "$VERSION" ]; then
+            echo "::error::pyproject.toml declares ${declared}, and this release is ${VERSION}. Bump the version in a pull request before releasing."
+            exit 1
+          fi
+          ls -l dist/
+          if ! ls dist/*.whl | grep -qF "marketdata_sdk_py-${VERSION}-"; then
+            echo "::error::No wheel in dist/ carries version ${VERSION}."
+            exit 1
+          fi
+          if [ ! -f "dist/marketdata_sdk_py-${VERSION}.tar.gz" ]; then
+            echo "::error::No sdist in dist/ carries version ${VERSION}."
+            exit 1
+          fi
+          # Everything in dist/ is uploaded, so nothing else may be there.
+          for file in dist/*; do
+            case "${file#dist/}" in
+              "marketdata_sdk_py-${VERSION}-"*.whl | "marketdata_sdk_py-${VERSION}.tar.gz") ;;
+              *)
+                echo "::error::dist/ also holds ${file#dist/}, which is not a ${VERSION} wheel or sdist."
+                exit 1
+                ;;
+            esac
+          done
+
+      - name: Hand the files to the upload jobs
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error

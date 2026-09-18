@@ -1,35 +1,24 @@
 name: Publish to PyPI
 
-# Two triggers:
-# - `tag-and-release` calls this workflow after its own gate and tag, since a
-#   release created with `GITHUB_TOKEN` starts no workflow run.
-# - A release published by hand fires `release`; `resolve` and `gate` then run
-#   the same checks and the suite on the tagged commit before any upload.
+# A release published by hand: resolve its tag to a commit, run the checks and
+# the suite on it, build it once and upload that build to TestPyPI and PyPI.
 # No `workflow_dispatch`: it would upload to TestPyPI, where versions are
 # permanent, with no gate.
 on:
   release:
     types: [published]
-  workflow_call:
-    inputs:
-      ref:
-        description: The commit to build and publish.
-        required: true
-        type: string
-      version:
-        description: The version that commit must declare, without a `v`.
-        required: true
-        type: string
+
+permissions:
+  contents: read
 
 jobs:
-  # `resolve` and `gate` run only for a release published by hand.
   resolve:
     name: Resolve the tag and check what it names
-    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
+      version: ${{ steps.commit.outputs.version }}
     steps:
       - name: Checkout the tag
         uses: actions/checkout@v7
@@ -92,19 +81,29 @@ jobs:
             echo "::error::CHANGELOG.md has no section headed ## [${version}] - YYYY-MM-DD with at least one '- ' entry."
             exit 1
           fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
   gate:
     name: The suite, on the commit being published
     needs: resolve
-    if: github.event_name == 'release'
     uses: ./.github/workflows/test.yml
     with:
       ref: ${{ needs.resolve.outputs.sha }}
       run_integration: true
     secrets: inherit
 
+  build:
+    name: Build the commit being published
+    needs: [resolve, gate]
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+      version: ${{ needs.resolve.outputs.version }}
+
+  # Top-level on purpose: PyPI refuses Trusted Publishing from a called workflow.
   publish-testpypi:
     name: Publish to TestPyPI
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -112,53 +111,12 @@ jobs:
       url: https://test.pypi.org/p/marketdata-sdk-py/
     permissions:
       id-token: write
-    needs: [resolve, gate]
-    # Both are skipped when this workflow is called, and a skipped dependency
-    # skips this job by default, so the condition lists the results that may
-    # publish.
-    if: >-
-      ${{ !cancelled()
-      && (needs.resolve.result == 'success' || needs.resolve.result == 'skipped')
-      && (needs.gate.result == 'success' || needs.gate.result == 'skipped') }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
+      - name: Download the build
+        uses: actions/download-artifact@v8
         with:
-          # The SHA the gate tested, from the caller or from `resolve`.
-          ref: ${{ inputs.ref || needs.resolve.outputs.sha }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
-        with:
-          version: "latest"
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Build package
-        run: uv build
-
-      - name: Check the build carries the version this release names
-        env:
-          # A release published by hand names its version in the tag.
-          ASKED: ${{ inputs.version || github.event.release.tag_name }}
-        run: |
-          # The version in pyproject.toml is static; this is what ties it to the release.
-          expected="${ASKED#v}"
-          declared=$(python -c "import pathlib, tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])")
-          echo "asked for: ${expected}"
-          echo "pyproject.toml declares: ${declared}"
-          if [ "$declared" != "$expected" ]; then
-            echo "::error::pyproject.toml declares ${declared}, and this release is ${expected}. Bump the version in a pull request before releasing."
-            exit 1
-          fi
-          ls -l dist/
-          if ! ls dist/*.whl | grep -qF "marketdata_sdk_py-${declared}-"; then
-            echo "::error::No wheel in dist/ carries version ${declared}."
-            exit 1
-          fi
+          name: dist
+          path: dist/
 
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@v1.14.2
@@ -169,6 +127,8 @@ jobs:
 
   publish-pypi:
     name: Publish to PyPI
+    # TestPyPI first: a build it rejects never reaches PyPI.
+    needs: publish-testpypi
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -176,29 +136,12 @@ jobs:
       url: https://pypi.org/project/marketdata-sdk-py/
     permissions:
       id-token: write
-    # TestPyPI first: a build it rejects never reaches PyPI.
-    needs: [resolve, publish-testpypi]
-    if: >-
-      ${{ !cancelled() && needs.publish-testpypi.result == 'success'
-      && (needs.resolve.result == 'success' || needs.resolve.result == 'skipped') }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
+      - name: Download the build
+        uses: actions/download-artifact@v8
         with:
-          ref: ${{ inputs.ref || needs.resolve.outputs.sha }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
-        with:
-          version: "latest"
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Build package
-        run: uv build
+          name: dist
+          path: dist/
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.14.2

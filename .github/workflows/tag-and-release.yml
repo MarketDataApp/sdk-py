@@ -1,9 +1,9 @@
 name: Tag and release
 
 # The release path (SDK requirements §17.5): validate, run the suite and the
-# live suite on one commit, tag it, create the GitHub release, publish to PyPI
-# and install the published version back. Manual dispatch only, confirmed by
-# typing RELEASE.
+# live suite on one commit, build it, tag it, create the GitHub release, upload
+# the build to TestPyPI and PyPI and install the published version back. Manual
+# dispatch only, confirmed by typing RELEASE.
 #
 # The version is not set here: the release pull request bumps `pyproject.toml`
 # and promotes `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, and `validate`
@@ -140,9 +140,17 @@ jobs:
     # MARKETDATA_TOKEN for the live suite, CODECOV_TOKEN for the coverage upload.
     secrets: inherit
 
+  build:
+    name: Build the commit being released
+    needs: [validate, gate]
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.validate.outputs.sha }}
+      version: ${{ inputs.version }}
+
   release:
     name: Tag the commit and create the release
-    needs: [validate, gate]
+    needs: [validate, gate, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -177,6 +185,7 @@ jobs:
 
       - name: Create the tag and the release
         env:
+          # GITHUB_TOKEN on purpose: a release it creates starts no `publish.yml` run.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
           SHA: ${{ needs.validate.outputs.sha }}
@@ -192,24 +201,55 @@ jobs:
             --notes-file release-notes.md \
             "$flag"
 
-  publish:
-    name: Publish to PyPI
-    needs: [validate, release]
+  # Top-level on purpose: PyPI refuses Trusted Publishing from a called workflow.
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/marketdata-sdk-py/
     permissions:
-      # Trusted publishing: the OIDC token authorises the upload.
       id-token: write
-      contents: read
-    # A release created with GITHUB_TOKEN starts no workflow run, so
-    # `publish.yml` is called here instead of by its `release` trigger.
-    uses: ./.github/workflows/publish.yml
-    with:
-      ref: ${{ needs.validate.outputs.sha }}
-      version: ${{ inputs.version }}
-    secrets: inherit
+    steps:
+      - name: Download the build
+        uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # TestPyPI only: a re-run skips what it already has, while a duplicate on PyPI still fails.
+          skip-existing: true
+
+  publish-pypi:
+    name: Publish to PyPI
+    # TestPyPI first: a build it rejects never reaches PyPI.
+    needs: publish-testpypi
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/project/marketdata-sdk-py/
+    permissions:
+      id-token: write
+    steps:
+      - name: Download the build
+        uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@v1.14.2
 
   verify:
     name: Verify the published version
-    needs: [validate, release, publish]
+    needs: publish-pypi
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

@@ -37,7 +37,8 @@ matter here are therefore about how the library treats *its consumers*:
   hostile or malformed API responses without arbitrary code execution, resource
   exhaustion, or crashes that a consumer can't defend against.
 - **Supply-chain integrity of the published artifact** — the build and PyPI
-  publish pipeline (`publish.yml`, which uses trusted publishing / OIDC), and the
+  publish pipeline (`tag-and-release.yml`, `publish.yml` and the `build.yml` they
+  share; the uploads use trusted publishing / OIDC), and the
   dependency tree of the shipped wheel and sdist.
 
 Out of scope:
@@ -130,9 +131,9 @@ A fix is **Tier 2** if it does any of the following:
 
 Tiering governs *what* may be changed; the repo's normal release rules govern
 *what ships to consumers*. A Tier 1 fix may be committed to a branch and merged
-via the usual PR flow. **Publishing a release to PyPI** — dispatching
-`tag-and-release`, which asks for `RELEASE` to be typed and then calls the
-publish pipeline (`publish.yml`), or creating a GitHub release by hand, which
-starts the same pipeline — requires explicit maintainer confirmation, exactly
-like every other release. Automated agents never
+via the usual PR flow. **Publishing a release to PyPI** requires explicit
+maintainer confirmation, exactly like every other release, whichever way it
+starts: dispatching `tag-and-release`, which asks for `RELEASE` to be typed and
+then uploads from its own jobs, or creating a GitHub release by hand, which
+starts `publish.yml`. Automated agents never
 cut or publish a release on their own.

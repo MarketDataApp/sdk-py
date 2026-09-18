@@ -12,14 +12,16 @@ That has three consequences that shape everything below.
 
 | | |
 |---|---|
-| **The version comes from `pyproject.toml`, not from the tag** | `[project] version = "X.Y.Z"` is a static string (hatchling). Bump it in the release PR: `tag-and-release` refuses to run when that number and the version it was asked for disagree, and `publish.yml` refuses to upload a build that does not carry it (#61). |
+| **The version comes from `pyproject.toml`, not from the tag** | `[project] version = "X.Y.Z"` is a static string (hatchling). Bump it in the release PR: `tag-and-release` refuses to run when that number and the version it was asked for disagree, and the `build` stage refuses a build that does not carry it, before anything is uploaded (#61). |
 | **Publishing is irreversible** | A `(name, version)` pair on PyPI can never be re-uploaded, even after deletion. Yanking hides a version from resolvers; it does not remove it, and anyone who pins it still gets it. |
-| **There is a staging feed** | `publish.yml` uploads to [TestPyPI](https://test.pypi.org/project/marketdata-sdk-py/) first and only continues to PyPI if that succeeds. TestPyPI is a real upload with the same immutability, so a burned version number there is burned there for good. |
+| **There is a staging feed** | Both release paths upload to [TestPyPI](https://test.pypi.org/project/marketdata-sdk-py/) first and only continue to PyPI if that succeeds, with the same files. TestPyPI is a real upload with the same immutability, so a burned version number there is burned there for good. |
 
 Both uploads use **PyPI Trusted Publishing** (OIDC). There is no API token secret in this
-repository, and no `UV_PUBLISH_PASSWORD` is involved in CI. The GitHub environments
-`pypi` and `testpypi` exist for this purpose and currently carry **no protection rules**,
-so neither upload waits for a reviewer.
+repository, and no `UV_PUBLISH_PASSWORD` is involved in CI. PyPI refuses a Trusted
+Publishing upload made from inside a called (reusable) workflow, so each release path
+uploads from jobs of its own workflow file, and each index trusts both files (§6). The
+GitHub environments `pypi` and `testpypi` exist for this purpose and currently carry **no
+protection rules**, so neither upload waits for a reviewer.
 
 > `publish.sh` in the repository root is a **local, interactive** fallback that publishes
 > with `uv publish` and your own PyPI token. It is not what CI runs and should not be the
@@ -106,10 +108,12 @@ What runs, in order:
 
 | Stage | What it does |
 |---|---|
-| `validate` | Before any runner time is spent: `confirm` is `RELEASE`, the version is well formed, the tag `vX.Y.Z` does not exist, `pyproject.toml` declares exactly that version, and `CHANGELOG.md` has a section headed exactly `## [X.Y.Z] - YYYY-MM-DD` with at least one `- ` entry. It prints the notes it extracted |
-| `gate` | Calls `test.yml` on that ref with `run_integration: true`: the suite on Python 3.10, 3.11 and 3.12 **and** the live integration suite, which here must run rather than skip |
-| `release` | Resolves the ref to a commit, checks the tag again in case one appeared while the suite ran, and creates the tag and the GitHub Release on that commit, titled `Version X.Y.Z`, with the notes from the CHANGELOG |
-| `publish` | Calls `publish.yml` on that commit: TestPyPI first, then PyPI, both through Trusted Publishing. It refuses to upload a build whose version is not the one asked for. Its own gate is skipped here, since `gate` above already ran the suite on this commit |
+| `validate` | Resolves `ref` to a commit and refuses one `main` does not contain; every later stage takes that commit. Before any runner time is spent: `confirm` is `RELEASE`, the version is well formed, the tag `vX.Y.Z` does not exist, `pyproject.toml` declares exactly that version, and `CHANGELOG.md` has a section headed exactly `## [X.Y.Z] - YYYY-MM-DD` with at least one `- ` entry. It prints the notes it extracted |
+| `gate` | Calls `test.yml` on that commit with `run_integration: true`: the suite on Python 3.10, 3.11 and 3.12 **and** the live integration suite, which here must run rather than skip |
+| `build` | Calls `build.yml` on that commit: one `uv build`, a check that `pyproject.toml` declares the version and that the wheel and the sdist carry it, and the two files kept as the run's `dist` artifact. A broken build stops the run here, before the tag exists |
+| `release` | Checks the tag again in case one appeared while the suite ran, and creates the tag and the GitHub Release on that commit, titled `Version X.Y.Z`, with the notes from the CHANGELOG. It does so with `GITHUB_TOKEN`, so the release starts no `publish.yml` run |
+| `publish-testpypi` | Uploads the files in `dist` to TestPyPI through Trusted Publishing, in the `testpypi` environment. Files TestPyPI already has are skipped |
+| `publish-pypi` | Uploads the same files to PyPI through Trusted Publishing, in the `pypi` environment, once TestPyPI has accepted them |
 | `verify` | Polls PyPI for the version, then installs it into a throwaway environment and reads its version back |
 
 Two things the workflow does not do, on purpose:
@@ -126,16 +130,22 @@ button only appears for workflows on the default branch, though it then runs the
 the branch you pick. So a change to the release path can be rehearsed from a branch, but
 only up to the point where it would create the tag.
 
-> **The point of no return is the `publish` stage.** Everything before it can be re-run;
-> a `(name, version)` pair on PyPI, and on TestPyPI, is permanent (§1).
+> **The point of no return is the first upload, `publish-testpypi`.** Everything before it
+> can be re-run; a `(name, version)` pair on PyPI, and on TestPyPI, is permanent (§1).
 
 If the workflow itself is broken, the manual path still works: tag the commit, push the
 tag, and create the Release. The `release: published` event starts `publish.yml`, which
 carries the same gates on that path, since a release anyone with write access can create
-must not be a way around them: it resolves the tag to a commit once, refuses one `main`
-does not contain or whose CHANGELOG has no `## [X.Y.Z] - YYYY-MM-DD` section with a `- `
-entry, runs the suite and the live suite on that commit, and checks the version against
-`pyproject.toml` before it uploads.
+must not be a way around them:
+
+| Stage | What it does |
+|---|---|
+| `resolve` | Resolves the tag to a commit once, and refuses a tag that is not `v` plus a version spelled the way pip serves it, a commit `main` does not contain, or a CHANGELOG with no `## [X.Y.Z] - YYYY-MM-DD` section with a `- ` entry |
+| `gate` | Calls `test.yml` on that commit with `run_integration: true`, as the dispatch does |
+| `build` | Calls the same `build.yml` on that commit, with the version the tag names |
+| `publish-testpypi` | Uploads the files in `dist` to TestPyPI, skipping files it already has |
+| `publish-pypi` | Uploads the same files to PyPI, once TestPyPI has accepted them |
+
 What it cannot do is check anything before the tag exists, so the commands below run the
 same CHANGELOG check first and only tag when it passes.
 
@@ -157,7 +167,9 @@ grep -q '^- [^[:space:]]' release-notes.md \
 ## 5. Post-release checks
 
 1. The GitHub Release exists, with notes matching the `CHANGELOG.md` section.
-2. Both `publish.yml` jobs succeeded, and neither was skipped unexpectedly.
+2. Both upload jobs, `publish-testpypi` and `publish-pypi`, succeeded, and neither was
+   skipped unexpectedly. They are in the `tag-and-release` run, or in the `publish.yml` run
+   for a release cut by hand.
 3. PyPI serves the new version:
 
    ```bash
@@ -199,6 +211,22 @@ grep -q '^- [^[:space:]]' release-notes.md \
 
 `tag-and-release.yml` closed the gap this section used to describe (#61). What is left:
 
+- **PyPI and TestPyPI each need two Trusted Publishers, four in total.** PyPI matches an
+  upload to a publisher by the workflow file that runs the upload job and by its
+  environment, and each release path uploads from its own file:
+
+  | Index | Owner | Repository | Workflow | Environment |
+  |---|---|---|---|---|
+  | PyPI | `MarketDataApp` | `sdk-py` | `publish.yml` | `pypi` |
+  | PyPI | `MarketDataApp` | `sdk-py` | `tag-and-release.yml` | `pypi` |
+  | TestPyPI | `MarketDataApp` | `sdk-py` | `publish.yml` | `testpypi` |
+  | TestPyPI | `MarketDataApp` | `sdk-py` | `tag-and-release.yml` | `testpypi` |
+
+  The two for `publish.yml` are the ones the 1.x releases went through; an owner should
+  confirm they name these environments. The two for `tag-and-release.yml` have to be added
+  by a project owner, under *Publishing* in the project's settings on pypi.org and on
+  test.pypi.org, **before** `tag-and-release.yml` reaches `main`: a missing or mistyped one
+  fails `publish-testpypi` after the tag and the GitHub Release already exist.
 - **The gates in this repository are only as good as the environment settings.** The
   `pypi` and `testpypi` environments accept a deployment from any branch and ask no
   reviewer. A `workflow_dispatch` runs the copy of the workflow on the branch it is
@@ -216,19 +244,21 @@ grep -q '^- [^[:space:]]' release-notes.md \
   - **Who can create `v*` tags**, through a tag ruleset limited to maintainers, so the
     reviewer is not the only thing between a pushed tag and the `pypi` environment.
 - **Coverage is not enforced anywhere** (see the note at the end of §7).
-- **A half-finished release is recovered by hand.** If `publish` fails after the tag and
-  the Release exist, the release is real and the files are not. Dispatching
+- **A half-finished release is recovered by hand.** If an upload job fails after the tag
+  and the Release exist, the release is real and the files are not. Dispatching
   `tag-and-release` again does not help: it refuses the tag that now exists. Fix the
-  cause, then either re-run the failed jobs of that run, or delete the GitHub Release and
-  create it again from the same tag, which starts `publish.yml` through its `release`
-  trigger and runs its gate again on the way. The TestPyPI leg skips files it already
+  cause, then either re-run the failed jobs of that run, which uploads the same `dist`
+  files the build checked (GitHub allows a re-run for 30 days, and the artifact lasts as
+  long as the repository keeps artifacts), or delete the GitHub Release and create it
+  again from the same tag, which starts `publish.yml` through its `release` trigger and
+  runs its gate and its build again on the way. The TestPyPI leg skips files it already
   uploaded, so a second attempt reaches PyPI.
 
 ## 7. Repository state this process assumes
 
 | Item | State |
 |---|---|
-| PyPI Trusted Publishing | configured, through the `pypi` and `testpypi` environments; no API token secret is stored |
+| PyPI Trusted Publishing | four publishers, `publish.yml` and `tag-and-release.yml` on each index, through the `pypi` and `testpypi` environments (§6); no API token secret is stored |
 | `pypi` / `testpypi` environment protection rules | **none** — no reviewer stands between a published Release and PyPI |
 | `MARKETDATA_TOKEN` secret | present; consumed by the `integration` job in `test.yml` |
 | Live integration suite | present: `src/tests/integration/`, one live test per endpoint, runs on every pull request that changes something other than documentation; a missing token fails the job |
