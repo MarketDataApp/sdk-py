@@ -651,9 +651,7 @@ CALL_ROW = (
 PUT_ROW = CALL_ROW.replace("AAPL271217C00255000", "AAPL271217P00255000").replace(
     ",call,", ",put,"
 )
-# A byte order mark built here rather than imported from `utils`: a test that
-# takes the mark from the code under test cannot tell a wrong constant from a
-# right one, because the body and the strip move together (#109).
+# Built here, not imported from utils, so a wrong constant there fails these tests.
 BOM = chr(0xFEFF)
 
 CSV_PLACEHOLDER = '0\r\n""\r\n'
@@ -786,8 +784,7 @@ def test_options_quotes_csv_body_the_csv_module_cannot_read_is_a_parse_error(
 def test_options_quotes_csv_leaves_out_a_symbol_with_no_data(
     respx_mock, client, tmp_path, mark
 ):
-    """Issue #89: the API's CSV placeholder for an empty symbol is a 200; it
-    must be skipped like a JSON 404 no_data, not merged, not an error."""
+    """The 200 CSV placeholder, with or without a BOM, is skipped like a JSON 404."""
     respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
     respx_mock.get(PUT_URL).respond(text=mark + CSV_PLACEHOLDER)
 
@@ -809,10 +806,7 @@ def test_options_quotes_csv_leaves_out_a_symbol_with_no_data(
 def test_options_quotes_leaves_out_a_placeholder_symbol_on_every_format(
     load_json, respx_mock, client, output_format, mark
 ):
-    """The placeholder rule reads the body, not the format that was asked for
-    (#91), so a symbol answering `""` adds no rows on the decoded formats too,
-    with a byte order mark in front of it or without one. With the mark, the
-    whole call used to fail with `ParseError` (#109)."""
+    """A symbol answering `""`, with or without a BOM, adds no rows."""
     respx_mock.get(CALL_URL).respond(
         json=load_json("options_quotes_response_200"), status_code=200
     )

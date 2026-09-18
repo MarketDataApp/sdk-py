@@ -442,8 +442,7 @@ CSV_BODY = (
     "1704171600,185.6,186.88,182.36,184.1,82488674\r\n"
     "1704258000,182.69,184.34,181.91,182.72,58414460\r\n"
 )
-# Built here, not imported from `utils`: a test that takes the mark from the
-# code under test cannot tell a wrong constant from a right one (#109).
+# Built here, not imported from utils, so a wrong constant there fails these tests.
 BOM = chr(0xFEFF)
 
 CSV_PLACEHOLDER = '0\r\n""\r\n'
@@ -550,10 +549,7 @@ def test_stocks_candles_csv_chunk_the_csv_module_cannot_read_is_a_parse_error(
 def test_stocks_candles_csv_leaves_out_a_chunk_with_no_data(
     respx_mock, client, tmp_path, mark
 ):
-    """Issue #89: the API's CSV placeholder for an empty chunk is a 200.
-
-    With a byte order mark in front of it the whole call used to fail with
-    `ParseError: unknown columns ['0']` (#109)."""
+    """The 200 CSV placeholder, with or without a BOM, adds no rows to the file."""
     respx_mock.get(HOURLY_URL).mock(
         side_effect=by_chunk(dict(text=mark + CSV_PLACEHOLDER), dict(text=CSV_BODY))
     )
@@ -587,10 +583,7 @@ JSON_CHUNK = {
 def test_stocks_candles_leaves_out_a_placeholder_chunk_on_every_format(
     respx_mock, client, output_format, mark
 ):
-    """The placeholder rule reads the body, not the format that was asked for
-    (#91), so a chunk answering `""` adds no rows on the decoded formats too,
-    with a byte order mark in front of it or without one. With the mark, the
-    whole call used to fail with `ParseError` (#109)."""
+    """A chunk answering `""`, with or without a BOM, adds no rows."""
     respx_mock.get(HOURLY_URL).mock(
         side_effect=by_chunk(dict(text=mark + '""'), dict(json=JSON_CHUNK))
     )

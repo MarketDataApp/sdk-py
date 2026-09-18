@@ -40,9 +40,8 @@ def parse_json(response: Response) -> Any:
 # second shape is also what a one-column, one-row answer with a null value
 # renders as under ``add_headers=False``; the API itself reports an all-null
 # answer as ``no_data`` on the JSON path, so reading it as empty agrees.
-# A byte order mark is not data, wherever the SDK meets one. The API is not
-# what puts it there: a proxy or a spreadsheet-friendly gateway in between is
-# (#93, #109).
+# A byte order mark, which a proxy may put in front of a body. Never data.
+# Built with chr() so no tool can turn an escape into the invisible character.
 BOM = chr(0xFEFF)
 
 _CSV_NO_DATA_BODIES = (["0", '""'], ['""'])
@@ -53,22 +52,14 @@ def is_no_data(response: Response) -> bool:
 
     ``MarketDataClient._raise_for_status`` lets exactly one 404 through: the
     one without an ``errmsg``. In CSV format the same answer arrives as a
-    ``200`` whose body is a placeholder table, because the API drops the
-    status when it renders it (MarketData-App/api#422, #89); that rule can go
-    once the API answers ``404`` for CSV too.
+    ``200`` whose body is a placeholder table; byte order marks in front of
+    it are ignored.
     """
     if response.status_code == 404:
         return True
     if response.status_code not in VALID_STATUS_CODES or len(response.content) > 16:
         return False
-    # A BOM is not data. This was the one CSV reader that matched the
-    # placeholder with one attached, so a body a proxy had marked read as
-    # rows and the fan-outs failed on it (#109). Only what opens the body,
-    # however many marks that is, since `lstrip` takes a set of characters:
-    # one after a blank line is not a byte order mark, and one inside a value
-    # is data. `_csv_rows` goes further and strips the first value after
-    # the parse as well, which the error path needs and this comparison does
-    # not.
+    # Leading marks only: one after a blank line or inside a value is data.
     body = response.text.lstrip(BOM)
     return [line for line in body.splitlines() if line] in _CSV_NO_DATA_BODIES
 
@@ -100,20 +91,9 @@ _CSV_ERROR_MAX_LENGTH = 4096
 def _csv_rows(text: str) -> list[list[str]]:
     """The rows of a CSV body, blank lines dropped and a BOM taken off.
 
-    The error envelope and the fan-out merge both read a body through here, so
-    the two cannot drift apart. It is not every CSV the SDK touches: the ten
-    resources that answer from one request write the body to file unread, and
-    ``is_no_data`` matches the placeholder line by line. ``stocks.candles`` and
-    ``options.quotes`` are not among them: their CSV goes through the merge
-    even when a single request answered it, so their file is re-rendered
-    rather than passed along.
-
-    The text is read with ``newline=""``, as the ``csv`` module prescribes, so
-    a body whose lines end in a lone CR reads as rows instead of raising, and
-    a quoted value keeps the line endings it carries.
-
-    ``csv.Error`` (a field past the reader's size limit, or a NUL byte before
-    Python 3.11) propagates: each caller decides what an unreadable body means.
+    Lines ending in a lone CR read as rows, and a quoted value keeps the line
+    endings it carries. Raises ``csv.Error`` for a body the reader refuses (a
+    field past its size limit, or a NUL byte before Python 3.11).
     """
     # Before the parse, so a BOM does not break the quoting of the first value,
     # and after it, for a body that starts with blank lines.

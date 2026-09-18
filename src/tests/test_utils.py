@@ -392,8 +392,7 @@ def test_parse_csv_errmsg_reports_no_table_when_the_reader_refuses_the_body():
 
 # ----------------------------------------------------------- is_no_data
 
-# Built here, not imported: a test that takes the mark from the code under
-# test cannot tell a wrong constant from a right one (#109).
+# Built here, not imported from utils, so a wrong constant there fails these tests.
 BOM = chr(0xFEFF)
 
 CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
@@ -411,14 +410,11 @@ CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
         (200, "0\r\n", False),
         (200, "", False),
         (500, '0\r\n""\r\n', False),
-        # A byte order mark a proxy put in front of the placeholder (#109).
+        # A byte order mark in front of the placeholder.
         (200, BOM + '0\r\n""\r\n', True),
         (200, BOM + '""\r\n', True),
         (203, BOM + '0\r\n""\r\n', True),
-        # Inside a value it is data, not a mark.
-        # The second row is the one that pins *leading*: a mark that does not
-        # open the body is data, and it is the only case that goes red when the
-        # strip is applied to every line instead of the first (#109).
+        # A mark inside a value is data, and so is one that does not open the body.
         (200, '0\r\n"' + BOM + '"\r\n', False),
         (200, "0\r\n" + BOM + '""\r\n', False),
     ],
