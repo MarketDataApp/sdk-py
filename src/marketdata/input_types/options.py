@@ -1,10 +1,12 @@
 import datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
 from marketdata.input_types.base import BaseInputType, BaseModelConfig
+from marketdata.input_types.filters import _render_number
 
 
 class OptionsExpirationsInput(BaseInputType):
@@ -62,9 +64,22 @@ class OptionsChainInput(BaseInputType):
 
     # Strike filters
     strike: str | None = Field(
-        description="The strike price to filter by", default=None
+        description=(
+            "The strikes to filter by: a price (int, float or Decimal), or an "
+            "expression built with `StrikeFilter` (exact, any_of, between, "
+            "at_least, at_most, above, below, expression)"
+        ),
+        default=None,
     )
-    delta: float | None = Field(description="The delta to filter by", default=None)
+    delta: str | None = Field(
+        description=(
+            "The delta to filter by: a number (int, float or Decimal), or an "
+            "expression built with `DeltaFilter` (nearest, any_of, between, "
+            "at_least, at_most, above, below, expression). The API filters on "
+            "the absolute value and answers both sides"
+        ),
+        default=None,
+    )
     strike_limit: int | None = Field(
         description="The strike limit to filter by", alias="strikeLimit", default=None
     )
@@ -113,6 +128,23 @@ class OptionsChainInput(BaseInputType):
     pm: bool | None = Field(
         description="Whether to include P.M. expirations", default=None
     )
+
+    @field_validator(
+        "strike",
+        "delta",
+        mode="before",
+        json_schema_input_type=str | int | float | Decimal | None,
+    )
+    def _render_number_filter(cls, value: object, info) -> object:
+        """Render a bare number as the text sent, with the checks a filter applies.
+
+        ``None`` and a ``str``, a filter included, pass through as written. The
+        fields hold that text, so they are annotated ``str``; the wider input is
+        declared here. Raises ``ValueError`` for a number ``_render`` refuses.
+        """
+        if value is None or isinstance(value, str):
+            return value
+        return _render_number(value, info.field_name)
 
     @field_validator("expiration")
     def validate_expiration(

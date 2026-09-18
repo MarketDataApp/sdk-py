@@ -196,10 +196,34 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 
 **Strike Filters:**
 
-- `strike` (str, optional): Filter by strike price (e.g., "150", "ATM", "ITM", "OTM")
-- `delta` (float, optional): Filter by delta value
+- `strike` (str | int | float | Decimal, optional): Filter by strike. A number is one
+  strike; a string is the API's expression: `"250,255"` for a set, `"250-260"` for an
+  inclusive range, `">=250"` or `"<250"` for a bound. `StrikeFilter` builds all of
+  them: `StrikeFilter.between(250, 260)`, `StrikeFilter.at_least(250)`. A negative is
+  refused: the API reads a number by its absolute value, so `-250` would answer for
+  `250`. A number is sent as plain digits, never in exponent form, and one a float cannot
+  hold is refused, since the API reads each number with `float()`. A string is passed
+  through as written, so `strike="-250"` still reaches the API
+  and the API decides. The vocabulary of `range` does not belong here: `strike="ITM"` is
+  a `400`
+- `delta` (str | int | float | Decimal, optional): Filter by delta, built the same way
+  with `DeltaFilter`, whose single-value constructor is `nearest` rather than `exact`.
+  Three things the API does with it are worth knowing: it matches the
+  **nearest** delta rather than an exact one, so `DeltaFilter.nearest(0.5)` answers with the
+  closest strike per side and never with nothing; it filters on the **absolute value** and
+  answers both sides, so `0.5` and `-0.5` give the same rows; and a value above 1 is read
+  as a percentage, so `30` means `0.30`. A negative is kept for an exact value and refused
+  in a range or a bound, where the absolute value would change the question. A small delta
+  is sent as plain digits too, `0.00005` rather than `5e-05`: the API answers a query of
+  `delta=5e-05` with a `400`, since it splits that text at its minus. A `bool`, a NaN or an
+  infinity is refused rather than sent, since the API reads `delta=nan` as no filter and
+  answers with the whole chain. The filter is
+  skipped entirely if any contract in the chain carries a null delta, and it is a `400`
+  together with a historical `date`
 - `strike_limit` (int, optional): Limit the number of strikes
-- `range` (str, optional): Strike range filter
+- `range` (str, optional): Moneyness filter. The API reads `itm`, `inthemoney`, `otm`,
+  `outthemoney` and `outofthemoney`; any other value is dropped without an error, so
+  the chain comes back unfiltered
 
 **Price / Liquidity Filters:**
 
@@ -270,19 +294,19 @@ print(chain)
 **Filter by strike and side:**
 
 ```python
-from marketdata import MarketDataClient
+from marketdata import MarketDataClient, StrikeFilter
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
 chain = client.options.chain(
     "AAPL",
-    strike="ATM",
+    strike=StrikeFilter.exact(250),
     side="call"
 )
 # or
 chain = client.options.chain(
     symbol="AAPL",
-    strike="ATM",
+    strike=StrikeFilter.exact(250),
     side="call"
 )
 print(chain)
@@ -322,7 +346,7 @@ client = MarketDataClient()
 chain = client.options.chain(
     "AAPL",
     expiration=datetime.date(2024, 12, 20),
-    strike="ITM",
+    range="itm",
     side="call",
     min_open_interest=100,
     min_volume=50
@@ -331,7 +355,7 @@ chain = client.options.chain(
 chain = client.options.chain(
     symbol="AAPL",
     expiration=datetime.date(2024, 12, 20),
-    strike="ITM",
+    range="itm",
     side="call",
     min_open_interest=100,
     min_volume=50
