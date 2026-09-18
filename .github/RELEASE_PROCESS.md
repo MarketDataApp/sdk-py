@@ -226,7 +226,8 @@ grep -q '^- [^[:space:]]' release-notes.md \
   confirm they name these environments. The two for `tag-and-release.yml` have to be added
   by a project owner, under *Publishing* in the project's settings on pypi.org and on
   test.pypi.org, **before** `tag-and-release.yml` reaches `main`: a missing or mistyped one
-  fails `publish-testpypi` after the tag and the GitHub Release already exist.
+  fails that index's upload job, `publish-testpypi` or `publish-pypi`, after the tag and the
+  GitHub Release already exist.
 - **The gates in this repository are only as good as the environment settings.** The
   `pypi` and `testpypi` environments accept a deployment from any branch and ask no
   reviewer. A `workflow_dispatch` runs the copy of the workflow on the branch it is
