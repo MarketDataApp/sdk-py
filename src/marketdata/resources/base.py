@@ -32,7 +32,7 @@ def model_columns(output_model: type, requested: list[str] | None = None) -> lis
     """List the columns a result of an output model carries.
 
     Args:
-        output_model: An output model dataclass.
+        output_model: An output model.
         requested: The ``columns=`` filter. A name matches a column case- and
             space-insensitively by its column name, its field name or, on a
             human-readable model, the API name at the same position of its
@@ -42,7 +42,8 @@ def model_columns(output_model: type, requested: list[str] | None = None) -> lis
     Returns:
         Every column name, as the API spells it, in field order or, under a
         filter, the matched ones in request order without duplicates. The full
-        list when no name matches.
+        list when no name matches, and an empty one for a class that is not a
+        dataclass.
 
     Raises:
         ValueError: If a human-readable model and its ``api_model`` twin have

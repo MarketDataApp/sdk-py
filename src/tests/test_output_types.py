@@ -316,3 +316,10 @@ API_HUMAN_COLUMNS["OptionsQuotesHumanReadable"] = API_HUMAN_COLUMNS[
 def test_human_readable_columns_are_named_as_the_api_names_them(model):
     """Each human-readable column carries the name the API gives it."""
     assert sorted(_columns(model)) == sorted(API_HUMAN_COLUMNS[model.__name__])
+
+
+def test_model_columns_of_a_class_that_is_not_a_dataclass_is_empty():
+    """A class that is not a dataclass has no columns, with or without a
+    filter."""
+    assert model_columns(dict) == []
+    assert model_columns(dict, ["a"]) == []

@@ -13,12 +13,14 @@ def _column_names(output_model: type) -> dict[str, str]:
     column. Any other model uses the field name.
 
     Args:
-        output_model: An output model dataclass.
+        output_model: An output model.
 
     Returns:
         The column name of every field but the status flag ``s``, in field
-        order.
+        order. Empty for a class that is not a dataclass.
     """
+    if not is_dataclass(output_model):
+        return {}
     renamed = getattr(output_model, "api_names", {})
     human = hasattr(output_model, "api_model")
     return {
