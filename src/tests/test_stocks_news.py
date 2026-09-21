@@ -6,7 +6,7 @@ import pytest
 import pytz
 
 from marketdata.exceptions import ServerError
-from marketdata.input_types.base import OutputFormat
+from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.output_types.stocks_news import StockNews, StockNewsHumanReadable
 
 
@@ -205,3 +205,41 @@ def test_get_stocks_news_response_200_csv(respx_mock, client):
         symbol="AAPL", output_format=OutputFormat.CSV, filename="test.csv"
     )
     assert pathlib.Path(output).read_text() == "AS RECEIVED FROM API"
+
+
+@pytest.mark.parametrize("handler", ["pandas", "polars"])
+def test_news_dataframe_reads_timestamp_dates_as_us_eastern(
+    load_json, respx_mock, client, handler
+):
+    """Under `dateformat=timestamp` the API sends a datetime with its offset and
+    a date as the day (`DateHelper.format_date`); both read back as the
+    US/Eastern datetimes the default format gives, a date as its midnight."""
+    eastern = pytz.timezone("US/Eastern")
+    body = load_json("stocks_news_response_200")
+    moment = datetime.datetime.fromtimestamp(body["publicationDate"][0], tz=eastern)
+    text = moment.strftime("%Y-%m-%d %H:%M:%S %z")
+    body = {
+        "s": "ok",
+        "symbol": body["symbol"][:2],
+        "headline": body["headline"][:2],
+        "content": body["content"][:2],
+        "source": body["source"][:2],
+        "publicationDate": [f"{text[:-2]}:{text[-2:]}"] * 2,
+        "updated": moment.strftime("%Y-%m-%d"),
+    }
+    respx_mock.get("https://api.marketdata.app/v1/stocks/news/AAPL/").respond(
+        json=body, status_code=200
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [handler]):
+        news = client.stocks.news(
+            symbol="AAPL",
+            output_format=OutputFormat.DATAFRAME,
+            date_format=DateFormat.TIMESTAMP,
+        )
+
+    midnight = eastern.localize(
+        datetime.datetime.combine(moment.date(), datetime.time())
+    )
+    assert list(news["publicationDate"]) == [moment, moment]
+    assert list(news["updated"]) == [midnight, midnight]
