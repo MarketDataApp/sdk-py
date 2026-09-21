@@ -30,6 +30,7 @@ from httpx import Response
 
 from marketdata.internal_settings import (
     HEADER_DETECTED_IP,
+    HEADER_REQUEST_ID,
     VALID_STATUS_CODES,
     read_header,
 )
@@ -104,7 +105,7 @@ class ResponseMeta:
     ) -> ResponseMeta:
         return cls(
             status_code=response.status_code,
-            request_id=response.headers.get("cf-ray"),
+            request_id=read_header(response, HEADER_REQUEST_ID),
             rate_limits=rate_limits,
             detected_ip=read_header(response, HEADER_DETECTED_IP),
         )

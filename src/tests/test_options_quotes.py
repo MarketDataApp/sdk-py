@@ -1,5 +1,7 @@
 import datetime
+import json
 import pathlib
+from decimal import Decimal
 from unittest.mock import patch
 
 import httpx
@@ -116,18 +118,18 @@ def test_get_options_quotes_response_200_internal(load_json, respx_mock, client)
         2025, 12, 10, 19, 49, 56, tzinfo=datetime.timezone.utc
     ).astimezone(pytz.timezone("US/Eastern"))
     assert quotes.updated[0].astimezone(pytz.timezone("US/Eastern")) == expected
-    assert quotes.bid[0] == 65.1
+    assert quotes.bid[0] == Decimal("65.1")
     assert quotes.bidSize[0] == 29
-    assert quotes.mid[0] == 65.75
-    assert quotes.ask[0] == 66.4
+    assert quotes.mid[0] == Decimal("65.75")
+    assert quotes.ask[0] == Decimal("66.4")
     assert quotes.askSize[0] == 84
-    assert quotes.last[0] == 64.97
+    assert quotes.last[0] == Decimal("64.97")
     assert quotes.openInterest[0] == 588
     assert quotes.volume[0] == 0
     assert quotes.inTheMoney[0]
-    assert quotes.intrinsicValue[0] == 23.7344
-    assert quotes.extrinsicValue[0] == 42.0156
-    assert quotes.underlyingPrice[0] == 278.7344
+    assert quotes.intrinsicValue[0] == Decimal("23.7344")
+    assert quotes.extrinsicValue[0] == Decimal("42.0156")
+    assert quotes.underlyingPrice[0] == Decimal("278.7344")
     assert quotes.iv[0] == 0.2975
     assert quotes.delta[0] == 0.7188
     assert quotes.gamma[0] == 0.0029
@@ -164,18 +166,18 @@ def test_get_options_quotes_human_response_200(load_json, respx_mock, client):
     assert quotes.Date[0] == datetime.datetime.fromtimestamp(
         1765562189, tz=pytz.timezone("US/Eastern")
     )
-    assert quotes.Bid[0] == 67.05
+    assert quotes.Bid[0] == Decimal("67.05")
     assert quotes.Bid_Size[0] == 337
-    assert quotes.Mid[0] == 68.18
-    assert quotes.Ask[0] == 69.3
+    assert quotes.Mid[0] == Decimal("68.18")
+    assert quotes.Ask[0] == Decimal("69.3")
     assert quotes.Ask_Size[0] == 365
-    assert quotes.Last[0] == 67.46
+    assert quotes.Last[0] == Decimal("67.46")
     assert quotes.Open_Interest[0] == 5094
     assert quotes.Volume[0] == 10
     assert quotes.In_The_Money[0]
-    assert quotes.Intrinsic_Value[0] == 28.7943
-    assert quotes.Extrinsic_Value[0] == 39.3857
-    assert quotes.Underlying_Price[0] == 278.7943
+    assert quotes.Intrinsic_Value[0] == Decimal("28.7943")
+    assert quotes.Extrinsic_Value[0] == Decimal("39.3857")
+    assert quotes.Underlying_Price[0] == Decimal("278.7943")
     assert quotes.IV[0] == 0.2974
     assert quotes.Delta[0] == 0.7336
     assert quotes.Gamma[0] == 0.0028
@@ -241,6 +243,116 @@ def test_options_quotes_undecodable_symbol_body_is_a_parse_error(
     assert "<html>error page</html>" in error.message
     assert good.call_count == 1
     assert bad.call_count == 1
+
+
+@pytest.mark.parametrize("human", [False, True], ids=["api names", "human names"])
+@pytest.mark.parametrize("bad_first", [True, False])
+def test_options_quotes_value_the_model_refuses_names_the_symbol_it_came_from(
+    load_json, respx_mock, client, bad_first, human
+):
+    """A refusal after the merge names the symbol the value came from, not
+    the last symbol merged, whose URL, request id and body excerpt, handed to
+    support, would describe a healthy answer (#50 review)."""
+    if human:
+        fixture, model, key = (
+            "options_quotes_human_response_200",
+            "OptionsQuotesHumanReadable",
+            "Bid",
+        )
+    else:
+        fixture, model, key = "options_quotes_response_200", "OptionsQuotes", "bid"
+    good = load_json(fixture)
+    bad = {**good, key: ["not a price", *good[key][1:]]}
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
+    ).respond(json=good, headers={"cf-ray": "good"})
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+    ).respond(json=bad, headers={"cf-ray": "bad"})
+    symbols = ["AAPL271217C00255000", "AAPL271217P00255000"]
+    if bad_first:
+        symbols.reverse()
+
+    with pytest.raises(ParseError) as failure:
+        client.options.quotes(
+            symbols=symbols,
+            output_format=OutputFormat.INTERNAL,
+            use_human_readable=human,
+        )
+
+    error = failure.value
+    assert error.request_id == "bad"
+    assert error.request_url.startswith(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+    )
+    assert f"({model}.{key}: not a decimal number: 'not a price'): " in (error.message)
+
+
+def test_options_quotes_rebuilds_each_symbol_with_the_exact_parse(
+    load_json, respx_mock, client
+):
+    """Each symbol is rebuilt alone with the parse the merge used, so a
+    healthy answer holding an amount only a `Decimal` holds is not taken for
+    the one that was refused (#50 review)."""
+    good = load_json("options_quotes_response_200")
+    healthy = json.dumps({**good, "bid": ["BIG", *good["bid"][1:]]})
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
+    ).respond(
+        content=healthy.replace('"BIG"', "1e400").encode(),
+        headers={"content-type": "application/json", "cf-ray": "healthy"},
+    )
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+    ).respond(
+        json={**good, "ask": ["not a price", *good["ask"][1:]]},
+        headers={"cf-ray": "bad"},
+    )
+
+    with pytest.raises(ParseError) as failure:
+        client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=OutputFormat.INTERNAL,
+        )
+
+    assert failure.value.request_id == "bad"
+    assert "(OptionsQuotes.ask: not a decimal number: 'not a price'): " in (
+        failure.value.message
+    )
+
+
+def test_options_quotes_names_a_bad_symbol_with_its_own_refusal(
+    load_json, respx_mock, client
+):
+    """Two symbols each carry a bad value, in different fields, and the merge
+    trips over the second symbol's first. The error names the first symbol
+    in request order together with that symbol's own refusal, not with the
+    merge's, so the URL and the reason describe the same answer (#50
+    review)."""
+    good = load_json("options_quotes_response_200")
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
+    ).respond(
+        json={**good, "ask": ["bad ask", *good["ask"][1:]]},
+        headers={"cf-ray": "first"},
+    )
+    respx_mock.get(
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217P00255000/"
+    ).respond(
+        json={**good, "bid": ["bad bid", *good["bid"][1:]]},
+        headers={"cf-ray": "second"},
+    )
+
+    with pytest.raises(ParseError) as failure:
+        client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=OutputFormat.INTERNAL,
+        )
+
+    error = failure.value
+    assert error.request_id == "first"
+    assert "(OptionsQuotes.ask: not a decimal number: 'bad ask'): " in error.message
+    assert "bad bid" not in error.message
 
 
 def test_options_quotes_empty_symbol_body_is_a_parse_error(respx_mock, client):

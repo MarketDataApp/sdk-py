@@ -157,7 +157,6 @@ POSITIONAL_TRANSLATIONS = {
         "dte": "Days_To_Expiration",
         "updated": "Date",
     },
-    "OptionsStrikesHumanReadable": {"updated": "Date"},
     "StockCandlesHumanReadable": {
         "t": "Date",
         "o": "Open",

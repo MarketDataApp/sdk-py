@@ -1,5 +1,6 @@
 import datetime
 import pathlib
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -63,10 +64,10 @@ def test_get_stocks_prices_response_200_internal(load_json, respx_mock, client):
     assert symbols == ["AAPL", "TSLA"]
 
     mids = [price.mid for price in prices]
-    assert mids == [280.02, 455.76]
+    assert mids == [Decimal("280.02"), Decimal("455.76")]
 
     changes = [price.change for price in prices]
-    assert changes == [-0.68, 1.23]
+    assert changes == [Decimal("-0.68"), Decimal("1.23")]
 
     changepcts = [price.changepct for price in prices]
     assert changepcts == [-0.0024, 0.0027]
@@ -107,9 +108,9 @@ def test_get_stocks_prices_human_response_200(load_json, respx_mock, client):
     symbols = [price.Symbol for price in prices]
     assert symbols == ["AAPL", "TSLA"]
     mids = [price.Mid for price in prices]
-    assert mids == [278.72, 455.66]
+    assert mids == [Decimal("278.72"), Decimal("455.66")]
     changes = [price.Change_Price for price in prices]
-    assert changes == [0.69, 8.77]
+    assert changes == [Decimal("0.69"), Decimal("8.77")]
     changepcts = [price.Change_Percent for price in prices]
     assert changepcts == [0.0025, 0.0196]
     updateds = [price.Date for price in prices]

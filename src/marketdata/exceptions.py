@@ -18,8 +18,9 @@ status          exception
 500             ``InternalError`` (the API failed; never retried)
 501 to 599      ``ServerError`` (the API is unavailable; retried with backoff)
 transport       ``NetworkError`` (retried unless the client caused it)
-undecodable     ``ParseError`` (bad JSON or a body that does not match its
-                Content-Encoding)
+undecodable     ``ParseError`` (bad JSON, a body that does not match its
+                Content-Encoding, a ``NaN`` or an infinity in a JSON body, or
+                a value an INTERNAL model refuses)
 other 4xx       ``MarketdataHttpError``
 ==============  ==========================================================
 """
@@ -29,7 +30,11 @@ from datetime import datetime
 from httpx import Request, Response
 from pytz import timezone
 
-from marketdata.internal_settings import HEADER_AUTHORIZED_IP, read_header
+from marketdata.internal_settings import (
+    HEADER_AUTHORIZED_IP,
+    HEADER_REQUEST_ID,
+    read_header,
+)
 
 SUPPORT_CONTEXT_FIELDS = (
     "request_id",
@@ -100,9 +105,8 @@ class BaseMarketdataException(Exception):
 
 
 def _request_id(response: Response | None) -> str:
-    if response is None:
-        return NOT_AVAILABLE
-    return response.headers.get("cf-ray", NOT_AVAILABLE)
+    """The response's ``cf-ray`` request id, or ``N/A`` when there is none."""
+    return read_header(response, HEADER_REQUEST_ID) or NOT_AVAILABLE
 
 
 class MarketdataHttpError(BaseMarketdataException):
@@ -196,7 +200,9 @@ class NetworkError(MarketdataHttpError):
 
 
 class ParseError(MarketdataHttpError):
-    """The API answered, but the body could not be decoded."""
+    """The API answered, but the body could not be decoded, or it holds a
+    value the SDK refuses: a ``NaN`` or an infinity, or a value an
+    ``OutputFormat.INTERNAL`` model refuses."""
 
 
 class RateLimitError(BaseMarketdataException):

@@ -1,23 +1,26 @@
 import datetime
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import ClassVar
 
+from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
 
 
 @dataclass
 class StockCandle:
     t: datetime.datetime
-    o: float
-    h: float
+    o: Decimal
+    h: Decimal
     # `l` (low) is the API's own field name, and the dataclass fields are the
     # public shape of `OutputFormat.INTERNAL` and of the DataFrame columns, so
     # renaming it to satisfy E741 would be a breaking change.
-    l: float  # noqa: E741
-    c: float
+    l: Decimal  # noqa: E741
+    c: Decimal
     v: int
 
     def __post_init__(self):
+        coerce_numbers(self)
         self.t = format_timestamp(self.t)
 
     def __repr__(self) -> str:
@@ -39,13 +42,14 @@ class StockCandlesHumanReadable:
     api_model: ClassVar[type] = StockCandle
 
     Date: datetime.datetime
-    Open: float
-    High: float
-    Low: float
-    Close: float
+    Open: Decimal
+    High: Decimal
+    Low: Decimal
+    Close: Decimal
     Volume: int
 
     def __post_init__(self):
+        coerce_numbers(self)
         self.Date = format_timestamp(self.Date)
 
     def __repr__(self) -> str:

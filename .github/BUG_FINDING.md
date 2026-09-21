@@ -71,7 +71,7 @@ Familiarize yourself with the main components:
   — then the client logs `"No token provided, starting in demo mode"` and skips it.
 - Resources (`resources/`) — each method is a plain function attached to a resource class:
   `stocks` (`prices`, `quotes`, `candles`, `earnings`, `news`), `options` (`chain`,
-  `expirations`, `strikes`, `quotes`, `lookup`), `funds` (`candles`), `markets`
+  `expirations`, `quotes`, `lookup`), `funds` (`candles`), `markets`
   (`status`).
 - The decorator stack on every resource method, outermost first:
   `@api_error_handler(service=...)` → `@docs(...)` →
@@ -182,11 +182,12 @@ exception_type: BadRequestError
 
 For a failure that never reached the API (`MinMaxDateValidationError`, `RateLimitError`)
 the same six lines appear, with `request_id` / `request_url` reading `N/A` and
-`status_code` reading `0`. That is by design.
+`status_code` reading `0`. That is by design. So is a `request_id` of `N/A` on a real
+answer whose `cf-ray` header arrived empty or whitespace-only: neither is an id.
 
-**Bug indicator:** `request_id` reading `N/A` when the response genuinely carried a
-`cf-ray` header, a `status_code` of `0` on a real HTTP failure, or the token appearing in
-`request_url`.
+**Bug indicator:** `request_id` reading `N/A` when the response carried a `cf-ray`
+header with a value in it, a `status_code` of `0` on a real HTTP failure, or the token
+appearing in `request_url`.
 
 #### 1.4 Every exception type is reachable and correct
 
