@@ -129,11 +129,13 @@ def is_no_data(response: Response) -> bool:
     """
     if response.status_code == 404:
         return True
+    if response.status_code not in VALID_STATUS_CODES:
+        return False
     content = response.content
     start = 0
     while content.startswith(_BOM_BYTES, start):
         start += len(_BOM_BYTES)
-    if response.status_code not in VALID_STATUS_CODES or len(content) - start > 16:
+    if len(content) - start > 16:
         return False
     # Leading marks only: one after a blank line or inside a value is data.
     body = response.text.lstrip(BOM)
