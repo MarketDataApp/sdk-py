@@ -108,6 +108,7 @@ def parse_json(response: Response, *, exact: bool = False) -> Any:
 # A byte order mark. A proxy may put one in front of a body, where it is not data.
 # Built with chr() so no tool can turn an escape into the invisible character.
 BOM = chr(0xFEFF)
+_BOM_BYTES = BOM.encode()
 
 # The API's CSV rendering of the empty answer (MarketData-App/api#422): a
 # one-column table named "0" with one empty cell, the cell alone under
@@ -128,7 +129,11 @@ def is_no_data(response: Response) -> bool:
     """
     if response.status_code == 404:
         return True
-    if response.status_code not in VALID_STATUS_CODES or len(response.content) > 16:
+    content = response.content
+    start = 0
+    while content.startswith(_BOM_BYTES, start):
+        start += len(_BOM_BYTES)
+    if response.status_code not in VALID_STATUS_CODES or len(content) - start > 16:
         return False
     # Leading marks only: one after a blank line or inside a value is data.
     body = response.text.lstrip(BOM)

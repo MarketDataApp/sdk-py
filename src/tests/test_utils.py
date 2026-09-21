@@ -414,6 +414,13 @@ CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
         (200, BOM + '0\r\n""\r\n', True),
         (200, BOM + '""\r\n', True),
         (203, BOM + '0\r\n""\r\n', True),
+        # The size limit is measured after the leading marks: 15 bytes of blank
+        # lines and placeholder are the empty answer with or without them.
+        (200, "\r\n" * 4 + '0\r\n""\r\n', True),
+        (200, BOM + "\r\n" * 4 + '0\r\n""\r\n', True),
+        (200, BOM + BOM + "\r\n" * 4 + '0\r\n""\r\n', True),
+        (200, "\r\n" * 5 + '0\r\n""\r\n', False),
+        (200, BOM + "\r\n" * 5 + '0\r\n""\r\n', False),
         # A mark inside a value is data, and so is one that does not open the body.
         (200, '0\r\n"' + BOM + '"\r\n', False),
         (200, "0\r\n" + BOM + '""\r\n', False),
