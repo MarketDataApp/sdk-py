@@ -47,10 +47,6 @@ from marketdata.output_types.options_quotes import (
     OptionsQuotes,
     OptionsQuotesHumanReadable,
 )
-from marketdata.output_types.options_strikes import (
-    OptionsStrikes,
-    OptionsStrikesHumanReadable,
-)
 from marketdata.output_types.stocks_candles import (
     StockCandle,
     StockCandlesHumanReadable,
@@ -116,8 +112,6 @@ MONEY_FIELDS = {
     OptionsQuotes: OPTIONS_MONEY,
     OptionsQuotesHumanReadable: OPTIONS_MONEY_HUMAN,
 }
-
-STRIKES_MODELS = (OptionsStrikes, OptionsStrikesHumanReadable)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -238,20 +232,6 @@ MONEY_CASES = {
         "Bid",
         lambda r: r.Bid[0],
     ),
-    "options.strikes": Case(
-        "options_strikes_response_200",
-        f"{API}/v1/options/strikes/AAPL/",
-        lambda c, **kw: c.options.strikes("AAPL", **kw),
-        "2025-12-12",
-        lambda r: getattr(r, "2025-12-12")[0],
-    ),
-    "options.strikes human": Case(
-        "options_strikes_human_response_200",
-        f"{API}/v1/options/strikes/AAPL/",
-        lambda c, **kw: c.options.strikes("AAPL", use_human_readable=True, **kw),
-        "2025-12-12",
-        lambda r: getattr(r, "2025-12-12")[0],
-    ),
 }
 
 # The keys of each fixture that hold a date. Under `dateformat=spreadsheet`
@@ -272,8 +252,6 @@ DATE_KEYS = {
     "options.chain human": ("Expiration Date", "First Traded", "Date"),
     "options.quotes": ("expiration", "firstTraded", "updated"),
     "options.quotes human": ("Expiration Date", "First Traded", "Date"),
-    "options.strikes": ("updated",),
-    "options.strikes human": ("Date",),
 }
 # 46003.5 days after 1899-12-30.
 SPREADSHEET_DATE = "46003.5"
@@ -374,14 +352,12 @@ def _money_holds_decimals_and_nothing_else(result) -> int:
     checked."""
     checked = 0
     for model in result if isinstance(result, list) else [result]:
-        fixed = {field.name for field in dataclasses.fields(model)}
         hints = typing.get_type_hints(type(model))
         money = decimal_fields(type(model))
         for name, value in vars(model).items():
             values = value if isinstance(value, list) else [value]
             present = [item for item in values if item is not None]
-            is_strike_column = isinstance(model, STRIKES_MODELS) and name not in fixed
-            if name in money or is_strike_column:
+            if name in money:
                 assert all(isinstance(item, Decimal) for item in present), name
                 checked += len(present)
                 continue
@@ -857,18 +833,6 @@ def test_a_container_that_is_not_an_array_is_not_an_amount(container):
     )
 
 
-def test_a_strike_list_keeps_the_container_it_was_given():
-    """`_as_money` answers a tuple with a tuple for every other model, so the
-    strikes model does too (#50 review)."""
-    strikes = OptionsStrikes(
-        s="ok", updated=1765478200, **{"2025-12-12": (110.0, 120.5)}
-    )
-
-    held = getattr(strikes, "2025-12-12")
-    assert type(held) is tuple
-    assert held == (Decimal("110.0"), Decimal("120.5"))
-
-
 # ------------------------------ dates the exact parse would have broken
 
 
@@ -878,11 +842,7 @@ def test_every_money_case_lists_its_dates():
 
 @pytest.mark.parametrize("name", MONEY_CASES)
 def test_a_spreadsheet_date_still_reads(respx_mock, client, name):
-    """Under `dateformat=spreadsheet` a date is a number with a fraction, so
-    the exact parse makes it a Decimal, which `format_timestamp` does not
-    read. The model gives it back its float before formatting it, and
-    `OptionsStrikes`, which builds itself in its own `__init__`, does the same
-    by hand."""
+    """Under `dateformat=spreadsheet` a fractional date still formats as a datetime."""
     case = MONEY_CASES[name]
     data = _load_fixture(case.fixture)
     for key in DATE_KEYS[name]:
@@ -1064,19 +1024,6 @@ def test_a_model_built_from_dataframe_cells_holds_decimals():
     assert candle.o == Decimal("74.06")
     assert type(candle.o) is Decimal
     assert candle.c is None
-
-
-@pytest.mark.parametrize(
-    "build",
-    [
-        lambda strikes: OptionsStrikes(s="ok", updated=1765478200, **strikes),
-        lambda strikes: OptionsStrikesHumanReadable(Date=1765478200, **strikes),
-    ],
-    ids=["api", "human"],
-)
-def test_a_bad_strike_names_the_expiration_it_was_given_for(build):
-    with pytest.raises(ValueError, match="'2025-12-12': not a decimal number"):
-        build({"2025-12-12": [110, "n/a"]})
 
 
 def test_a_bad_amount_names_the_field_it_was_given_for():

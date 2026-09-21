@@ -199,18 +199,6 @@ class OptionsQuotesInput(BaseInputType):
         return self
 
 
-class OptionsStrikesInput(BaseInputType):
-    model_config = BaseModelConfig
-
-    symbol: str = Field(..., description="The symbol to fetch strikes for")
-    expiration: datetime.date | str | None = Field(
-        description="The expiration date to filter by", default=None
-    )
-    date: datetime.date | str | None = Field(
-        description="The date to fetch strikes for", default=None
-    )
-
-
 class LookupOptionSide(str, Enum):
     CALL = "call"
     PUT = "put"

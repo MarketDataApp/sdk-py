@@ -30,7 +30,11 @@ from datetime import datetime
 from httpx import Request, Response
 from pytz import timezone
 
-from marketdata.internal_settings import HEADER_AUTHORIZED_IP, read_header
+from marketdata.internal_settings import (
+    HEADER_AUTHORIZED_IP,
+    HEADER_REQUEST_ID,
+    read_header,
+)
 
 SUPPORT_CONTEXT_FIELDS = (
     "request_id",
@@ -101,9 +105,8 @@ class BaseMarketdataException(Exception):
 
 
 def _request_id(response: Response | None) -> str:
-    if response is None:
-        return NOT_AVAILABLE
-    return response.headers.get("cf-ray", NOT_AVAILABLE)
+    """The response's ``cf-ray`` request id, or ``N/A`` when there is none."""
+    return read_header(response, HEADER_REQUEST_ID) or NOT_AVAILABLE
 
 
 class MarketdataHttpError(BaseMarketdataException):
