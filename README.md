@@ -24,7 +24,7 @@
 ## Features
 
 - **Real-time Stock Data**: Prices, quotes, candles (OHLCV), earnings, and news
-- **Options Trading Data**: Complete options chains, expirations, strikes, quotes, and lookup
+- **Options Trading Data**: Complete options chains, expirations, quotes, and lookup
 - **Mutual Funds**: Historical candles and pricing data
 - **Market Status**: Real-time market open/closed status for multiple countries
 - **Utilities**: API service status, an echo of your request headers, and your account's credit counters
@@ -152,11 +152,11 @@ meta = marketdata.get_meta(prices)          # ResponseMeta
 print(meta.rate_limits.credits_consumed)    # what this call cost
 print(meta.rate_limits.credits_remaining)   # the balance after it
 print(meta.rate_limits.reset_time)          # datetime of the next reset
-print(meta.request_id)                      # the cf-ray id, for support
+print(meta.request_id)                      # the cf-ray id, for support, or None
 print(meta.rate_limits)                     # "Credits used X/Y, remaining: Z, reset at: ISO timestamp"
 ```
 
-`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `status_code` and `request_id` describe one response, so they come from the last one that could have contributed to the result, never from a symbol or chunk that answered "no data" and was dropped from the merge, which matters because `request_id` is what you quote in a support ticket. On the metadata of a call that raised, the same rule points the other way: there they come from the last response that failed, so the id names the request the ticket is about. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data). `meta.detected_ip` is the address the API saw the call come from, on every answer it serves, the empty one included.
+`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `status_code` and `request_id` describe one response, so they come from the last one that could have contributed to the result, never from a symbol or chunk that answered "no data" and was dropped from the merge, which matters because `request_id` is what you quote in a support ticket; it is `None` when the answer carried no usable `cf-ray`. On the metadata of a call that raised, the same rule points the other way: there they come from the last response that failed, so the id names the request the ticket is about. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data). `meta.detected_ip` is the address the API saw the call come from, on every answer it serves, the empty one included.
 
 A failed call is billed too, so the exception carries the same metadata a result would:
 
@@ -212,8 +212,8 @@ The SDK provides access to different market data resources:
   - Methods: `prices()`, `quotes()`, `candles()`, `earnings()`, `news()`
   - See [Stocks Documentation](docs/stocks.md) for detailed usage
 
-- **Options**: Access options chains, expiration data, strikes, quotes, and lookup
-  - Methods: `chain()`, `expirations()`, `strikes()`, `quotes()`, `lookup()`
+- **Options**: Access options chains, expiration data, quotes, and lookup
+  - Methods: `chain()`, `expirations()`, `quotes()`, `lookup()`
   - See [Options Documentation](docs/options.md) for detailed usage
 
 - **Funds**: Access funds candles (OHLC) for mutual funds
@@ -255,12 +255,6 @@ chain = client.options.chain("AAPL")
 chain = client.options.chain(symbol="AAPL")
 print(chain)
 
-# Get options strikes (symbol can be passed positionally or as keyword)
-strikes = client.options.strikes("AAPL")
-# or
-strikes = client.options.strikes(symbol="AAPL")
-print(strikes)
-
 # Get options quotes (symbols can be passed positionally or as keyword)
 # Note: quotes() takes option symbols (e.g., "AAPL240120C00150000"), not stock symbols
 quotes = client.options.quotes("AAPL240120C00150000")
@@ -297,7 +291,7 @@ The SDK supports multiple output formats for API responses. See the [Universal P
 
 For detailed information about return types and object structures for each resource, see the specific resource documentation:
 - [Stocks Documentation](docs/stocks.md) - Object types: `StockPrice`, `StockQuote`, `StockCandle`, `StockEarnings`, `StockNews`
-- [Options Documentation](docs/options.md) - Object types: `OptionsExpirations`, `OptionsChain`, `OptionsStrikes`, `OptionsQuotes`, `OptionsLookup`
+- [Options Documentation](docs/options.md) - Object types: `OptionsExpirations`, `OptionsChain`, `OptionsQuotes`, `OptionsLookup`
 - [Funds Documentation](docs/funds.md) - Object type: `FundsCandle`
 - [Markets Documentation](docs/markets.md) - Object type: `MarketStatus`
 - [Utilities Documentation](docs/utilities.md) - Object types: `ServiceStatus`, `RequestHeaders`, `User`
@@ -341,7 +335,7 @@ When using `OutputFormat.CSV`, all resources write CSV data to a file and return
 
 ### Money values
 
-With `OutputFormat.INTERNAL`, every money field is a `decimal.Decimal` holding the digits the API sent: the prices of quotes, prices and candles (`ask`, `bid`, `mid`, `last`, `change`, `o`, `h`, `l`, `c`), earnings per share, and the option strike, bid, mid, ask, last, intrinsic value, extrinsic value and underlying price, including the strike lists of `options.strikes()`. A binary `float` cannot hold most decimal amounts, so arithmetic on them drifts (`0.3 - 0.1` is `0.19999999999999998`); with `Decimal`, `quote.ask - quote.bid` is exact. Everything else keeps its usual type: greeks, implied volatility and percentages are `float`, sizes and counts are `int`.
+With `OutputFormat.INTERNAL`, every money field is a `decimal.Decimal` holding the digits the API sent: the prices of quotes, prices and candles (`ask`, `bid`, `mid`, `last`, `change`, `o`, `h`, `l`, `c`), earnings per share, and the option strike, bid, mid, ask, last, intrinsic value, extrinsic value and underlying price. A binary `float` cannot hold most decimal amounts, so arithmetic on them drifts (`0.3 - 0.1` is `0.19999999999999998`); with `Decimal`, `quote.ask - quote.bid` is exact. Everything else keeps its usual type: greeks, implied volatility and percentages are `float`, sizes and counts are `int`.
 
 ```python
 from decimal import Decimal
@@ -441,7 +435,7 @@ Connection failures and undecodable bodies are wrapped (`NetworkError`, `ParseEr
 
 ### `BaseMarketdataException` and `support_info`
 
-Every SDK exception exposes the same six attributes, `request_id` (the `cf-ray` header), `request_url`, `status_code`, `timestamp` (US/Eastern), `message` and `exception_type`, as plain attributes, as a `support_context` dict and as the formatted `support_info` block. Failures that never reached the API (validation, the rate-limit pre-flight) report `N/A` and `0` for the request fields.
+Every SDK exception exposes the same six attributes, `request_id` (the `cf-ray` header), `request_url`, `status_code`, `timestamp` (US/Eastern), `message` and `exception_type`, as plain attributes, as a `support_context` dict and as the formatted `support_info` block. Failures that never reached the API (validation, the rate-limit pre-flight) report `N/A` and `0` for the request fields. An answer that carried no usable `cf-ray` reports `N/A` for `request_id` alone; the status and the URL are the real ones.
 
 ```
 --- MARKET DATA SUPPORT INFO ---
@@ -746,7 +740,7 @@ MARKETDATA_MODE=live
 │       │   ├── stocks.py      # Stocks input types (StocksPricesInput, StocksQuotesInput, StocksCandlesInput)
 │       │   ├── funds.py       # Funds input types (FundsCandlesInput)
 │       │   ├── markets.py     # Markets input types (MarketStatusInput)
-│       │   └── options.py     # Options input types (OptionsChainInput, OptionsExpirationsInput, OptionsStrikesInput, OptionsQuotesInput, OptionsLookupInput)
+│       │   └── options.py     # Options input types (OptionsChainInput, OptionsExpirationsInput, OptionsQuotesInput, OptionsLookupInput)
 │       ├── output_types/      # Output data types
 │       │   ├── __init__.py
 │       │   ├── stocks_prices.py  # Stock prices output types (StockPrice, StockPricesHumanReadable)
@@ -759,7 +753,6 @@ MARKETDATA_MODE=live
 │       │   ├── options_chain.py   # Options chain output types (OptionsChain)
 │       │   ├── options_expirations.py  # Options expirations output types (OptionsExpirations)
 │       │   ├── options_quotes.py  # Options quotes output types (OptionsQuotes)
-│       │   ├── options_strikes.py  # Options strikes output types (OptionsStrikes)
 │       │   └── options_lookup.py  # Options lookup output types (OptionsLookup)
 │       └── resources/
 │           ├── __init__.py
@@ -781,7 +774,6 @@ MARKETDATA_MODE=live
 │               ├── __init__.py  # OptionsResource class definition
 │               ├── chain.py   # Options chain endpoint
 │               ├── expirations.py  # Options expirations endpoint
-│               ├── strikes.py  # Options strikes endpoint
 │               ├── quotes.py  # Options quotes endpoint
 │               └── lookup.py  # Options lookup endpoint
 └── pyproject.toml        # Project configuration and dependencies
