@@ -220,6 +220,14 @@ def test_get_stocks_candles_response_200_dataframe_polars(
         assert candles["v"][0] == 135647456
 
 
+def _spreadsheet_serial(timestamp: int) -> float:
+    """Write a Unix time the way the API's ``dateformat=spreadsheet`` does: days
+    since 1899-12-30 of its US/Eastern wall-clock time, to 5 decimals."""
+    wall = datetime.datetime.fromtimestamp(timestamp, tz=pytz.timezone("US/Eastern"))
+    days = (wall.replace(tzinfo=None) - datetime.datetime(1899, 12, 30)).total_seconds()
+    return round(days / 86400, 5)
+
+
 def test_get_stocks_candles_response_200_dataframe_pandas_spreadsheet_dateformat(
     load_json, respx_mock, client
 ):
@@ -228,14 +236,8 @@ def test_get_stocks_candles_response_200_dataframe_pandas_spreadsheet_dateformat
         ["pandas"],
     ):
         mock_data = copy.deepcopy(load_json("stocks_candles_response_200"))
-        epoch = datetime.datetime(1899, 12, 30, tzinfo=datetime.timezone.utc)
-        mock_data["t"] = [
-            (
-                datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc) - epoch
-            ).total_seconds()
-            / 86400
-            for ts in mock_data["t"]
-        ]
+        timestamps = mock_data["t"]
+        mock_data["t"] = [_spreadsheet_serial(ts) for ts in timestamps]
 
         respx_mock.get("https://api.marketdata.app/v1/stocks/candles/D/AAPL/").respond(
             json=mock_data,
@@ -249,7 +251,7 @@ def test_get_stocks_candles_response_200_dataframe_pandas_spreadsheet_dateformat
             date_format=DateFormat.SPREADSHEET,
         )
         assert len(candles) == 253
-        assert int(candles.index[0].timestamp()) == 1577941200
+        assert [int(moment.timestamp()) for moment in candles.index] == timestamps
 
 
 def test_get_stocks_candles_response_200_dataframe_polars_spreadsheet_dateformat(
@@ -260,14 +262,8 @@ def test_get_stocks_candles_response_200_dataframe_polars_spreadsheet_dateformat
         ["polars"],
     ):
         mock_data = copy.deepcopy(load_json("stocks_candles_response_200"))
-        epoch = datetime.datetime(1899, 12, 30, tzinfo=datetime.timezone.utc)
-        mock_data["t"] = [
-            (
-                datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc) - epoch
-            ).total_seconds()
-            / 86400
-            for ts in mock_data["t"]
-        ]
+        timestamps = mock_data["t"]
+        mock_data["t"] = [_spreadsheet_serial(ts) for ts in timestamps]
 
         respx_mock.get("https://api.marketdata.app/v1/stocks/candles/D/AAPL/").respond(
             json=mock_data,
@@ -280,7 +276,7 @@ def test_get_stocks_candles_response_200_dataframe_polars_spreadsheet_dateformat
             date_format=DateFormat.SPREADSHEET,
         )
         assert len(candles) == 253
-        assert int(candles["t"][0].timestamp()) == 1577941200
+        assert [int(moment.timestamp()) for moment in candles["t"]] == timestamps
 
 
 def test_get_stocks_candles_response_bad_status_code(respx_mock, client):
