@@ -1,24 +1,15 @@
 import datetime
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import ClassVar
 
+from marketdata.output_types.columns import column_names
 from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
 
 
 def _join_list(lists: list[list]) -> list:
     return [item for sublist in lists for item in sublist]
-
-
-def _to_internal_field(field: str) -> str:
-    """`Expiration Date` as the API sends it, `Expiration_Date` as the model
-    names it."""
-    return field.replace(" ", "_")
-
-
-def _to_human_readable_field(field: str) -> str:
-    return field.replace("_", " ")
 
 
 @dataclass
@@ -81,9 +72,8 @@ class OptionsQuotes:
 
     @staticmethod
     def answer_keys() -> list[str]:
-        """The keys of this model's columns in an API answer. The status flag
-        ``s`` is not a column."""
-        return [field.name for field in fields(OptionsQuotes) if field.name != "s"]
+        """List the keys of this model's columns in an API answer."""
+        return list(column_names(OptionsQuotes).values())
 
     @staticmethod
     def join_dicts(dicts: list[dict], keys: list[str] | None = None) -> dict:
@@ -162,26 +152,29 @@ class OptionsQuotesHumanReadable:
 
     @staticmethod
     def answer_keys() -> list[str]:
-        """The keys of this model's columns in an API answer: the field names
-        spelled with the API's spaces (``Expiration Date``)."""
-        return [
-            _to_human_readable_field(field.name)
-            for field in fields(OptionsQuotesHumanReadable)
-        ]
+        """List the keys of this model's columns in an API answer."""
+        return list(column_names(OptionsQuotesHumanReadable).values())
 
     @staticmethod
     def join_dicts(dicts: list[dict], keys: list[str] | None = None) -> dict:
-        """Concatenate the symbols' answers column by column, as
-        :meth:`OptionsQuotes.join_dicts` does, under the model's field names
-        (``Expiration_Date`` for the API's ``Expiration Date``). A
-        human-readable answer carries no status flag."""
+        """Concatenate the symbols' answers column by column.
+
+        Args:
+            dicts: The answers, in symbol order.
+            keys: The columns to merge, in their order. Defaults to the
+                model's columns the first answer carries.
+
+        Returns:
+            One answer keyed by the API's column names. A human-readable
+            answer carries no status flag.
+
+        Raises:
+            KeyError: If an answer lacks one of ``keys``.
+        """
         if keys is None:
             keys = [
                 key
                 for key in OptionsQuotesHumanReadable.answer_keys()
                 if key in dicts[0]
             ]
-        return {
-            _to_internal_field(key): _join_list([answer[key] for answer in dicts])
-            for key in keys
-        }
+        return {key: _join_list([answer[key] for answer in dicts]) for key in keys}

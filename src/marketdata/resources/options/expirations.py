@@ -5,6 +5,7 @@ from marketdata.docs import docs
 from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.input_types.options import OptionsExpirationsInput
 from marketdata.output_handlers import get_dataframe_output_handler
+from marketdata.output_types.columns import to_fields
 from marketdata.output_types.options_expirations import (
     OptionsExpirations,
     OptionsExpirationsHumanReadable,
@@ -81,7 +82,7 @@ def expirations(
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         data = parse_json(response)
         if user_universal_params.use_human_readable:
-            data = {k.replace(" ", "_"): v for k, v in data.items()}
+            data = to_fields(output_model, data)
         with model_errors(response):
             return output_model(**data)
 

@@ -1,6 +1,5 @@
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
@@ -14,9 +13,9 @@ from marketdata.input_types.base import (
 )
 from marketdata.internal_settings import GLOBAL_EXCLUDED_PARAMS
 from marketdata.output_handlers import get_dataframe_output_handler
+from marketdata.output_types.columns import model_columns
 from marketdata.settings import settings
 from marketdata.utils import (
-    column_key,
     csv_header,
     parse_error,
     parse_json,
@@ -27,56 +26,6 @@ if TYPE_CHECKING:
     from marketdata.client import MarketDataClient
 
 NO_DATA_BODY = {"s": "no_data"}
-
-
-def model_columns(output_model: type, requested: list[str] | None = None) -> list[str]:
-    """The columns a result of ``output_model`` carries: every field but the
-    API's status flag ``s``, or, under a ``columns=`` filter, the requested
-    ones in request order, without duplicates (#87).
-
-    A requested name matches a column of the model (case and spaces aside,
-    so ``Expiration Date`` is ``Expiration_Date``) or, on a human-readable
-    model, the API name at the same position of its ``api_model`` twin
-    (``t`` selects ``Date``), which is how the API filters before renaming.
-    Each human-readable model declares that twin as a ``ClassVar``, and
-    ``test_output_types.py`` pins every pair. A column's own name wins over
-    the positional map, which is what keeps ``MarketStatusHumanReadable``
-    right: its columns are not in its twin's order, and both of its API names
-    already match a column by name.
-
-    **Known limit.** The API's endpoint-dependent aliases (``open`` for ``o``,
-    ``price``, ``date``) are not mirrored: a name that matches nothing is
-    ignored, and a filter that matches nothing leaves the full set rather than
-    a frame with no columns. The API *does* resolve its own aliases, so for
-    such a filter the empty result and a populated one no longer have the same
-    shape: ``stocks.candles(columns=["open"])`` answers with the single column
-    ``o`` and no index, while the empty frame keeps every model column and the
-    ``t`` index. That is the one case #87 does not cover, pinned by
-    ``test_status_mapping.py::test_an_api_alias_column_filter_does_not_keep_the_no_data_shape``.
-    Mirroring the aliases would mean tracking a table the API changes per
-    endpoint (``price`` even depends on whether the market is open).
-    """
-    if not is_dataclass(output_model):  # pragma: no cover - every model is one
-        return []
-    columns = [field.name for field in fields(output_model) if field.name != "s"]
-    if not requested:
-        return columns
-    by_key = {column_key(name): name for name in columns}
-    api_model = getattr(output_model, "api_model", None)
-    if api_model is not None:
-        api_columns = [field.name for field in fields(api_model) if field.name != "s"]
-        # `strict`: a twin with another column count is a mistake in this
-        # repository (test_output_types.py fails on it), and a partial map
-        # would select the wrong columns without a word. The `ValueError` is
-        # deliberately not an SDK exception: no answer of the API can cause it.
-        for api_name, name in zip(api_columns, columns, strict=True):
-            by_key.setdefault(column_key(api_name), name)
-    selected: list[str] = []
-    for name in requested:
-        match = by_key.get(column_key(name))
-        if match is not None and match not in selected:
-            selected.append(match)
-    return selected or columns
 
 
 @contextmanager

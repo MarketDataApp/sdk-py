@@ -579,7 +579,7 @@ Fetches options quotes for one or more option symbols. This method includes API 
   - All timestamp fields are automatically converted to `datetime.datetime` objects
   - Data from multiple symbols is merged into a single DataFrame
 - If `output_format=OutputFormat.INTERNAL`: An `OptionsQuotes` object (or `OptionsQuotesHumanReadable` if `use_human_readable=True`) (single object, not a list) containing merged data from all requested symbols. All properties are lists where each index represents a single option contract.
-- If `output_format=OutputFormat.JSON`: A dictionary with the API's JSON, merged across the requested symbols. Under `use_human_readable=True` the keys take the model's underscores (`Expiration_Date`), and the status flag `s` is added as `"ok"` when the answers carry none (under `columns=`)
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's JSON, merged across the requested symbols. Under `use_human_readable=True` the keys are the API's (`Expiration Date`), and the status flag `s` is added as `"ok"` when the answers carry none (under `columns=`)
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written (merged from all requested symbols)
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, no valid responses received, etc.); see the [README](../README.md#error-handling)
 

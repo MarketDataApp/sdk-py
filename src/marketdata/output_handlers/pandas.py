@@ -4,6 +4,8 @@ import pytz
 from marketdata.input_types.base import DateFormat
 from marketdata.output_handlers.base import BaseOutputHandler
 
+_DTYPES = {float: "float64", int: "int64", bool: "bool", str: "object"}
+
 
 class PandasOutputHandler(BaseOutputHandler):
     def _try_get_plain_dataframe(self) -> pd.DataFrame:
@@ -75,7 +77,46 @@ class PandasOutputHandler(BaseOutputHandler):
 
         return df
 
+    def _cast_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Give each column the dtype of its annotation where no value changes.
+
+        An empty column takes the dtype outright, an all-null number column
+        becomes ``float64`` and whole numbers in a float column become floats.
+        pandas holds no null in an ``int64`` or ``bool`` column, so a column
+        with nulls keeps the dtype its values give it.
+
+        Args:
+            df: The result, before its date columns are converted.
+
+        Returns:
+            The same frame with its columns cast.
+        """
+        for column, kind in self._column_kinds().items():
+            if column not in df.columns:
+                continue
+            values = df[column]
+            if values.empty:
+                df[column] = values.astype(_DTYPES[kind])
+            elif kind in (float, int) and values.isna().all():
+                df[column] = values.astype("float64")
+            elif kind is float and pd.api.types.is_integer_dtype(values):
+                df[column] = values.astype("float64")
+        return df
+
     def _validate_result(self, result: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        """Order, type and index the result.
+
+        Args:
+            result: The frame built from the answer.
+            **kwargs: ``date_columns`` to convert besides the model's, and
+                ``index_columns`` to index by when present.
+
+        Returns:
+            The frame in model order, with its columns cast, its dates
+            converted and its index set.
+        """
+        result = result.reindex(columns=self._column_order(list(result.columns)))
+        result = self._cast_columns(result)
         date_columns = self._get_date_columns() + self._get_datetime_columns()
         manual_date_columns = kwargs.get("date_columns", [])
         date_columns.extend(manual_date_columns)
