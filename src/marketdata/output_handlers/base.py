@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Iterable, Union, get_args, get_origin
 
 from marketdata.input_types.base import DateFormat
-from marketdata.output_types.columns import column_types, model_columns
+from marketdata.output_types.columns import _column_types, _model_columns
 
 if TYPE_CHECKING:
     from marketdata.input_types.base import UserUniversalAPIParams
@@ -72,7 +72,7 @@ class BaseOutputHandler(ABC):
         """
         return [
             column
-            for column, annotation in column_types(self.output_schema).items()
+            for column, annotation in _column_types(self.output_schema).items()
             if self._type_includes(annotation, target)
         ]
 
@@ -94,7 +94,7 @@ class BaseOutputHandler(ABC):
             The present columns in model order or, under a ``columns=`` filter,
             in request order. Columns the model does not name go last.
         """
-        known = model_columns(self.output_schema, self.user_universal_params.columns)
+        known = _model_columns(self.output_schema, self.user_universal_params.columns)
         order = [column for column in known if column in present]
         return order + [column for column in present if column not in order]
 
@@ -113,7 +113,7 @@ class BaseOutputHandler(ABC):
             date_format, int
         )
         kinds = {}
-        for column, annotation in column_types(self.output_schema).items():
+        for column, annotation in _column_types(self.output_schema).items():
             scalar = _scalar_type(annotation)
             if scalar in (date, datetime):
                 kinds[column] = date_kind

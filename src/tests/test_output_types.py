@@ -15,7 +15,8 @@ from typing import ClassVar, get_origin, get_type_hints
 import pytest
 
 import marketdata.output_types as output_types
-from marketdata.output_types.columns import column_names, model_columns
+from marketdata.output_types.columns import _column_names
+from marketdata.resources.base import model_columns
 from marketdata.utils import column_key
 
 
@@ -44,7 +45,7 @@ PAIRS = [
 
 def _columns(model: type) -> list[str]:
     """List the columns of a model as the API names them."""
-    return list(column_names(model).values())
+    return list(_column_names(model).values())
 
 
 @pytest.mark.parametrize("model", HUMAN_MODELS, ids=lambda m: m.__name__)

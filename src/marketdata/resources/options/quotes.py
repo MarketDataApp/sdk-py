@@ -11,7 +11,7 @@ from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.input_types.options import OptionsQuotesInput
 from marketdata.internal_settings import MAX_CONCURRENT_REQUESTS, VALID_STATUS_CODES
 from marketdata.output_handlers import get_dataframe_output_handler
-from marketdata.output_types.columns import to_fields
+from marketdata.output_types.columns import _to_fields
 from marketdata.output_types.options_quotes import (
     OptionsQuotes,
     OptionsQuotesHumanReadable,
@@ -143,10 +143,10 @@ def quotes(
                     [response], alone, output_model.answer_keys()
                 )
                 joined = output_model.join_dicts(alone, keys)
-                return output_model(**to_fields(output_model, joined))
+                return output_model(**_to_fields(output_model, joined))
 
             with merged_model_errors(usable, _model_alone):
-                return output_model(**to_fields(output_model, data))
+                return output_model(**_to_fields(output_model, data))
         if user_universal_params.output_format == OutputFormat.JSON:
             return data
 

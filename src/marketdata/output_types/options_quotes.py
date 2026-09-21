@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import ClassVar
 
-from marketdata.output_types.columns import column_names
+from marketdata.output_types.columns import _column_names
 from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
 
@@ -73,7 +73,7 @@ class OptionsQuotes:
     @staticmethod
     def answer_keys() -> list[str]:
         """List the keys of this model's columns in an API answer."""
-        return list(column_names(OptionsQuotes).values())
+        return list(_column_names(OptionsQuotes).values())
 
     @staticmethod
     def join_dicts(dicts: list[dict], keys: list[str] | None = None) -> dict:
@@ -153,7 +153,7 @@ class OptionsQuotesHumanReadable:
     @staticmethod
     def answer_keys() -> list[str]:
         """List the keys of this model's columns in an API answer."""
-        return list(column_names(OptionsQuotesHumanReadable).values())
+        return list(_column_names(OptionsQuotesHumanReadable).values())
 
     @staticmethod
     def join_dicts(dicts: list[dict], keys: list[str] | None = None) -> dict:

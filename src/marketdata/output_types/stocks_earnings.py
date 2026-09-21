@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import ClassVar
 
-from marketdata.output_types.columns import to_fields
+from marketdata.output_types.columns import _to_fields
 from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
 
@@ -117,4 +117,4 @@ class StockEarningsHumanReadable:
     @classmethod
     def from_dict(cls, data: dict) -> "StockEarningsHumanReadable":
         """Build the model from an API answer keyed by column name."""
-        return cls(**to_fields(cls, data))
+        return cls(**_to_fields(cls, data))

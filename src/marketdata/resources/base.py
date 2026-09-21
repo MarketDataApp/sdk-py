@@ -13,7 +13,7 @@ from marketdata.input_types.base import (
 )
 from marketdata.internal_settings import GLOBAL_EXCLUDED_PARAMS
 from marketdata.output_handlers import get_dataframe_output_handler
-from marketdata.output_types.columns import model_columns
+from marketdata.output_types.columns import _model_columns
 from marketdata.settings import settings
 from marketdata.utils import (
     csv_header,
@@ -26,6 +26,29 @@ if TYPE_CHECKING:
     from marketdata.client import MarketDataClient
 
 NO_DATA_BODY = {"s": "no_data"}
+
+
+def model_columns(output_model: type, requested: list[str] | None = None) -> list[str]:
+    """List the columns a result of an output model carries.
+
+    Args:
+        output_model: An output model dataclass.
+        requested: The ``columns=`` filter. A name matches a column case- and
+            space-insensitively by its column name, its field name or, on a
+            human-readable model, the API name at the same position of its
+            ``api_model`` twin. The API's own aliases (``open`` for ``o``) are
+            not matched.
+
+    Returns:
+        Every column name, as the API spells it, in field order or, under a
+        filter, the matched ones in request order without duplicates. The full
+        list when no name matches.
+
+    Raises:
+        ValueError: If a human-readable model and its ``api_model`` twin have
+            different column counts.
+    """
+    return _model_columns(output_model, requested)
 
 
 @contextmanager

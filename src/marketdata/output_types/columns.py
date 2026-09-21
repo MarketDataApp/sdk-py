@@ -4,7 +4,7 @@ from typing import Any
 from marketdata.utils import column_key
 
 
-def column_names(output_model: type) -> dict[str, str]:
+def _column_names(output_model: type) -> dict[str, str]:
     """Map each field of an output model to the name of its column in the API's
     answers.
 
@@ -30,7 +30,7 @@ def column_names(output_model: type) -> dict[str, str]:
     }
 
 
-def column_types(output_model: type) -> dict[str, Any]:
+def _column_types(output_model: type) -> dict[str, Any]:
     """Map each column of an output model to its field annotation.
 
     Args:
@@ -42,7 +42,7 @@ def column_types(output_model: type) -> dict[str, Any]:
     """
     if not is_dataclass(output_model):
         return {}
-    names = column_names(output_model)
+    names = _column_names(output_model)
     return {
         names[field.name]: field.type
         for field in fields(output_model)
@@ -50,7 +50,7 @@ def column_types(output_model: type) -> dict[str, Any]:
     }
 
 
-def to_fields(output_model: type, data: dict) -> dict:
+def _to_fields(output_model: type, data: dict) -> dict:
     """Rename the keys of an API answer from column names to field names.
 
     Args:
@@ -61,11 +61,11 @@ def to_fields(output_model: type, data: dict) -> dict:
         The same values keyed by field name. A key that names no column is
         kept as it is.
     """
-    by_column = {column: name for name, column in column_names(output_model).items()}
+    by_column = {column: name for name, column in _column_names(output_model).items()}
     return {by_column.get(key, key): value for key, value in data.items()}
 
 
-def model_columns(output_model: type, requested: list[str] | None = None) -> list[str]:
+def _model_columns(output_model: type, requested: list[str] | None = None) -> list[str]:
     """List the columns a result of an output model carries.
 
     Args:
@@ -85,7 +85,7 @@ def model_columns(output_model: type, requested: list[str] | None = None) -> lis
         ValueError: If a human-readable model and its ``api_model`` twin have
             different column counts.
     """
-    names = column_names(output_model)
+    names = _column_names(output_model)
     columns = list(names.values())
     if not requested:
         return columns
@@ -97,7 +97,7 @@ def model_columns(output_model: type, requested: list[str] | None = None) -> lis
     if api_model is not None:
         # A column's own name wins over the position: MarketStatusHumanReadable
         # is not in its twin's order.
-        for api_name, column in zip(column_names(api_model), columns, strict=True):
+        for api_name, column in zip(_column_names(api_model), columns, strict=True):
             by_key.setdefault(column_key(api_name), column)
     selected: list[str] = []
     for name in requested:
