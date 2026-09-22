@@ -855,7 +855,7 @@ With `OutputFormat.INTERNAL`, every date in a response object is a US/Eastern `d
 
 A number under 10000 is not a date for the API (it reads it as a relative range), so a response that carried one raises `ParseError`.
 
-The `from_date` and `to_date` of an intraday `stocks.candles()` call are read by the SDK only when they are ISO dates, because it splits a long range into one request per year. Any other string (`"yesterday"`, `"60"`, a Unix time) goes to the API as it is, in one request, and the API resolves it. When using `OutputFormat.DATAFRAME`, timestamp conversion behavior varies by resource. See the specific resource documentation for details.
+The `from_date` and `to_date` of an intraday `stocks.candles()` call are read by the SDK only when they are ISO dates or numbers the API reads as dates (a spreadsheet serial or a Unix time), because it splits a long range into one request per year. A relative range (a number under 10000, such as `"60"`) or a keyword (`"yesterday"`) goes to the API as it is, in one request, and the API resolves it. When using `OutputFormat.DATAFRAME`, timestamp conversion behavior varies by resource. See the specific resource documentation for details.
 
 ### DataFrame Processing
 
