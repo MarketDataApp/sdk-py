@@ -7,6 +7,7 @@ everywhere else. The DataFrame and JSON outputs keep the plain float parse.
 """
 
 import array
+import csv
 import dataclasses
 import datetime
 import importlib
@@ -999,6 +1000,24 @@ def test_a_null_date_keeps_its_row_in_a_merged_csv_file(respx_mock, client, tmp_
     )
 
     assert pathlib.Path(path).read_bytes() == "\r\n".join([header, *rows, ""]).encode()
+
+
+def test_a_null_date_is_an_empty_cell_in_a_csv_file_built_from_the_body(
+    respx_mock, client, tmp_path
+):
+    """`client.utilities` writes its CSV from the decoded body: a null date
+    is an empty cell in its own row."""
+    case, data = _with_null_dates("utilities.status")
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    path = case.call(
+        client, output_format=OutputFormat.CSV, filename=tmp_path / "status.csv"
+    )
+
+    rows = list(csv.DictReader(pathlib.Path(path).read_text().splitlines()))
+    assert [row["updated"] == "" for row in rows] == [
+        value is None for value in data["updated"]
+    ]
 
 
 def test_every_date_field_is_annotated_as_optional():
