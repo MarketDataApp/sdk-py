@@ -11,8 +11,8 @@ class StockNews:
     headline: str
     content: str
     source: str
-    publicationDate: datetime.datetime
-    updated: datetime.datetime
+    publicationDate: datetime.datetime | None
+    updated: datetime.datetime | None
 
     def __post_init__(self):
         """Read the dates; a null date stays ``None``."""
@@ -45,8 +45,8 @@ class StockNewsHumanReadable:
     headline: str
     content: str
     source: str
-    publicationDate: datetime.datetime
-    Date: datetime.datetime
+    publicationDate: datetime.datetime | None
+    Date: datetime.datetime | None
 
     def __post_init__(self):
         """Read the dates; a null date stays ``None``."""

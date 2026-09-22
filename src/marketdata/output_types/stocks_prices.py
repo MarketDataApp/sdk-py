@@ -14,7 +14,7 @@ class StockPrice:
     mid: Decimal
     change: Decimal
     changepct: float
-    updated: datetime.datetime
+    updated: datetime.datetime | None
 
     def __post_init__(self):
         """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
@@ -46,7 +46,7 @@ class StockPricesHumanReadable:
     Mid: Decimal
     Change_Price: Decimal
     Change_Percent: float
-    Date: datetime.datetime
+    Date: datetime.datetime | None
 
     def __post_init__(self):
         """Give the numbers their annotated types and read the dates; a null date stays ``None``."""

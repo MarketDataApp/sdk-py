@@ -9,7 +9,7 @@ from marketdata.utils import format_timestamp
 
 @dataclass
 class FundsCandle:
-    t: datetime.datetime
+    t: datetime.datetime | None
     o: Decimal
     h: Decimal
     # `l` (low) is the API's own field name, and the dataclass fields are the
@@ -40,7 +40,7 @@ class FundsCandle:
 class FundsCandlesHumanReadable:
     api_model: ClassVar[type] = FundsCandle
 
-    Date: datetime.datetime
+    Date: datetime.datetime | None
     Open: Decimal
     High: Decimal
     Low: Decimal

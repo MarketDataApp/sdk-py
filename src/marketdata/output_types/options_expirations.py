@@ -8,7 +8,7 @@ from marketdata.utils import format_timestamp
 @dataclass
 class OptionsExpirations:
     s: str
-    expirations: list[datetime.datetime]
+    expirations: list[datetime.datetime | None]
     updated: datetime.datetime | None = None
 
     def __post_init__(self):
@@ -35,8 +35,8 @@ class OptionsExpirations:
 class OptionsExpirationsHumanReadable:
     api_model: ClassVar[type] = OptionsExpirations
 
-    Expirations: list[datetime.datetime]
-    Date: datetime.datetime
+    Expirations: list[datetime.datetime | None]
+    Date: datetime.datetime | None
 
     def __post_init__(self):
         """Read the dates; a null date stays ``None``."""

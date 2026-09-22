@@ -1001,6 +1001,27 @@ def test_a_null_date_keeps_its_row_in_a_merged_csv_file(respx_mock, client, tmp_
     assert pathlib.Path(path).read_bytes() == "\r\n".join([header, *rows, ""]).encode()
 
 
+def test_every_date_field_is_annotated_as_optional():
+    """A `null` date reads as `None` on every model, so each date field's
+    annotation admits `None`, per element for a column of dates."""
+    checked, closed = 0, []
+    for model in _all_models():
+        hints = typing.get_type_hints(model)
+        for field in dataclasses.fields(model):
+            hint = hints[field.name]
+            if not (
+                _mentions(hint, datetime.datetime) or _mentions(hint, datetime.date)
+            ):
+                continue
+            checked += 1
+            element = (
+                typing.get_args(hint)[0] if typing.get_origin(hint) is list else hint
+            )
+            if type(None) not in typing.get_args(element):
+                closed.append(f"{model.__name__}.{field.name}")
+    assert checked
+    assert closed == []
+
 
 # ------------------------------------------ the formats that keep floats
 

@@ -19,15 +19,15 @@ class StockEarnings:
     symbol: list[str]
     fiscalYear: list[int]
     fiscalQuarter: list[int]
-    date: list[datetime.datetime]
-    reportDate: list[datetime.datetime]
+    date: list[datetime.datetime | None]
+    reportDate: list[datetime.datetime | None]
     reportTime: list[str]
     currency: list[str]
     reportedEPS: list[Decimal]
     estimatedEPS: list[Decimal]
     surpriseEPS: list[Decimal]
     surpriseEPSpct: list[float]
-    updated: list[datetime.datetime]
+    updated: list[datetime.datetime | None]
 
     def __post_init__(self):
         """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
@@ -78,15 +78,15 @@ class StockEarningsHumanReadable:
     Symbol: list[str]
     Fiscal_Year: list[int]
     Fiscal_Quarter: list[int]
-    Date: list[datetime.datetime]
-    Report_Date: list[datetime.datetime]
+    Date: list[datetime.datetime | None]
+    Report_Date: list[datetime.datetime | None]
     Report_Time: list[str]
     Currency: list[str]
     Reported_EPS: list[Decimal]
     Estimated_EPS: list[Decimal]
     Surprise_EPS: list[Decimal]
     Surprise_EPS_Percent: list[float]
-    Updated: list[datetime.datetime]
+    Updated: list[datetime.datetime | None]
 
     def __post_init__(self):
         """Give the numbers their annotated types and read the dates; a null date stays ``None``."""

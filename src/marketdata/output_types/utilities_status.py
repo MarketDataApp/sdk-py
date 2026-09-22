@@ -13,7 +13,7 @@ class ServiceStatus:
     online: bool
     uptimePct30d: float
     uptimePct90d: float
-    updated: datetime.datetime
+    updated: datetime.datetime | None
 
     def __post_init__(self):
         """Read the dates; a null date stays ``None``."""

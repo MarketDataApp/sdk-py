@@ -7,7 +7,7 @@ from marketdata.utils import format_timestamp
 
 @dataclass
 class MarketStatus:
-    date: datetime.date
+    date: datetime.date | None
     status: str
 
     def __post_init__(self):
@@ -28,7 +28,7 @@ class MarketStatusHumanReadable:
     api_model: ClassVar[type] = MarketStatus
 
     Status: str
-    Date: datetime.datetime
+    Date: datetime.datetime | None
 
     def __post_init__(self):
         """Read the dates; a null date stays ``None``."""

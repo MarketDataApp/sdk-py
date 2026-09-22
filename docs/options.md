@@ -727,14 +727,14 @@ When using `OutputFormat.INTERNAL` with `expirations()`, the method returns an `
 ### OptionsExpirations Properties
 
 - `s` (str): Status string
-- `expirations` (list[datetime.datetime]): List of expiration dates
-- `updated` (datetime.datetime): Last update timestamp
+- `expirations` (list[datetime.datetime | None]): List of expiration dates
+- `updated` (datetime.datetime | None): Last update timestamp
 
 ### OptionsExpirationsHumanReadable Properties
 
 When `use_human_readable=True`:
-- `Expirations` (list[datetime.datetime]): List of expiration dates
-- `Date` (datetime.datetime): Last update timestamp (replaces `updated`)
+- `Expirations` (list[datetime.datetime | None]): List of expiration dates
+- `Date` (datetime.datetime | None): Last update timestamp (replaces `updated`)
 
 ### Example Usage
 
@@ -765,12 +765,12 @@ All properties are lists with the same length, where each index represents a sin
 - `s` (str): Status string
 - `optionSymbol` (list[str]): List of option symbols
 - `underlying` (list[str]): List of underlying stock symbols
-- `expiration` (list[datetime.datetime]): List of expiration dates
+- `expiration` (list[datetime.datetime | None]): List of expiration dates
 - `side` (list[str]): List of option sides ("call" or "put")
 - `strike` (list[Decimal]): List of strike prices
-- `firstTraded` (list[datetime.datetime]): List of first traded dates
+- `firstTraded` (list[datetime.datetime | None]): List of first traded dates
 - `dte` (list[int]): List of days to expiration
-- `updated` (list[datetime.datetime]): List of last update timestamps
+- `updated` (list[datetime.datetime | None]): List of last update timestamps
 - `bid` (list[Decimal]): List of bid prices
 - `bidSize` (list[int]): List of bid sizes
 - `mid` (list[Decimal]): List of mid prices
@@ -825,12 +825,12 @@ if chain:
 When `use_human_readable=True`, the object uses human-readable field names similar to `OptionsQuotesHumanReadable`:
 - `Symbol` (list[str]): List of option symbols (replaces `optionSymbol`)
 - `Underlying` (list[str]): List of underlying stock symbols
-- `Expiration_Date` (list[datetime.datetime]): List of expiration dates (replaces `expiration`)
+- `Expiration_Date` (list[datetime.datetime | None]): List of expiration dates (replaces `expiration`)
 - `Option_Side` (list[str]): List of option sides (replaces `side`)
 - `Strike` (list[Decimal]): List of strike prices
-- `First_Traded` (list[datetime.datetime]): List of first traded dates (replaces `firstTraded`)
+- `First_Traded` (list[datetime.datetime | None]): List of first traded dates (replaces `firstTraded`)
 - `Days_To_Expiration` (list[int]): List of days to expiration (replaces `dte`)
-- `Date` (list[datetime.datetime]): List of last update timestamps (replaces `updated`)
+- `Date` (list[datetime.datetime | None]): List of last update timestamps (replaces `updated`)
 - `Bid`, `Bid_Size`, `Mid`, `Ask`, `Ask_Size`, `Last`, `Open_Interest`, `Volume`, `In_The_Money`, `Intrinsic_Value`, `Extrinsic_Value`, `Underlying_Price`, `IV`, `Delta`, `Gamma`, `Theta`, `Vega`: Same structure as `OptionsQuotesHumanReadable`
 ```
 
@@ -845,12 +845,12 @@ All properties are lists with the same length, where each index represents a sin
 - `s` (str): Status string
 - `optionSymbol` (list[str]): List of option symbols
 - `underlying` (list[str]): List of underlying stock symbols
-- `expiration` (list[datetime.datetime]): List of expiration dates
+- `expiration` (list[datetime.datetime | None]): List of expiration dates
 - `side` (list[str]): List of option sides ("call" or "put")
 - `strike` (list[Decimal]): List of strike prices
-- `firstTraded` (list[datetime.datetime]): List of first traded dates
+- `firstTraded` (list[datetime.datetime | None]): List of first traded dates
 - `dte` (list[int]): List of days to expiration
-- `updated` (list[datetime.datetime]): List of last update timestamps
+- `updated` (list[datetime.datetime | None]): List of last update timestamps
 - `bid` (list[Decimal]): List of bid prices
 - `bidSize` (list[int]): List of bid sizes
 - `mid` (list[Decimal]): List of mid prices
@@ -874,12 +874,12 @@ All properties are lists with the same length, where each index represents a sin
 When `use_human_readable=True`:
 - `Symbol` (list[str]): List of option symbols (replaces `optionSymbol`)
 - `Underlying` (list[str]): List of underlying stock symbols
-- `Expiration_Date` (list[datetime.datetime]): List of expiration dates (replaces `expiration`)
+- `Expiration_Date` (list[datetime.datetime | None]): List of expiration dates (replaces `expiration`)
 - `Option_Side` (list[str]): List of option sides (replaces `side`)
 - `Strike` (list[Decimal]): List of strike prices
-- `First_Traded` (list[datetime.datetime]): List of first traded dates (replaces `firstTraded`)
+- `First_Traded` (list[datetime.datetime | None]): List of first traded dates (replaces `firstTraded`)
 - `Days_To_Expiration` (list[int]): List of days to expiration (replaces `dte`)
-- `Date` (list[datetime.datetime]): List of last update timestamps (replaces `updated`)
+- `Date` (list[datetime.datetime | None]): List of last update timestamps (replaces `updated`)
 - `Bid` (list[Decimal]): List of bid prices
 - `Bid_Size` (list[int]): List of bid sizes (replaces `bidSize`)
 - `Mid` (list[Decimal]): List of mid prices
