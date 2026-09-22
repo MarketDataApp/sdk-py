@@ -830,6 +830,39 @@ def test_stocks_candles_intraday_string_dates(load_json, respx_mock, client):
     assert len(candles) == 253
 
 
+@pytest.mark.parametrize(
+    ("from_date", "to_date"),
+    [
+        ("60", None),
+        ("yesterday", "today"),
+        ("1790000000", None),
+        ("2026-09-01", "today"),
+    ],
+)
+def test_intraday_dates_that_are_not_iso_go_to_the_api_as_they_are(
+    load_json, respx_mock, client, from_date, to_date
+):
+    """A relative range, a keyword or a Unix time is the API's to read, with
+    its own rule: the SDK sends it untouched, in one request, instead of
+    guessing a date from it."""
+    route = respx_mock.get(
+        "https://api.marketdata.app/v1/stocks/candles/1/AAPL/"
+    ).respond(json=load_json("stocks_candles_response_200"), status_code=200)
+
+    client.stocks.candles(
+        symbol="AAPL",
+        resolution="1",
+        from_date=from_date,
+        to_date=to_date,
+        output_format=OutputFormat.JSON,
+    )
+
+    assert route.call_count == 1
+    params = route.calls.last.request.url.params
+    assert params["from"] == from_date
+    assert params.get("to") == to_date
+
+
 def _wire_ranges(respx_mock) -> list[tuple[datetime.date, datetime.date]]:
     ranges = []
     for call in respx_mock.calls:

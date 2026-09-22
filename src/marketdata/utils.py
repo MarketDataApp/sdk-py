@@ -1,5 +1,6 @@
 import csv
 import datetime
+import re
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from io import StringIO
@@ -224,33 +225,66 @@ def parse_error(response: Response, reason: str) -> ParseError:
     )
 
 
-def format_timestamp(
-    value: str | int | float | datetime.datetime | None,
-) -> datetime.datetime:
-    default_tz = DEFAULT_TIMEZONE
+_SPREADSHEET_EPOCH = datetime.datetime(1899, 12, 30)
+_SPACE_BEFORE_OFFSET = re.compile(r"\s+(?=[+-]\d{2}:?\d{2}$)")
 
+
+def format_timestamp(
+    value: str | int | float | Decimal | datetime.datetime | None,
+) -> datetime.datetime:
+    """Read a date the API sent as a US/Eastern datetime.
+
+    Args:
+        value: A datetime, returned as it is. A ``dateformat=timestamp``
+            string: a datetime with its UTC offset, or a date or a time with
+            none, which is US/Eastern. Or a number, or a numeric string, read
+            with the API's own rule: from 10000 up to 200000 a spreadsheet
+            serial of US/Eastern wall-clock time, then Unix seconds, from 1e10
+            milliseconds and from 1e13 nanoseconds.
+
+    Returns:
+        The datetime in US/Eastern. A date is its midnight there, a serial is
+        rounded to the second, and a wall-clock time the clocks pass twice is
+        the first one.
+
+    Raises:
+        ValueError: If the value is none of those, a number under 10000
+            included: the API reads it as a relative range, not as a date.
+    """
     if isinstance(value, datetime.datetime):
         return value
 
     if isinstance(value, str):
-        if value.endswith("Z"):
-            value = value[:-1] + "+00:00"
+        text = _SPACE_BEFORE_OFFSET.sub("", value.strip())
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
         try:
-            dt = datetime.datetime.fromisoformat(value)
-            return dt.astimezone(default_tz) if dt.tzinfo else dt
+            moment = datetime.datetime.fromisoformat(text)
         except ValueError:
             try:
-                value = float(value)
+                value = float(text)
             except ValueError:
-                raise ValueError("Unrecognized date format")
+                raise ValueError("Unrecognized date format") from None
+        else:
+            if moment.tzinfo is not None:
+                return moment.astimezone(DEFAULT_TIMEZONE)
+            return DEFAULT_TIMEZONE.localize(moment, is_dst=True)
 
-    if isinstance(value, (int, float)):
-        if 0 < value < 60000:
-            return datetime.datetime(1899, 12, 30) + datetime.timedelta(days=value)
-        try:
-            return datetime.datetime.fromtimestamp(value, tz=default_tz)
-        except (ValueError, OSError, OverflowError):
-            pass
+    if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+        number = float(value)
+        if 10_000 <= number < 200_000:
+            wall = _SPREADSHEET_EPOCH + datetime.timedelta(
+                seconds=round(number * 86_400)
+            )
+            return DEFAULT_TIMEZONE.localize(wall, is_dst=True)
+        if number >= 200_000:
+            scale = 1 if number < 1e10 else 1e3 if number < 1e13 else 1e9
+            try:
+                return datetime.datetime.fromtimestamp(
+                    number / scale, tz=DEFAULT_TIMEZONE
+                )
+            except (ValueError, OSError, OverflowError):
+                pass
 
     raise ValueError("Unrecognized date format")
 

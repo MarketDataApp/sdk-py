@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import pytest
+import pytz
 
 import marketdata.output_types
 from marketdata.exceptions import ParseError
@@ -255,7 +256,9 @@ DATE_KEYS = {
 }
 # 46003.5 days after 1899-12-30.
 SPREADSHEET_DATE = "46003.5"
-SPREADSHEET_DATETIME = datetime.datetime(2025, 12, 12, 12, 0)
+SPREADSHEET_DATETIME = pytz.timezone("US/Eastern").localize(
+    datetime.datetime(2025, 12, 12, 12, 0)
+)
 
 # The resources with no money keep the plain parse on every path.
 OTHER_CASES = {

@@ -847,13 +847,15 @@ ValueError: No dataframe output handler found
 
 ### Date Format Handling
 
-The SDK automatically handles multiple date formats:
+With `OutputFormat.INTERNAL`, every date in a response object is a US/Eastern `datetime.datetime`, whatever `date_format` was asked for. The SDK reads a value with the API's own rule:
 
-- **ISO timestamp strings**: Parsed using `datetime.fromisoformat()`
-- **Unix timestamps**: Parsed using `datetime.fromtimestamp()` (seconds since epoch)
-- **Spreadsheet dates**: Values between 0 and 60000 are treated as Excel-style dates (days since 1899-12-30)
+- **`timestamp` strings**: a datetime with its UTC offset (`2026-09-21 14:02:10 -04:00`), or a date (`2026-09-21`), which is midnight of that day in US/Eastern
+- **Spreadsheet serials**: a number from 10000 up to 200000, days since 1899-12-30 of the US/Eastern wall-clock time, rounded to the second
+- **Unix times**: a number from 200000 on, in seconds, from `1e10` in milliseconds and from `1e13` in nanoseconds
 
-All timestamps in response objects are automatically converted to `datetime.datetime` objects when using `OutputFormat.INTERNAL`. When using `OutputFormat.DATAFRAME`, timestamp conversion behavior varies by resource. See the specific resource documentation for details.
+A number under 10000 is not a date for the API (it reads it as a relative range), so a response that carried one raises `ParseError`.
+
+The `from_date` and `to_date` of an intraday `stocks.candles()` call are read by the SDK only when they are ISO dates, because it splits a long range into one request per year. Any other string (`"yesterday"`, `"60"`, a Unix time) goes to the API as it is, in one request, and the API resolves it. When using `OutputFormat.DATAFRAME`, timestamp conversion behavior varies by resource. See the specific resource documentation for details.
 
 ### DataFrame Processing
 

@@ -6,6 +6,8 @@ from pydantic import Field, field_validator, model_validator
 from marketdata.input_types.base import BaseInputType, BaseModelConfig
 from marketdata.utils import format_timestamp
 
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
 
 class StocksPricesInput(BaseInputType):
     model_config = BaseModelConfig
@@ -68,15 +70,26 @@ class StocksCandlesInput(BaseInputType):
 
     @model_validator(mode="after")
     def validate_input(self) -> "StocksCandlesInput":
+        """Check the date range and, on an intraday resolution, turn dates into
+        datetimes so the range can be split into requests.
+
+        A string that starts with an ISO date is read as one. Any other string
+        (``"yesterday"``, ``"60"``, a Unix time) is left for the API to
+        resolve.
+
+        Returns:
+            The validated input.
+
+        Raises:
+            MinMaxDateValidationError: If ``from_date`` is after ``to_date``.
+            ValueError: If an ISO-looking date is not a valid one.
+        """
         self._validate_min_max_dates("from_date", "to_date")
 
         if self.is_intraday:
-            # Intraday resolution needs datetime objects to work with split_dates_by_timeframe
-            # But str is allowed in the input type for "yesterday" and others.
-            # So Pydantic will skip the validation for str, and we need to convert str to datetime objects here.
-            if isinstance(self.from_date, str):
+            if isinstance(self.from_date, str) and _ISO_DATE.match(self.from_date):
                 self.from_date = format_timestamp(self.from_date)
-            if isinstance(self.to_date, str):
+            if isinstance(self.to_date, str) and _ISO_DATE.match(self.to_date):
                 self.to_date = format_timestamp(self.to_date)
 
             if isinstance(self.from_date, datetime.date):

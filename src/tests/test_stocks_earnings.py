@@ -7,7 +7,7 @@ import pytest
 import pytz
 
 from marketdata.exceptions import ServerError
-from marketdata.input_types.base import OutputFormat
+from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.output_types.stocks_earnings import (
     StockEarnings,
     StockEarningsHumanReadable,
@@ -256,3 +256,35 @@ def test_get_stocks_earnings_response_200_csv(respx_mock, client):
         symbol="AAPL", output_format=OutputFormat.CSV, filename="test.csv"
     )
     assert pathlib.Path(output).read_text() == "AS RECEIVED FROM API"
+
+
+def test_earnings_internal_reads_timestamp_dates_as_us_eastern_midnight(
+    load_json, respx_mock, client
+):
+    """Under `dateformat=timestamp` the API sends these dates as the day alone;
+    the model reads each as midnight of that day in US/Eastern, the instant the
+    default format gives."""
+    eastern = pytz.timezone("US/Eastern")
+    body = load_json("stocks_earnings_response_200")
+    for key in ("date", "reportDate", "updated"):
+        body[key] = [
+            datetime.datetime.fromtimestamp(value, tz=eastern).strftime("%Y-%m-%d")
+            for value in body[key]
+        ]
+    respx_mock.get("https://api.marketdata.app/v1/stocks/earnings/AAPL/").respond(
+        json=body, status_code=200
+    )
+
+    earnings = client.stocks.earnings(
+        symbol="AAPL",
+        output_format=OutputFormat.INTERNAL,
+        date_format=DateFormat.TIMESTAMP,
+    )
+
+    fixture = load_json("stocks_earnings_response_200")
+    for key in ("date", "reportDate", "updated"):
+        expected = [
+            datetime.datetime.fromtimestamp(value, tz=eastern) for value in fixture[key]
+        ]
+        assert getattr(earnings, key) == expected
+        assert all(moment.tzinfo is not None for moment in getattr(earnings, key))

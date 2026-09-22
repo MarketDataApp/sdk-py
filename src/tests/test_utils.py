@@ -1,6 +1,7 @@
 import csv
 import datetime
 import sys
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -26,46 +27,77 @@ from marketdata.utils import (
     validate_single_param,
 )
 
-
-def test_format_timestamp():
-    # format_timestamp returns naive datetime for string ISO format inputs
-    assert format_timestamp("2024-01-01 12:00:00") == datetime.datetime(
-        2024, 1, 1, 12, 0, 0
-    )
-    assert format_timestamp(1714732800) == datetime.datetime.fromtimestamp(
-        1714732800, tz=pytz.timezone("US/Eastern")
-    )
-    assert format_timestamp(1714732800.0) == datetime.datetime.fromtimestamp(
-        1714732800, tz=pytz.timezone("US/Eastern")
-    )
-    # Test 'Z' suffix for Python < 3.11 compatibility
-    # Construct expected datetime using localize to avoid pytz LMT issues
-    expected_z = pytz.timezone("US/Eastern").localize(
-        datetime.datetime(2024, 1, 1, 7, 0, 0)
-    )
-    assert format_timestamp("2024-01-01T12:00:00Z") == expected_z
-
-    with pytest.raises(ValueError):
-        format_timestamp("2024-01-01 12:00:00.0:00:00")
-    # Coverage for line 21-23 (string that's not float)
-    with pytest.raises(ValueError):
-        format_timestamp("invalid-date")
-    # Test numeric exceptions (OSError/OverflowError) - coverage for line 30-31
-    with pytest.raises(ValueError):
-        format_timestamp(99999999999999)
-    # Coverage for line 33 (final fallback)
-    with pytest.raises(ValueError):
-        # List is not str, int, float, or None
-        format_timestamp([])
-    with pytest.raises(ValueError):
-        format_timestamp(None)
+_EASTERN = pytz.timezone("US/Eastern")
 
 
-def test_format_timestamp_date_only_localization():
-    val = "2026-02-20"
-    dt = format_timestamp(val)
-    assert dt == datetime.datetime(2026, 2, 20, 0, 0, 0)
-    assert dt.tzinfo is None
+def _eastern(*args: int, is_dst: bool = False) -> datetime.datetime:
+    """Build a US/Eastern datetime from its wall-clock fields."""
+    return _EASTERN.localize(datetime.datetime(*args), is_dst=is_dst)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        # The API's bands (`DateHelper.date_from_number`): a spreadsheet serial
+        # from 10000 up to 200000, then Unix seconds, milliseconds, nanoseconds.
+        (45000, _eastern(2023, 3, 15)),
+        (59999, _eastern(2064, 4, 7)),
+        (60000, _eastern(2064, 4, 8)),
+        (100000, _eastern(2173, 10, 14)),
+        (46286.60208, _eastern(2026, 9, 21, 14, 27)),
+        (Decimal("46286.60208"), _eastern(2026, 9, 21, 14, 27)),
+        ("46286.60208", _eastern(2026, 9, 21, 14, 27)),
+        (1_789_000_000, _eastern(2026, 9, 9, 20, 26, 40)),
+        (1_789_000_000_000, _eastern(2026, 9, 9, 20, 26, 40)),
+        (1_789_000_000_000_000_000, _eastern(2026, 9, 9, 20, 26, 40)),
+        # `dateformat=timestamp` strings, as `DateHelper.format_date` writes them.
+        ("2026-09-21 14:02:10 -04:00", _eastern(2026, 9, 21, 14, 2, 10)),
+        ("2026-01-15 09:30:00 -05:00", _eastern(2026, 1, 15, 9, 30)),
+        ("2026-09-21", _eastern(2026, 9, 21)),
+        ("2024-01-01T12:00:00Z", _eastern(2024, 1, 1, 7)),
+        ("2024-01-01 12:00:00", _eastern(2024, 1, 1, 12)),
+        # A wall time the clocks pass twice is the first one.
+        ("2026-11-01 01:30:00", _eastern(2026, 11, 1, 1, 30, is_dst=True)),
+    ],
+)
+def test_format_timestamp_reads_what_the_api_sends(value, expected):
+    """Every value comes back as the US/Eastern datetime it names."""
+    result = format_timestamp(value)
+
+    assert result == expected
+    assert result.utcoffset() == expected.utcoffset()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        60,
+        5000,
+        -5,
+        -10000,
+        9999.9,
+        "60",
+        True,
+        "invalid-date",
+        "2024-01-01 12:00:00.0:00:00",
+        "nan",
+        float("inf"),
+        [],
+        None,
+    ],
+)
+def test_format_timestamp_refuses_what_is_not_a_date(value):
+    """A number under 10000 is a relative range for the API, not a date, and
+    anything else that is not a date raises too."""
+    with pytest.raises(ValueError, match="Unrecognized date format"):
+        format_timestamp(value)
+
+
+def test_format_timestamp_keeps_a_datetime():
+    """A datetime is already a date: it comes back as it is."""
+    moment = datetime.datetime(2026, 9, 21, 14, 2)
+
+    assert format_timestamp(moment) is moment
 
 
 def test_check_is_date():
