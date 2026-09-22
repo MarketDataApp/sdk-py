@@ -9,6 +9,34 @@ from marketdata.utils import format_timestamp
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
+def _read_absolute_date(
+    value: datetime.date | str | None,
+) -> datetime.date | str | None:
+    """Read a date string that names a moment, and leave any other value as it is.
+
+    Args:
+        value: A ``from_date`` or ``to_date`` as the caller passed it.
+
+    Returns:
+        A US/Eastern datetime for a string that starts with an ISO date, or
+        for a number the API reads as a date (a spreadsheet serial or a Unix
+        time). Any other value unchanged: a relative range such as ``"60"``, a
+        keyword such as ``"yesterday"``, or a date object.
+
+    Raises:
+        ValueError: If a string that starts with an ISO date is not a valid one.
+    """
+    if not isinstance(value, str):
+        return value
+    if _ISO_DATE.match(value):
+        return format_timestamp(value)
+    try:
+        float(value)
+        return format_timestamp(value)
+    except ValueError:
+        return value
+
+
 class StocksPricesInput(BaseInputType):
     model_config = BaseModelConfig
 
@@ -73,9 +101,10 @@ class StocksCandlesInput(BaseInputType):
         """Check the date range and, on an intraday resolution, turn dates into
         datetimes so the range can be split into requests.
 
-        A string that starts with an ISO date is read as one. Any other string
-        (``"yesterday"``, ``"60"``, a Unix time) is left for the API to
-        resolve.
+        A string that starts with an ISO date, or a number the API reads as a
+        date (a spreadsheet serial or a Unix time), is read as one. Any other
+        string (``"yesterday"``, a relative range such as ``"60"``) is left for
+        the API to resolve.
 
         Returns:
             The validated input.
@@ -87,10 +116,8 @@ class StocksCandlesInput(BaseInputType):
         self._validate_min_max_dates("from_date", "to_date")
 
         if self.is_intraday:
-            if isinstance(self.from_date, str) and _ISO_DATE.match(self.from_date):
-                self.from_date = format_timestamp(self.from_date)
-            if isinstance(self.to_date, str) and _ISO_DATE.match(self.to_date):
-                self.to_date = format_timestamp(self.to_date)
+            self.from_date = _read_absolute_date(self.from_date)
+            self.to_date = _read_absolute_date(self.to_date)
 
             if isinstance(self.from_date, datetime.date):
                 self.from_date = datetime.datetime.combine(
@@ -100,6 +127,8 @@ class StocksCandlesInput(BaseInputType):
                 self.to_date = datetime.datetime.combine(
                     self.to_date, datetime.time.min
                 )
+            # A Unix time or a serial is comparable only once read.
+            self._validate_min_max_dates("from_date", "to_date")
         return self
 
     @field_validator("resolution")
