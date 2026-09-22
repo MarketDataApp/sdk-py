@@ -145,6 +145,70 @@ def test_validate_user_universal_params__function_json(monkeypatch):
         assert "format=json" in make_request_mock.call_args[1]["url"]
 
 
+def test_validate_user_universal_params__internal_drops_a_function_column_filter(
+    load_json, respx_mock, client
+):
+    mock_data = load_json("stocks_prices_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json=mock_data,
+        status_code=200,
+    )
+
+    client.stocks.prices(
+        symbols="AAPL", output_format=OutputFormat.INTERNAL, columns=["last"]
+    )
+
+    assert "columns" not in respx_mock.calls.last.request.url.params
+
+
+def test_validate_user_universal_params__internal_drops_a_client_column_filter(
+    load_json, respx_mock, client
+):
+    mock_data = load_json("stocks_prices_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json=mock_data,
+        status_code=200,
+    )
+    client.default_params.columns = ["last"]
+
+    client.stocks.prices(symbols="AAPL", output_format=OutputFormat.INTERNAL)
+
+    assert "columns" not in respx_mock.calls.last.request.url.params
+
+
+def test_validate_user_universal_params__internal_drops_a_settings_column_filter(
+    load_json, respx_mock, client
+):
+    mock_data = load_json("stocks_prices_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json=mock_data,
+        status_code=200,
+    )
+
+    with patch.object(settings, "marketdata_columns", ["last"]):
+        client.stocks.prices(symbols="AAPL", output_format=OutputFormat.INTERNAL)
+
+    assert "columns" not in respx_mock.calls.last.request.url.params
+
+
+@pytest.mark.parametrize(
+    "output_format",
+    [OutputFormat.DATAFRAME, OutputFormat.JSON, OutputFormat.CSV],
+)
+def test_validate_user_universal_params__every_other_format_sends_the_column_filter(
+    output_format, load_json, respx_mock, client
+):
+    mock_data = load_json("stocks_prices_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json=mock_data,
+        status_code=200,
+    )
+
+    client.stocks.prices(symbols="AAPL", output_format=output_format, columns=["last"])
+
+    assert respx_mock.calls.last.request.url.params["columns"] == "last"
+
+
 def test_client_get_user_agent(client):
     assert client._get_user_agent() == f"marketdata-sdk-py/{client.library_version}"
 
