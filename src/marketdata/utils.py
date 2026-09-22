@@ -238,14 +238,15 @@ def format_timestamp(
         value: A datetime, returned as it is. A ``dateformat=timestamp``
             string: a datetime with its UTC offset, or a date or a time with
             none, which is US/Eastern. Or a number, or a numeric string, read
-            with the API's own rule: from 10000 up to 200000 a spreadsheet
-            serial of US/Eastern wall-clock time, then Unix seconds, from 1e10
-            milliseconds and from 1e13 nanoseconds.
+            with the API's own rule: ``10000 <= n < 200000`` a spreadsheet
+            serial of US/Eastern wall-clock time, from 200000 Unix seconds,
+            from 1e10 milliseconds and from 1e13 nanoseconds.
 
     Returns:
-        The datetime in US/Eastern. A date is its midnight there, a serial is
-        rounded to the second, and a wall-clock time the clocks pass twice is
-        the first one.
+        A datetime argument unchanged, with its zone or without one. Any other
+        value as a US/Eastern datetime: a date is its midnight there, a serial
+        is rounded to the second, and a wall-clock time the clocks pass twice
+        is the first one.
 
     Raises:
         ValueError: If the value is none of those, a number under 10000

@@ -288,3 +288,30 @@ def test_earnings_internal_reads_timestamp_dates_as_us_eastern_midnight(
         ]
         assert getattr(earnings, key) == expected
         assert all(moment.tzinfo is not None for moment in getattr(earnings, key))
+
+
+@pytest.mark.parametrize(
+    ("number", "expected"),
+    [
+        pytest.param(199_999, (2447, 7, 29, 0, 0, 0), id="last-serial"),
+        pytest.param(200_000, (1970, 1, 3, 2, 33, 20), id="first-unix-second"),
+    ],
+)
+def test_earnings_internal_reads_numbers_with_the_api_serial_boundary(
+    number, expected, load_json, respx_mock, client
+):
+    """The API reads ``10000 <= n < 200000`` as a spreadsheet serial and 200000
+    as Unix seconds, and the model reads the same number the same way."""
+    body = load_json("stocks_earnings_response_200")
+    body["date"] = [number] * len(body["date"])
+    respx_mock.get("https://api.marketdata.app/v1/stocks/earnings/AAPL/").respond(
+        json=body, status_code=200
+    )
+
+    earnings = client.stocks.earnings(
+        symbol="AAPL", output_format=OutputFormat.INTERNAL
+    )
+
+    moment = pytz.timezone("US/Eastern").localize(datetime.datetime(*expected))
+    assert earnings.date == [moment] * len(body["date"])
+    assert all(date.utcoffset() == moment.utcoffset() for date in earnings.date)

@@ -39,11 +39,17 @@ def _eastern(*args: int, is_dst: bool = False) -> datetime.datetime:
     ("value", "expected"),
     [
         # The API's bands (`DateHelper.date_from_number`): a spreadsheet serial
-        # from 10000 up to 200000, then Unix seconds, milliseconds, nanoseconds.
+        # for 10000 <= n < 200000, then Unix seconds, milliseconds, nanoseconds.
+        (10_000, _eastern(1927, 5, 18)),
         (45000, _eastern(2023, 3, 15)),
         (59999, _eastern(2064, 4, 7)),
         (60000, _eastern(2064, 4, 8)),
         (100000, _eastern(2173, 10, 14)),
+        (199_999, _eastern(2447, 7, 29)),
+        (200_000, _eastern(1970, 1, 3, 2, 33, 20)),
+        (9_999_999_999, _eastern(2286, 11, 20, 12, 46, 39)),
+        (10_000_000_000, _eastern(1970, 4, 26, 13, 46, 40)),
+        (10_000_000_000_000, _eastern(1969, 12, 31, 21, 46, 40)),
         (46286.60208, _eastern(2026, 9, 21, 14, 27)),
         (Decimal("46286.60208"), _eastern(2026, 9, 21, 14, 27)),
         ("46286.60208", _eastern(2026, 9, 21, 14, 27)),
@@ -94,7 +100,8 @@ def test_format_timestamp_refuses_what_is_not_a_date(value):
 
 
 def test_format_timestamp_keeps_a_datetime():
-    """A datetime is already a date: it comes back as it is."""
+    """A datetime is already a date: it comes back as it is, without a zone
+    if it had none."""
     moment = datetime.datetime(2026, 9, 21, 14, 2)
 
     assert format_timestamp(moment) is moment
