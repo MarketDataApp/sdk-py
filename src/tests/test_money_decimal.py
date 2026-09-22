@@ -860,25 +860,146 @@ def test_a_spreadsheet_date_still_reads(respx_mock, client, name):
     assert all(date == SPREADSHEET_DATETIME for date in dates)
 
 
-@pytest.mark.parametrize("name", [*DATE_KEYS, *OTHER_DATE_KEYS])
-def test_a_null_date_is_none_on_every_internal_model(respx_mock, client, name):
-    """The API answers `null` for a date it does not have. Every INTERNAL model
-    keeps it as `None`, in its row, instead of raising or dropping it."""
+def _with_null_dates(name: str) -> tuple[Case, dict]:
+    """Load the fixture of `name` with the first value of each date key set to null.
+
+    A key that holds a single date is set to null whole. Returns the case and
+    the body.
+    """
     case = MONEY_CASES.get(name) or OTHER_CASES[name]
-    keys = DATE_KEYS.get(name) or OTHER_DATE_KEYS[name]
     data = _load_fixture(case.fixture)
-    for key in keys:
+    for key in DATE_KEYS.get(name) or OTHER_DATE_KEYS[name]:
         if isinstance(data[key], list):
             data[key][0] = None
         else:
             data[key] = None
+    return case, data
+
+
+def _internal_column(result, key: str) -> list:
+    """The values an INTERNAL result holds for the body key `key`, row by row."""
+    attribute = key.replace(" ", "_")
+    if isinstance(result, list):
+        return [getattr(model, attribute) for model in result]
+    value = getattr(result, attribute)
+    return value if isinstance(value, list) else [value]
+
+
+def _output_name(names, key: str) -> str:
+    """The name `key` goes by among `names`: as sent, or with underscores for
+    spaces, as the merged `options.quotes` answer names it."""
+    return key if key in names else key.replace(" ", "_")
+
+
+def _frame_column(frame, key: str) -> list:
+    """The values of the body key `key` in a pandas or polars DataFrame.
+
+    A pandas frame may hold the key as its index rather than as a column.
+    """
+    if isinstance(frame, pl.DataFrame):
+        return frame[_output_name(frame.columns, key)].to_list()
+    name = _output_name([*frame.columns, frame.index.name], key)
+    if name in frame.columns:
+        return list(frame[name])
+    assert frame.index.name == name, key
+    return list(frame.index)
+
+
+def _missing_where_sent_null(sent, read: list) -> bool:
+    """Whether `read` is missing exactly where `sent` is null, row for row.
+
+    A list keeps its length; a single date sent null reads as missing in every
+    row it applies to.
+    """
+    if not isinstance(sent, list):
+        return bool(read) and all(pd.isna(value) for value in read)
+    return [pd.isna(value) for value in read] == [value is None for value in sent]
+
+
+@pytest.mark.parametrize("name", [*DATE_KEYS, *OTHER_DATE_KEYS])
+def test_a_null_date_is_none_on_every_internal_model(respx_mock, client, name):
+    """The API answers `null` for a date it does not have. Every INTERNAL model
+    keeps it as `None` in its own row, for every date key, and reads every
+    other date of the key."""
+    case, data = _with_null_dates(name)
     _respond(respx_mock, case, json.dumps(data).encode())
 
     result = case.call(client, output_format=OutputFormat.INTERNAL)
 
-    dates = _dates_in(result)
-    assert None in dates
-    assert all(date is None or isinstance(date, datetime.datetime) for date in dates)
+    for key in DATE_KEYS.get(name) or OTHER_DATE_KEYS[name]:
+        read = _internal_column(result, key)
+        assert _missing_where_sent_null(data[key], read), key
+        assert all(
+            isinstance(value, datetime.datetime) for value in read if value is not None
+        ), key
+
+
+@pytest.mark.parametrize("library", ["pandas", "polars", "json"])
+@pytest.mark.parametrize("name", [*DATE_KEYS, *OTHER_DATE_KEYS])
+def test_a_null_date_keeps_its_row_on_the_other_decoded_formats(
+    respx_mock, client, name, library
+):
+    """The body that INTERNAL reads returns on JSON and on a DataFrame of either
+    library too, each date key missing in the same row it was sent null in."""
+    case, data = _with_null_dates(name)
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    if library == "json":
+        result = case.call(client, output_format=OutputFormat.JSON)
+    else:
+        with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [library]):
+            result = case.call(client, output_format=OutputFormat.DATAFRAME)
+
+    for key in DATE_KEYS.get(name) or OTHER_DATE_KEYS[name]:
+        if library == "json":
+            value = result[_output_name(result, key)]
+            read = value if isinstance(value, list) else [value]
+        else:
+            read = _frame_column(result, key)
+        assert _missing_where_sent_null(data[key], read), key
+
+
+def test_a_null_date_keeps_its_row_in_a_csv_file(respx_mock, client, tmp_path):
+    """The CSV file is the API's text: an empty date cell stays in its row."""
+    body = (
+        "t,o,h,l,c,v\r\n"
+        "1577941200,74.06,75.15,73.7975,75.0875,135647456\r\n"
+        ",74.2875,75.145,74.125,74.3575,146535512\r\n"
+        "1578286800,73.4475,74.99,73.1875,74.95,118578576\r\n"
+    )
+    respx_mock.get(f"{API}/v1/stocks/candles/D/AAPL/").respond(text=body)
+
+    path = client.stocks.candles(
+        "AAPL",
+        resolution="D",
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "candles.csv",
+    )
+
+    assert pathlib.Path(path).read_bytes() == body.encode()
+
+
+def test_a_null_date_keeps_its_row_in_a_merged_csv_file(respx_mock, client, tmp_path):
+    """Three symbols merge into one file, and the middle symbol's empty
+    `firstTraded` cell stays in its own row."""
+    header = "optionSymbol,firstTraded,bid"
+    rows = [
+        "AAPL271217C00255000,1741872600,65.1",
+        "AAPL271217P00255000,,1.2",
+        "AAPL271217C00260000,1742045400,60.5",
+    ]
+    symbols = [row.split(",")[0] for row in rows]
+    for symbol, row in zip(symbols, rows):
+        respx_mock.get(f"{API}/v1/options/quotes/{symbol}/").respond(
+            text=f"{header}\r\n{row}\r\n"
+        )
+
+    path = client.options.quotes(
+        symbols, output_format=OutputFormat.CSV, filename=tmp_path / "quotes.csv"
+    )
+
+    assert pathlib.Path(path).read_bytes() == "\r\n".join([header, *rows, ""]).encode()
+
 
 
 # ------------------------------------------ the formats that keep floats
