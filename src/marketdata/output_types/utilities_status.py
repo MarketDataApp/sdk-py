@@ -16,7 +16,8 @@ class ServiceStatus:
     updated: datetime.datetime
 
     def __post_init__(self):
-        self.updated = format_timestamp(self.updated)
+        """Read the dates; a null date stays ``None``."""
+        self.updated = None if self.updated is None else format_timestamp(self.updated)
 
     @property
     def is_online(self) -> bool:

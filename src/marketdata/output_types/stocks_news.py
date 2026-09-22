@@ -15,8 +15,13 @@ class StockNews:
     updated: datetime.datetime
 
     def __post_init__(self):
-        self.publicationDate = format_timestamp(self.publicationDate)
-        self.updated = format_timestamp(self.updated)
+        """Read the dates; a null date stays ``None``."""
+        self.publicationDate = (
+            None
+            if self.publicationDate is None
+            else format_timestamp(self.publicationDate)
+        )
+        self.updated = None if self.updated is None else format_timestamp(self.updated)
 
     def __repr__(self) -> str:
         result = "Stock News:\n"
@@ -44,8 +49,13 @@ class StockNewsHumanReadable:
     Date: datetime.datetime
 
     def __post_init__(self):
-        self.publicationDate = format_timestamp(self.publicationDate)
-        self.Date = format_timestamp(self.Date)
+        """Read the dates; a null date stays ``None``."""
+        self.publicationDate = (
+            None
+            if self.publicationDate is None
+            else format_timestamp(self.publicationDate)
+        )
+        self.Date = None if self.Date is None else format_timestamp(self.Date)
 
     def __repr__(self) -> str:
         result = "Stock News:\n"

@@ -51,17 +51,19 @@ class OptionsQuotes:
     vega: list[float]
 
     def __post_init__(self):
+        """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
         coerce_numbers(self)
         self.updated = [
-            format_timestamp(updated) for updated in self.updated if updated
+            None if updated is None else format_timestamp(updated)
+            for updated in self.updated
         ]
         self.expiration = [
-            format_timestamp(expiration) for expiration in self.expiration if expiration
+            None if expiration is None else format_timestamp(expiration)
+            for expiration in self.expiration
         ]
         self.firstTraded = [
-            format_timestamp(firstTraded)
+            None if firstTraded is None else format_timestamp(firstTraded)
             for firstTraded in self.firstTraded
-            if firstTraded
         ]
 
     def __repr__(self) -> str:
@@ -137,14 +139,19 @@ class OptionsQuotesHumanReadable:
     Vega: list[float]
 
     def __post_init__(self):
+        """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
         coerce_numbers(self)
         self.Expiration_Date = [
-            format_timestamp(expiration) for expiration in self.Expiration_Date
+            None if expiration is None else format_timestamp(expiration)
+            for expiration in self.Expiration_Date
         ]
         self.First_Traded = [
-            format_timestamp(firstTraded) for firstTraded in self.First_Traded
+            None if firstTraded is None else format_timestamp(firstTraded)
+            for firstTraded in self.First_Traded
         ]
-        self.Date = [format_timestamp(date) for date in self.Date]
+        self.Date = [
+            None if date is None else format_timestamp(date) for date in self.Date
+        ]
 
     def __repr__(self) -> str:
         result = "Options Quotes:\n"

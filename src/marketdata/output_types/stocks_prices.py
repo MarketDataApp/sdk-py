@@ -17,8 +17,9 @@ class StockPrice:
     updated: datetime.datetime
 
     def __post_init__(self):
+        """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
         coerce_numbers(self)
-        self.updated = format_timestamp(self.updated)
+        self.updated = None if self.updated is None else format_timestamp(self.updated)
 
     def __repr__(self) -> str:
         result = "Stock Price:\n"
@@ -48,8 +49,9 @@ class StockPricesHumanReadable:
     Date: datetime.datetime
 
     def __post_init__(self):
+        """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
         coerce_numbers(self)
-        self.Date = format_timestamp(self.Date)
+        self.Date = None if self.Date is None else format_timestamp(self.Date)
 
     def __repr__(self) -> str:
         result = "Stock Prices:\n"

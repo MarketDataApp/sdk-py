@@ -20,8 +20,9 @@ class StockCandle:
     v: int
 
     def __post_init__(self):
+        """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
         coerce_numbers(self)
-        self.t = format_timestamp(self.t)
+        self.t = None if self.t is None else format_timestamp(self.t)
 
     def __repr__(self) -> str:
         result = "Stock Candles:\n"
@@ -49,8 +50,9 @@ class StockCandlesHumanReadable:
     Volume: int
 
     def __post_init__(self):
+        """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
         coerce_numbers(self)
-        self.Date = format_timestamp(self.Date)
+        self.Date = None if self.Date is None else format_timestamp(self.Date)
 
     def __repr__(self) -> str:
         result = "Stock Candle:\n"

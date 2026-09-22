@@ -860,6 +860,27 @@ def test_a_spreadsheet_date_still_reads(respx_mock, client, name):
     assert all(date == SPREADSHEET_DATETIME for date in dates)
 
 
+@pytest.mark.parametrize("name", [*DATE_KEYS, *OTHER_DATE_KEYS])
+def test_a_null_date_is_none_on_every_internal_model(respx_mock, client, name):
+    """The API answers `null` for a date it does not have. Every INTERNAL model
+    keeps it as `None`, in its row, instead of raising or dropping it."""
+    case = MONEY_CASES.get(name) or OTHER_CASES[name]
+    keys = DATE_KEYS.get(name) or OTHER_DATE_KEYS[name]
+    data = _load_fixture(case.fixture)
+    for key in keys:
+        if isinstance(data[key], list):
+            data[key][0] = None
+        else:
+            data[key] = None
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    result = case.call(client, output_format=OutputFormat.INTERNAL)
+
+    dates = _dates_in(result)
+    assert None in dates
+    assert all(date is None or isinstance(date, datetime.datetime) for date in dates)
+
+
 # ------------------------------------------ the formats that keep floats
 
 

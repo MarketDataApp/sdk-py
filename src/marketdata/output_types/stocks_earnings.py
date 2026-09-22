@@ -30,11 +30,18 @@ class StockEarnings:
     updated: list[datetime.datetime]
 
     def __post_init__(self):
+        """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
         coerce_numbers(self)
-        self.updated = [format_timestamp(updated) for updated in self.updated]
-        self.date = [format_timestamp(date) for date in self.date]
+        self.updated = [
+            None if updated is None else format_timestamp(updated)
+            for updated in self.updated
+        ]
+        self.date = [
+            None if date is None else format_timestamp(date) for date in self.date
+        ]
         self.reportDate = [
-            format_timestamp(reportDate) for reportDate in self.reportDate
+            None if reportDate is None else format_timestamp(reportDate)
+            for reportDate in self.reportDate
         ]
 
     def __repr__(self) -> str:
@@ -82,11 +89,18 @@ class StockEarningsHumanReadable:
     Updated: list[datetime.datetime]
 
     def __post_init__(self):
+        """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
         coerce_numbers(self)
-        self.Updated = [format_timestamp(updated) for updated in self.Updated]
-        self.Date = [format_timestamp(date) for date in self.Date]
+        self.Updated = [
+            None if updated is None else format_timestamp(updated)
+            for updated in self.Updated
+        ]
+        self.Date = [
+            None if date is None else format_timestamp(date) for date in self.Date
+        ]
         self.Report_Date = [
-            format_timestamp(reportDate) for reportDate in self.Report_Date
+            None if reportDate is None else format_timestamp(reportDate)
+            for reportDate in self.Report_Date
         ]
 
     def __repr__(self) -> str:
