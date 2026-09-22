@@ -11,6 +11,7 @@ from marketdata.client import MarketDataClient
 from marketdata.exceptions import AuthenticationError, NetworkError
 from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import REQUEST_TIMEOUT
+from src.tests.conftest import assert_failed_answer
 
 PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 QUOTES_URL = "https://api.marketdata.app/v1/options/quotes/"
@@ -106,10 +107,13 @@ def test_a_start_up_failure_that_no_retry_can_fix_stops_at_one_request(
         json={"s": "error", "errmsg": "Invalid token"}, status_code=401
     )
 
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(AuthenticationError) as exc_info:
         MarketDataClient(token="bad")
 
     assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value, 401, "https://api.marketdata.app/user/", "Invalid token"
+    )
 
 
 def test_a_connect_timeout_is_a_network_error_and_is_retried(

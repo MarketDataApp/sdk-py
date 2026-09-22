@@ -10,6 +10,7 @@ import pytz
 from marketdata.exceptions import ServerError
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.output_types.stocks_quotes import StockQuote, StockQuotesHumanReadable
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 
 def test_stock_quote_str():
@@ -413,17 +414,22 @@ def test_get_stocks_quotes_status_offline(load_json, respx_mock, client):
         json=mock_data,
         status_code=200,
     )
+    load_api_status(client)
 
-    respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
+    route = respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
         json={},
         status_code=501,
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.stocks.quotes(
             symbols=["AAPL", "MSFT"],
             output_format=OutputFormat.INTERNAL,
         )
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value, 501, "https://api.marketdata.app/v1/stocks/quotes/", "{}"
+    )
 
 
 def test_get_stocks_quotes_response_200_csv(respx_mock, client):

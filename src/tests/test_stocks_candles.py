@@ -17,6 +17,7 @@ from marketdata.output_types.stocks_candles import (
     StockCandle,
     StockCandlesHumanReadable,
 )
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 
 def test_stock_candle_str():
@@ -421,18 +422,28 @@ def test_get_stocks_candles_status_offline(load_json, respx_mock, client):
         json=mock_data,
         status_code=200,
     )
+    load_api_status(client)
 
-    respx_mock.get("https://api.marketdata.app/v1/stocks/candles/D/AAPL/").respond(
+    route = respx_mock.get(
+        "https://api.marketdata.app/v1/stocks/candles/D/AAPL/"
+    ).respond(
         json={},
         status_code=501,
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.stocks.candles(
             symbol="AAPL",
             resolution="D",
             output_format=OutputFormat.INTERNAL,
         )
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value,
+        501,
+        "https://api.marketdata.app/v1/stocks/candles/D/AAPL/",
+        "{}",
+    )
 
 
 # ------------------------------------------------------------------- CSV
@@ -511,7 +522,7 @@ def test_stocks_candles_csv_undecodable_chunk_body_is_a_parse_error(
         side_effect=by_chunk(dict(text=CSV_BODY), dict(text="<html>error page</html>"))
     )
 
-    with pytest.raises(ParseError):
+    with pytest.raises(ParseError) as exc_info:
         client.stocks.candles(
             symbol="AAPL",
             resolution="H",
@@ -521,6 +532,17 @@ def test_stocks_candles_csv_undecodable_chunk_body_is_a_parse_error(
         )
 
     assert not (tmp_path / "test.csv").exists()
+    error = exc_info.value
+    assert_failed_answer(
+        error,
+        200,
+        HOURLY_URL,
+        (
+            "Response body is not a valid answer of this resource (unknown columns"
+            " ['<html>error page</html>']): '<html>error page</html>'"
+        ),
+    )
+    assert httpx.URL(error.request_url).params["from"].startswith("2024-01-01")
 
 
 def test_stocks_candles_csv_chunk_the_csv_module_cannot_read_is_a_parse_error(

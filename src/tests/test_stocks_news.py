@@ -8,6 +8,7 @@ import pytz
 from marketdata.exceptions import ServerError
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.stocks_news import StockNews, StockNewsHumanReadable
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 
 def test_stock_news_str():
@@ -188,12 +189,17 @@ def test_get_stocks_news_status_offline(respx_mock, client):
         json=mock_data,
         status_code=200,
     )
-    respx_mock.get("https://api.marketdata.app/v1/stocks/news/AAPL/").respond(
+    load_api_status(client)
+    route = respx_mock.get("https://api.marketdata.app/v1/stocks/news/AAPL/").respond(
         json={},
         status_code=501,
     )
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.stocks.news(symbol="AAPL", output_format=OutputFormat.INTERNAL)
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value, 501, "https://api.marketdata.app/v1/stocks/news/AAPL/", "{}"
+    )
 
 
 def test_get_stocks_news_response_200_csv(respx_mock, client):

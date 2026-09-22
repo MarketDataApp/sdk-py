@@ -14,6 +14,7 @@ from marketdata.output_types.options_expirations import (
     OptionsExpirations,
     OptionsExpirationsHumanReadable,
 )
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 ET = pytz.timezone("US/Eastern")
 
@@ -148,8 +149,14 @@ def test_get_options_expirations_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadRequestError):
+    with pytest.raises(BadRequestError) as exc_info:
         client.options.expirations(symbol="AAPL", output_format=OutputFormat.INTERNAL)
+    assert_failed_answer(
+        exc_info.value,
+        400,
+        "https://api.marketdata.app/v1/options/expirations/AAPL/",
+        "{}",
+    )
 
 
 def test_get_options_expirations_status_offline(load_json, respx_mock, client):
@@ -167,14 +174,24 @@ def test_get_options_expirations_status_offline(load_json, respx_mock, client):
         json=mock_data,
         status_code=200,
     )
+    load_api_status(client)
 
-    respx_mock.get("https://api.marketdata.app/v1/options/expirations/AAPL/").respond(
+    route = respx_mock.get(
+        "https://api.marketdata.app/v1/options/expirations/AAPL/"
+    ).respond(
         json={},
         status_code=501,
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.options.expirations(symbol="AAPL", output_format=OutputFormat.INTERNAL)
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value,
+        501,
+        "https://api.marketdata.app/v1/options/expirations/AAPL/",
+        "{}",
+    )
 
 
 def test_options_expirations_optional_updated():
