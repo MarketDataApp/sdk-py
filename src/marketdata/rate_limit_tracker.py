@@ -35,26 +35,22 @@ class RateLimitTracker:
     def update(
         self, rate_limits: UserRateLimits, *, authoritative: bool = False
     ) -> None:
-        """Record what an answer said about the account's credits.
+        """Record ``rate_limits`` unless the ordering rule marks it as late.
 
-        A ``credit_limit`` of zero is not this account's state and is ignored.
-        The API answers a missing, malformed or unknown token with demo data
-        and a ``0/0`` credit envelope whose reset belongs to another window
-        (verified live: a bad token gets ``203`` with ``limit: 0``), so
-        recording it would move the pre-flight state to "no credits left" for
-        an account that has them, and the ordering rule would then keep the
-        real state out until that other window passed.
-
-        ``authoritative`` is for an answer that was asked for precisely to
-        learn the balance (``/user/``). It bypasses the ordering rule, which
-        otherwise ignores a higher balance in the same window and would leave
-        a caller no way to correct a state that is stale rather than late.
+        A ``credit_limit`` of zero or less is ignored, even when
+        ``authoritative``: the API sends that envelope with demo data for an
+        unknown token, so it does not describe this account. ``authoritative``
+        marks an answer requested to learn the balance (``/user/``), which
+        replaces the state past the ordering rule.
         """
         if rate_limits.credit_limit <= 0:
             return
+        if authoritative:
+            self.reset(rate_limits)
+            return
         with self._lock:
             current = self._state
-            if current is not None and not authoritative:
+            if current is not None:
                 if rate_limits.reset_timestamp < current.reset_timestamp:
                     return
                 if (

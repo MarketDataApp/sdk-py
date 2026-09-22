@@ -1,0 +1,323 @@
+"""Tests for the SDK logger and its shared stderr handler."""
+
+import contextlib
+import importlib
+import io
+import logging
+import os
+import subprocess
+import sys
+import threading
+
+import pytest
+
+from marketdata.logger import get_logger
+from marketdata.settings import settings
+
+LOGGER_NAME = "marketdata.logger"
+logger_module = importlib.import_module("marketdata.logger")
+
+
+@pytest.fixture(autouse=True)
+def _a_logger_nobody_configured(monkeypatch):
+    """Start each test from a logger with no level, and restore the logger's
+    and the handler's level and stream afterwards."""
+    logger = logging.getLogger(LOGGER_NAME)
+    handler = logger_module._HANDLER
+    saved = (logger.level, handler.level, handler._stream)
+    monkeypatch.setattr(logger_module, "_applied_level", logging.NOTSET)
+    logger.setLevel(logging.NOTSET)
+    yield
+    logger.setLevel(saved[0])
+    handler.setLevel(saved[1])
+    handler._stream = saved[2]
+
+
+# Runs in a fresh interpreter: the handler count is process-wide state.
+FRESH_PROCESS = """
+import logging
+
+import respx
+
+import marketdata
+
+logger = logging.getLogger("marketdata.logger")
+print(len(logger.handlers))
+with respx.mock(assert_all_called=False) as mock:
+    mock.get(url__regex=r".*").respond(json={}, status_code=200)
+    marketdata.MarketDataClient(token="x" * 30)
+    marketdata.MarketDataClient(token="x" * 30)
+print(len(logger.handlers))
+logger.warning("one record")
+"""
+
+
+def test_a_process_gets_one_handler_and_one_line_per_record():
+    result = subprocess.run(
+        [sys.executable, "-c", FRESH_PROCESS],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "MARKETDATA_LOGGING_LEVEL": "INFO"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["0", "1"]
+    assert result.stderr.count("one record") == 1
+
+
+def test_get_logger_adds_its_handler_once():
+    logger = get_logger()
+    count = len(logger.handlers)
+
+    get_logger()
+    get_logger()
+
+    assert count >= 1
+    assert len(logger.handlers) == count
+
+
+def test_a_handler_the_caller_attached_stands_in_for_the_sdks(monkeypatch):
+    logger = logging.getLogger(LOGGER_NAME)
+    mine = logging.NullHandler()
+    monkeypatch.setattr(logger, "handlers", [mine])
+
+    get_logger()
+
+    assert logger.handlers == [mine]
+
+
+def test_the_handler_writes_to_the_stderr_of_the_moment(monkeypatch, capsys):
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
+    redirected = io.StringIO()
+
+    with contextlib.redirect_stderr(redirected):
+        get_logger()
+    logger.warning("after the redirect")
+
+    assert "after the redirect" in capsys.readouterr().err
+    assert redirected.getvalue() == ""
+
+
+def test_the_handler_takes_a_stream_set_on_it(monkeypatch):
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
+    handler = get_logger().handlers[0]
+    mine = io.StringIO()
+
+    try:
+        handler.setStream(mine)
+        logger.warning("to my stream")
+    finally:
+        handler.setStream(None)
+
+    assert "to my stream" in mine.getvalue()
+    assert handler.stream is sys.stderr
+
+
+def test_setting_the_current_stderr_fixes_it(monkeypatch):
+    """`setStream(sys.stderr)` pins that stream against a later redirection."""
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
+    handler = get_logger().handlers[0]
+    chosen = io.StringIO()
+    later = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", chosen)
+
+    try:
+        assert handler.setStream(sys.stderr) is chosen
+        assert handler.setStream(chosen) is None
+        with contextlib.redirect_stderr(later):
+            logger.warning("to the stream I chose")
+    finally:
+        handler.setStream(None)
+
+    assert "to the stream I chose" in chosen.getvalue()
+    assert later.getvalue() == ""
+
+
+class FlushCounting(io.StringIO):
+    flushes = 0
+
+    def flush(self):
+        self.flushes += 1
+        super().flush()
+
+
+def test_set_stream_returns_the_stream_it_leaves_and_flushes_it(monkeypatch):
+    """Only the stream being replaced is flushed."""
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    handler = get_logger().handlers[0]
+    first, second = FlushCounting(), FlushCounting()
+
+    try:
+        assert handler.setStream(first) is sys.stderr
+        before = (first.flushes, second.flushes)
+        assert handler.setStream(second) is first
+        assert (first.flushes, second.flushes) == (before[0] + 1, before[1])
+    finally:
+        handler.setStream(None)
+
+
+def test_two_callers_swapping_the_stream_share_no_previous_one(monkeypatch):
+    """Two concurrent swaps each get back the stream they actually replaced."""
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    handler = get_logger().handlers[0]
+    first, second, third = io.StringIO(), io.StringIO(), io.StringIO()
+    inside = threading.Event()
+    held = threading.Event()
+    flush = handler.flush
+
+    def slow_flush():
+        # Pauses the first caller inside the swap while it holds the lock.
+        inside.set()
+        assert held.wait(timeout=10), "the second caller never reached the lock"
+        flush()
+
+    # Keyed by caller: the order the two threads return in is not deterministic.
+    left = {}
+
+    def swap(caller, stream):
+        left[caller] = handler.setStream(stream)
+
+    try:
+        handler.setStream(first)
+        monkeypatch.setattr(handler, "flush", slow_flush)
+        swapping = threading.Thread(target=swap, args=("inside", second))
+        swapping.start()
+        assert inside.wait(timeout=10), "the first caller never swapped"
+        waiting = threading.Thread(target=swap, args=("waiting", third))
+        waiting.start()
+        held.set()
+        swapping.join(timeout=10)
+        waiting.join(timeout=10)
+    finally:
+        monkeypatch.setattr(handler, "flush", flush)
+        handler.setStream(None)
+
+    assert left == {"inside": first, "waiting": second}
+    assert handler.stream is sys.stderr
+
+
+CALLER_CONFIGURED = """
+import logging
+
+import respx
+
+import marketdata
+
+kept = []
+
+
+class Keep(logging.Handler):
+    def emit(self, record):
+        kept.append(record.getMessage())
+
+
+logger = logging.getLogger("marketdata.logger")
+logger.addHandler(Keep())
+logger.setLevel(logging.DEBUG)
+with respx.mock(assert_all_called=False) as mock:
+    mock.get(url__regex=r".*").respond(json={}, status_code=200)
+    marketdata.MarketDataClient(token="x" * 30)
+    marketdata.MarketDataClient(token="x" * 30)
+print(logging.getLevelName(logger.level))
+print(kept.count("Initializing MarketDataClient"))
+"""
+
+
+def test_a_level_the_application_set_is_kept():
+    env = {**os.environ}
+    env.pop("MARKETDATA_LOGGING_LEVEL", None)
+
+    result = subprocess.run(
+        [sys.executable, "-c", CALLER_CONFIGURED],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["DEBUG", "2"]
+
+
+def test_the_logger_follows_the_settings_while_nobody_else_set_a_level(
+    monkeypatch,
+):
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+
+    monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
+    get_logger()
+    assert logger.level == logging.WARNING
+
+    monkeypatch.setattr(settings, "marketdata_logging_level", "DEBUG")
+    get_logger()
+    assert logger.level == logging.DEBUG
+
+    logger.setLevel(logging.ERROR)
+    monkeypatch.setattr(settings, "marketdata_logging_level", "INFO")
+    get_logger()
+    assert logger.level == logging.ERROR
+
+
+def test_a_logger_reset_to_notset_follows_the_settings_again(monkeypatch):
+    logger = logging.getLogger(LOGGER_NAME)
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(settings, "marketdata_logging_level", "ERROR")
+    get_logger()
+    logger.setLevel(logging.DEBUG)
+    get_logger()
+    assert logger.level == logging.DEBUG
+
+    logger.setLevel(logging.NOTSET)
+    monkeypatch.setattr(settings, "marketdata_logging_level", "INFO")
+    get_logger()
+    assert logger.level == logging.INFO
+
+
+def test_the_handler_keeps_the_level_of_the_settings(monkeypatch, capsys):
+    """Lowering the logger's level does not lower the SDK handler's."""
+    logger = logging.getLogger(LOGGER_NAME)
+    level = logger.level
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(settings, "marketdata_logging_level", "WARNING")
+    try:
+        get_logger()
+        logger.setLevel(logging.DEBUG)
+        logger.debug("not for the SDK's stream")
+        assert "not for the SDK's stream" not in capsys.readouterr().err
+
+        monkeypatch.setattr(settings, "marketdata_logging_level", "DEBUG")
+        get_logger()
+        logger.debug("now it is")
+        assert "now it is" in capsys.readouterr().err
+    finally:
+        logger.setLevel(level)
+
+
+def test_clients_built_at_once_attach_one_handler(monkeypatch):
+    """Sixteen threads at once, repeated because a race shows in some rounds only."""
+    logger = logging.getLogger(LOGGER_NAME)
+    for _ in range(20):
+        monkeypatch.setattr(logger, "handlers", [])
+        barrier = threading.Barrier(16)
+
+        def build():
+            barrier.wait()
+            get_logger()
+
+        threads = [threading.Thread(target=build) for _ in range(16)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert len(logger.handlers) == 1

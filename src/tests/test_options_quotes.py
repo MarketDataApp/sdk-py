@@ -763,6 +763,9 @@ CALL_ROW = (
 PUT_ROW = CALL_ROW.replace("AAPL271217C00255000", "AAPL271217P00255000").replace(
     ",call,", ",put,"
 )
+# Built here, not imported from utils, so a wrong constant there fails these tests.
+BOM = chr(0xFEFF)
+
 CSV_PLACEHOLDER = '0\r\n""\r\n'
 
 
@@ -889,13 +892,13 @@ def test_options_quotes_csv_body_the_csv_module_cannot_read_is_a_parse_error(
     assert not (tmp_path / "test.csv").exists()
 
 
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
 def test_options_quotes_csv_leaves_out_a_symbol_with_no_data(
-    respx_mock, client, tmp_path
+    respx_mock, client, tmp_path, mark
 ):
-    """Issue #89: the API's CSV placeholder for an empty symbol is a 200; it
-    must be skipped like a JSON 404 no_data, not merged, not an error."""
+    """The 200 CSV placeholder, with or without a BOM, is skipped like a JSON 404."""
     respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
-    respx_mock.get(PUT_URL).respond(text=CSV_PLACEHOLDER)
+    respx_mock.get(PUT_URL).respond(text=mark + CSV_PLACEHOLDER)
 
     output = client.options.quotes(
         symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
@@ -906,6 +909,33 @@ def test_options_quotes_csv_leaves_out_a_symbol_with_no_data(
     assert pathlib.Path(output).read_bytes() == (
         f"{CSV_HEADER}\r\n{CALL_ROW}\r\n".encode()
     )
+
+
+@pytest.mark.parametrize(
+    "output_format", [OutputFormat.INTERNAL, OutputFormat.JSON, OutputFormat.DATAFRAME]
+)
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
+def test_options_quotes_leaves_out_a_placeholder_symbol_on_every_format(
+    load_json, respx_mock, client, output_format, mark
+):
+    """A symbol answering `""`, with or without a BOM, adds no rows."""
+    respx_mock.get(CALL_URL).respond(
+        json=load_json("options_quotes_response_200"), status_code=200
+    )
+    respx_mock.get(PUT_URL).respond(text=mark + '""', status_code=200)
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        output = client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=output_format,
+        )
+
+    if output_format == OutputFormat.INTERNAL:
+        assert output.optionSymbol == ["AAPL271217C00255000"]
+    elif output_format == OutputFormat.JSON:
+        assert output["optionSymbol"] == ["AAPL271217C00255000"]
+    else:
+        assert list(output.index) == ["AAPL271217C00255000"]
 
 
 def test_options_quotes_csv_with_every_symbol_empty_is_a_header_only_file(
