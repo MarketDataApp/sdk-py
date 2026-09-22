@@ -447,15 +447,16 @@ def test_a_reset_time_a_dst_change_repeats_is_refused_rather_than_moved(client):
 
 def test_a_reset_time_is_unix_seconds_or_a_datetime():
     """The `x-api-ratelimit-reset` header is Unix seconds, as a number or as the
-    header's text; anything else is refused."""
+    header's text; anything else is refused, a bool included."""
     expected = datetime.datetime.fromtimestamp(
         1_790_000_000, tz=pytz.timezone("US/Eastern")
     )
 
     assert _exhausted(1_790_000_000).reset_time == expected
     assert _exhausted("1790000000").reset_time == expected
-    with pytest.raises(ValueError, match="Unix seconds"):
-        _exhausted("tomorrow")
+    for value in ("tomorrow", True, False):
+        with pytest.raises(ValueError, match="Unix seconds"):
+            _exhausted(value)
 
 
 def test_a_reset_time_the_client_cannot_read_lets_the_request_through(

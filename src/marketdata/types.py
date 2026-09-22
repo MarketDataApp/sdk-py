@@ -24,19 +24,22 @@ class UserRateLimits:
 
         Raises:
             ValueError: If ``reset_time`` is neither a datetime nor Unix
-                seconds, or is a wall time a daylight-saving change repeats or
-                skips.
+                seconds (a bool included), or is a wall time a daylight-saving
+                change repeats or skips.
         """
         reset_time = self.reset_time
         if not isinstance(reset_time, datetime.datetime):
+            refused = ValueError(
+                f"reset_time is neither a datetime nor Unix seconds: {reset_time!r}"
+            )
+            if isinstance(reset_time, bool):
+                raise refused
             try:
                 reset_time = datetime.datetime.fromtimestamp(
                     float(reset_time), tz=DEFAULT_TIMEZONE
                 )
             except (TypeError, ValueError, OverflowError, OSError):
-                raise ValueError(
-                    f"reset_time is neither a datetime nor Unix seconds: {reset_time!r}"
-                ) from None
+                raise refused from None
         if reset_time.tzinfo is None:
             try:
                 # `is_dst=None`: a repeated or skipped wall time names no single

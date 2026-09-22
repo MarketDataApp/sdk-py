@@ -235,12 +235,14 @@ def format_timestamp(
     """Read a date the API sent as a US/Eastern datetime.
 
     Args:
-        value: A datetime, returned as it is. A ``dateformat=timestamp``
-            string: a datetime with its UTC offset, or a date or a time with
-            none, which is US/Eastern. Or a number, or a numeric string, read
-            with the API's own rule: ``10000 <= n < 200000`` a spreadsheet
-            serial of US/Eastern wall-clock time, from 200000 Unix seconds,
-            from 1e10 milliseconds and from 1e13 nanoseconds.
+        value: A datetime, returned as it is. A number, or a string that reads
+            as one even where it could also read as an ISO date
+            (``"20240101"``), with the API's own rule: ``10000 <= n < 200000``
+            a spreadsheet serial of US/Eastern wall-clock time, from 200000
+            Unix seconds, from 1e10 milliseconds and from 1e13 nanoseconds.
+            Any other string is a ``dateformat=timestamp`` value: a datetime
+            with its UTC offset, or a date or a time with none, which is
+            US/Eastern.
 
     Returns:
         A datetime argument unchanged, with its zone or without one. Any other
@@ -256,17 +258,18 @@ def format_timestamp(
         return value
 
     if isinstance(value, str):
-        text = _SPACE_BEFORE_OFFSET.sub("", value.strip())
-        if text.endswith("Z"):
-            text = text[:-1] + "+00:00"
+        text = value.strip()
         try:
-            moment = datetime.datetime.fromisoformat(text)
+            # A number first: Python 3.11+ also reads "20240101" as an ISO date.
+            value = float(text)
         except ValueError:
+            text = _SPACE_BEFORE_OFFSET.sub("", text)
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
             try:
-                value = float(text)
+                moment = datetime.datetime.fromisoformat(text)
             except ValueError:
                 raise ValueError("Unrecognized date format") from None
-        else:
             if moment.tzinfo is not None:
                 return moment.astimezone(DEFAULT_TIMEZONE)
             return DEFAULT_TIMEZONE.localize(moment, is_dst=True)

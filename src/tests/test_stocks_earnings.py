@@ -315,3 +315,24 @@ def test_earnings_internal_reads_numbers_with_the_api_serial_boundary(
     moment = pytz.timezone("US/Eastern").localize(datetime.datetime(*expected))
     assert earnings.date == [moment] * len(body["date"])
     assert all(date.utcoffset() == moment.utcoffset() for date in earnings.date)
+
+
+def test_earnings_internal_reads_a_string_of_digits_as_a_number(
+    load_json, respx_mock, client
+):
+    """``"20240101"`` is Unix seconds for the API, which reads a number before
+    a date, and for the model on every Python, although Python 3.11+ would
+    read the same text as an ISO date."""
+    body = load_json("stocks_earnings_response_200")
+    body["date"] = ["20240101"] * len(body["date"])
+    respx_mock.get("https://api.marketdata.app/v1/stocks/earnings/AAPL/").respond(
+        json=body, status_code=200
+    )
+
+    earnings = client.stocks.earnings(
+        symbol="AAPL", output_format=OutputFormat.INTERNAL
+    )
+
+    moment = datetime.datetime.fromtimestamp(20_240_101, tz=pytz.timezone("US/Eastern"))
+    assert earnings.date == [moment] * len(body["date"])
+    assert all(date.utcoffset() == moment.utcoffset() for date in earnings.date)

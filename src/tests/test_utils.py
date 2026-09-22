@@ -53,6 +53,9 @@ def _eastern(*args: int, is_dst: bool = False) -> datetime.datetime:
         (46286.60208, _eastern(2026, 9, 21, 14, 27)),
         (Decimal("46286.60208"), _eastern(2026, 9, 21, 14, 27)),
         ("46286.60208", _eastern(2026, 9, 21, 14, 27)),
+        # Digits are a number even where Python 3.11+ would read an ISO date.
+        ("20240101", _eastern(1970, 8, 23, 2, 15, 1)),
+        (" 45000 ", _eastern(2023, 3, 15)),
         (1_789_000_000, _eastern(2026, 9, 9, 20, 26, 40)),
         (1_789_000_000_000, _eastern(2026, 9, 9, 20, 26, 40)),
         (1_789_000_000_000_000_000, _eastern(2026, 9, 9, 20, 26, 40)),
