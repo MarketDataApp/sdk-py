@@ -1,4 +1,5 @@
 import copy
+import csv
 import datetime
 import json
 import pathlib
@@ -543,6 +544,31 @@ def test_stocks_candles_csv_chunk_the_csv_module_cannot_read_is_a_parse_error(
         )
 
     assert "unreadable CSV" in exc_info.value.message
+    assert "from=2024-01-01" in exc_info.value.request_url
+    assert not (tmp_path / "test.csv").exists()
+
+
+def test_stocks_candles_csv_reports_an_unreadable_chunk_before_its_misaligned_row(
+    respx_mock, client, tmp_path
+):
+    """A chunk the csv reader refuses is reported as unreadable even when one
+    of its rows before the refused field is misaligned."""
+    unreadable = CSV_BODY + "1,2,3\r\n" + "x" * 200_000 + ",1,1,1,1,1\r\n"
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=by_chunk(dict(text=CSV_BODY), dict(text=unreadable))
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.stocks.candles(
+            symbol="AAPL",
+            resolution="H",
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+            **TWO_CHUNKS,
+        )
+
+    assert "unreadable CSV" in exc_info.value.message
+    assert isinstance(exc_info.value.__cause__, csv.Error)
     assert "from=2024-01-01" in exc_info.value.request_url
     assert not (tmp_path / "test.csv").exists()
 

@@ -1,3 +1,4 @@
+import csv
 import datetime
 import json
 import pathlib
@@ -888,6 +889,29 @@ def test_options_quotes_csv_body_the_csv_module_cannot_read_is_a_parse_error(
         )
 
     assert "unreadable CSV" in exc_info.value.message
+    assert exc_info.value.request_url.startswith(PUT_URL)
+    assert not (tmp_path / "test.csv").exists()
+
+
+def test_options_quotes_csv_reports_an_unreadable_body_before_its_misaligned_row(
+    respx_mock, client, tmp_path
+):
+    """A body the csv reader refuses is reported as unreadable even when one
+    of its rows before the refused field is misaligned."""
+    respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
+    respx_mock.get(PUT_URL).respond(
+        text=f"{CSV_HEADER}\r\n{PUT_ROW},1\r\n{'x' * 200_000},{PUT_ROW}\r\n"
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+        )
+
+    assert "unreadable CSV" in exc_info.value.message
+    assert isinstance(exc_info.value.__cause__, csv.Error)
     assert exc_info.value.request_url.startswith(PUT_URL)
     assert not (tmp_path / "test.csv").exists()
 
