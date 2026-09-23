@@ -16,12 +16,14 @@ The thin containers below keep ``isinstance`` checks against ``list``,
 pandas frames carry the metadata in ``DataFrame.attrs["marketdata"]``, and
 every other object (polars frames, single-object models, exceptions) keeps it
 in its own ``__dict__``, so a copy, a deep copy or a pickle of it keeps it too.
+An object with no ``__dict__`` is remembered by weak reference instead.
 """
 
 from __future__ import annotations
 
 import contextvars
 import logging
+import weakref
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterator
@@ -193,6 +195,26 @@ class CsvPath(str):
     meta: ResponseMeta | None = None
 
 
+# Keyed by id(): each entry is dropped when its object is collected, so an id
+# that Python hands out again never finds a stale entry.
+_registry: dict[int, ResponseMeta] = {}
+
+
+def _remember(result: Any, meta: ResponseMeta) -> None:
+    """Keep the metadata of an object with no ``__dict__`` while it lives.
+
+    Args:
+        result: The object.
+        meta: The metadata of the call.
+
+    Raises:
+        TypeError: When ``result`` cannot be weak-referenced.
+    """
+    key = id(result)
+    weakref.finalize(result, _registry.pop, key, None)
+    _registry[key] = meta
+
+
 def attach_meta(result: Any, meta: ResponseMeta) -> Any:
     """Attach the metadata of a call to what the call returned or raised.
 
@@ -204,9 +226,10 @@ def attach_meta(result: Any, meta: ResponseMeta) -> Any:
         The object to hand back. A pandas frame carries ``meta`` in
         ``attrs``; a list, a dict or a str comes back as a ``ResultList``,
         ``ResultDict`` or ``CsvPath`` carrying it; any other object carries
-        it in its ``__dict__``. ``None``, and an object with no ``__dict__``,
-        come back as they are and carry nothing; the latter is logged at
-        DEBUG.
+        it in its ``__dict__``, or, with none, by weak reference until it is
+        collected. ``None``, and an object with neither a ``__dict__`` nor
+        weak references, come back as they are and carry nothing; the latter
+        is logged at DEBUG.
     """
     if result is None:
         return None
@@ -224,10 +247,13 @@ def attach_meta(result: Any, meta: ResponseMeta) -> Any:
         namespace = getattr(result, "__dict__", None)
         if isinstance(namespace, dict):
             namespace[META_ATTRIBUTE] = meta
-        else:
+            return result
+        try:
+            _remember(result, meta)
+        except TypeError:
             logger.debug(
-                f"{type(result).__name__} has no __dict__, so this result "
-                "carries no response metadata"
+                f"{type(result).__name__} has no __dict__ and cannot be "
+                "weak-referenced, so this result carries no response metadata"
             )
         return result
     wrapped.meta = meta
@@ -252,7 +278,9 @@ def get_meta(result: Any) -> ResponseMeta | None:
     if isinstance(result, (ResultList, ResultDict, CsvPath)):
         return result.meta
     namespace = getattr(result, "__dict__", None)
-    return namespace.get(META_ATTRIBUTE) if isinstance(namespace, dict) else None
+    if isinstance(namespace, dict):
+        return namespace.get(META_ATTRIBUTE)
+    return _registry.get(id(result))
 
 
 # ---------------------------------------------------------------- collection

@@ -3,6 +3,7 @@ result carries the credits its own request cost, also under concurrency."""
 
 import copy
 import dataclasses
+import gc
 import pathlib
 import pickle
 import time
@@ -465,7 +466,7 @@ def test_attach_and_get_meta_on_plain_values():
     assert wrapped == [1, 2] and get_meta(wrapped) is meta
     assert get_meta(attach_meta({"a": 1}, meta)) is meta
     assert get_meta(attach_meta("out.csv", meta)) is meta
-    # No `__dict__`: returned untouched, nothing to read back.
+    # No `__dict__` and no weak references: returned untouched, nothing to read.
     plain = object()
     assert attach_meta(plain, meta) is plain
     assert get_meta(plain) is None
@@ -499,8 +500,9 @@ def test_a_model_keeps_its_metadata_through_copy_deepcopy_and_pickle(
 
 
 def test_a_model_without_a_namespace_carries_nothing():
-    """A slotted object has no ``__dict__``: it comes back as it is, and there
-    is nothing to read back."""
+    """A slotted object without a ``__weakref__`` slot has neither a
+    ``__dict__`` nor weak references: it comes back as it is, and there is
+    nothing to read back."""
 
     @dataclass(slots=True)
     class Slotted:
@@ -511,6 +513,29 @@ def test_a_model_without_a_namespace_carries_nothing():
 
     assert attach_meta(model, meta) is model
     assert get_meta(model) is None
+
+
+def test_a_slotted_object_that_takes_weak_references_carries_the_metadata():
+    """An object with no ``__dict__`` that can be weak-referenced carries the
+    metadata while it lives, and its entry leaves with it."""
+
+    class Slotted:
+        __slots__ = ("x", "__weakref__")
+
+        def __init__(self, x: int) -> None:
+            self.x = x
+
+    meta = ResponseMeta(status_code=200, request_id=None, rate_limits=None)
+    model = Slotted(1)
+    key = id(model)
+
+    assert attach_meta(model, meta) is model
+    assert get_meta(model) is meta
+    assert key in marketdata.meta._registry
+
+    del model
+    gc.collect()
+    assert key not in marketdata.meta._registry
 
 
 def test_merge_sums_credits_and_keeps_the_newest_window():
