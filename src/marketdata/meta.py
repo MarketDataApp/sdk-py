@@ -1,4 +1,4 @@
-"""Request-scoped response metadata (SDK requirements §8.2, #49).
+"""Request-scoped response metadata (SDK requirements §8.2).
 
 A resource call returns the data the caller asked for. The metadata of the
 HTTP exchange behind it (credits consumed, credits remaining, the request id)
@@ -14,15 +14,14 @@ the call completed, retries included) and one point reads (``get_meta``).
 The thin containers below keep ``isinstance`` checks against ``list``,
 ``dict`` and ``str`` working for the INTERNAL, JSON and CSV output formats;
 pandas frames carry the metadata in ``DataFrame.attrs["marketdata"]``, and
-every other object (polars frames, single-object models) is remembered by
-identity without touching its namespace.
+every other object (polars frames, single-object models, exceptions) keeps it
+in its own ``__dict__``, so a copy, a deep copy or a pickle of it keeps it too.
 """
 
 from __future__ import annotations
 
 import contextvars
 import logging
-import weakref
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterator
@@ -42,8 +41,6 @@ from marketdata.types import UserRateLimits
 logger = logging.getLogger("marketdata.logger")
 
 PANDAS_ATTRS_KEY = "marketdata"
-# Where an exception keeps its metadata. Exceptions cannot go through the
-# identity registry below: the built-in ones are not weak-referenceable.
 META_ATTRIBUTE = "_marketdata_meta"
 
 
@@ -196,43 +193,23 @@ class CsvPath(str):
     meta: ResponseMeta | None = None
 
 
-# Metadata of the objects that are neither wrapped nor pandas frames (polars
-# frames, single-object models), keyed by identity and dropped with the object,
-# so a model's own namespace is never touched (`vars(model)` stays the model).
-_registry: dict[int, ResponseMeta] = {}
-
-
-def _remember(obj: Any, meta: ResponseMeta) -> None:
-    key = id(obj)
-    try:
-        weakref.finalize(obj, _registry.pop, key, None)
-    except TypeError:
-        # Nothing safe to hang it on. Exceptions took the attribute path
-        # above, so what reaches this is an exotic result type; say so at
-        # DEBUG rather than dropping the metadata in silence.
-        logger.debug(
-            f"{type(obj).__name__} cannot be weak-referenced, so this result "
-            "carries no response metadata"
-        )
-        return
-    _registry[key] = meta
-
-
 def attach_meta(result: Any, meta: ResponseMeta) -> Any:
-    """Attach ``meta`` to ``result`` and return the object to hand back.
+    """Attach the metadata of a call to what the call returned or raised.
 
-    ``None`` (a single-object endpoint with no data) cannot carry anything and
-    is returned as is. An exception carries the metadata as an attribute:
-    that is how a failed call still reports what it was billed, and the
-    identity path cannot do it, because a built-in exception (the
-    ``FileExistsError`` of an existing CSV path, a decoder ``KeyError``)
-    cannot be weak-referenced.
+    Args:
+        result: The result of the call, or the exception it raised.
+        meta: The metadata of the call.
+
+    Returns:
+        The object to hand back. A pandas frame carries ``meta`` in
+        ``attrs``; a list, a dict or a str comes back as a ``ResultList``,
+        ``ResultDict`` or ``CsvPath`` carrying it; any other object carries
+        it in its ``__dict__``. ``None``, and an object with no ``__dict__``,
+        come back as they are and carry nothing; the latter is logged at
+        DEBUG.
     """
     if result is None:
         return None
-    if isinstance(result, BaseException):
-        result.__dict__[META_ATTRIBUTE] = meta
-        return result
     attrs = getattr(result, "attrs", None)
     if isinstance(attrs, dict):  # pandas
         attrs[PANDAS_ATTRS_KEY] = meta
@@ -243,29 +220,39 @@ def attach_meta(result: Any, meta: ResponseMeta) -> Any:
         wrapped = ResultDict(result)
     elif isinstance(result, str):
         wrapped = CsvPath(result)
-    else:  # polars frames, dataclass models
-        _remember(result, meta)
+    else:  # polars frames, models, exceptions
+        namespace = getattr(result, "__dict__", None)
+        if isinstance(namespace, dict):
+            namespace[META_ATTRIBUTE] = meta
+        else:
+            logger.debug(
+                f"{type(result).__name__} has no __dict__, so this result "
+                "carries no response metadata"
+            )
         return result
     wrapped.meta = meta
     return wrapped
 
 
 def get_meta(result: Any) -> ResponseMeta | None:
-    """The :class:`ResponseMeta` behind a resource call, if any.
+    """Read the :class:`ResponseMeta` behind a resource call.
 
-    Takes the result of a successful call or the exception a failed one
-    raised, so the credits a failure consumed are readable too.
+    Args:
+        result: The result of a successful call, or the exception a failed
+            one raised, so the credits a failure consumed are readable too.
+
+    Returns:
+        The metadata, or ``None`` when ``result`` carries none.
     """
     if result is None:
         return None
-    if isinstance(result, BaseException):
-        return result.__dict__.get(META_ATTRIBUTE)
     attrs = getattr(result, "attrs", None)
     if isinstance(attrs, dict):  # pandas
         return attrs.get(PANDAS_ATTRS_KEY)
     if isinstance(result, (ResultList, ResultDict, CsvPath)):
         return result.meta
-    return _registry.get(id(result))
+    namespace = getattr(result, "__dict__", None)
+    return namespace.get(META_ATTRIBUTE) if isinstance(namespace, dict) else None
 
 
 # ---------------------------------------------------------------- collection

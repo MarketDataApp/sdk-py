@@ -536,9 +536,7 @@ def test_a_builtin_exception_carries_the_metadata_of_the_call_it_failed(
     respx_mock, client, tmp_path
 ):
     """`get_meta(exc) is None` means the call never reached the API. A call
-    billed 10 credits that then fails writing its file must not say that, and
-    a built-in exception cannot be weak-referenced, so the identity registry
-    could not hold its metadata."""
+    billed 10 credits that then fails writing its file must not say that."""
     use_real_header_extraction(client)
     target = tmp_path / "mine.csv"
 
@@ -572,17 +570,16 @@ def test_attaching_to_an_exception_keeps_the_exception_itself():
     assert str(error) == "boom"
 
 
-def test_a_result_that_cannot_be_weak_referenced_says_so(caplog):
-    """Nothing in the SDK returns one today, since exceptions take the
-    attribute path, but dropping metadata in silence is how a caller ends up
-    believing a call never reached the API."""
+def test_a_result_that_cannot_carry_the_metadata_says_so(caplog):
+    """Nothing in the SDK returns one today, but dropping metadata in silence
+    is how a caller ends up believing a call never reached the API."""
     meta = ResponseMeta(200, "r1", None)
 
     with caplog.at_level("DEBUG", logger="marketdata.logger"):
         assert attach_meta(42, meta) == 42
 
     assert get_meta(42) is None
-    assert "cannot be weak-referenced" in caplog.text
+    assert "carries no response metadata" in caplog.text
 
 
 def test_merging_the_metadata_of_a_call_is_not_public():

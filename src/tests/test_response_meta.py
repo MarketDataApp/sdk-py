@@ -1,8 +1,10 @@
 """Request-scoped response metadata (#49, SDK requirements §8.2): every
 result carries the credits its own request cost, also under concurrency."""
 
-import gc
+import copy
+import dataclasses
 import pathlib
+import pickle
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -19,7 +21,6 @@ from marketdata.meta import (
     ResponseMeta,
     ResultDict,
     ResultList,
-    _registry,
     attach_meta,
     get_meta,
 )
@@ -129,8 +130,6 @@ def test_single_object_results_carry_the_response_meta(respx_mock, real_headers)
 
     assert len(expirations.expirations) == 1
     assert get_meta(expirations).request_id == "single-1"
-    # The model's own namespace is untouched: vars(model) stays the model.
-    assert "meta" not in vars(expirations)
 
 
 def test_no_data_results_carry_the_meta_when_they_can(respx_mock, real_headers):
@@ -466,28 +465,52 @@ def test_attach_and_get_meta_on_plain_values():
     assert wrapped == [1, 2] and get_meta(wrapped) is meta
     assert get_meta(attach_meta({"a": 1}, meta)) is meta
     assert get_meta(attach_meta("out.csv", meta)) is meta
-    # Not weak-referenceable: returned untouched, nothing to read back.
+    # No `__dict__`: returned untouched, nothing to read back.
     plain = object()
     assert attach_meta(plain, meta) is plain
     assert get_meta(plain) is None
 
 
-def test_models_are_remembered_by_identity_and_forgotten_with_the_object():
-    @dataclass
-    class Model:
+def test_a_model_keeps_its_metadata_through_copy_deepcopy_and_pickle(
+    respx_mock, real_headers
+):
+    """A single-object model carries its metadata in its own namespace, so a
+    copy, a deep copy and a pickle of it carry the metadata too. The metadata
+    is not a field: equality and ``asdict`` still see the model alone."""
+    respx_mock.get(EXPIRATIONS_URL).respond(
+        json={"s": "ok", "expirations": ["2025-01-17"], "updated": RESET},
+        status_code=200,
+        headers=credit_headers(1, 99, request_id="single-1"),
+    )
+    expirations = real_headers.options.expirations(
+        "AAPL", output_format=OutputFormat.INTERNAL
+    )
+    meta = get_meta(expirations)
+
+    for twin in (
+        copy.copy(expirations),
+        copy.deepcopy(expirations),
+        pickle.loads(pickle.dumps(expirations)),
+    ):
+        assert twin == expirations
+        assert get_meta(twin) == meta
+    assert meta.request_id == "single-1"
+    assert list(dataclasses.asdict(expirations)) == ["s", "expirations", "updated"]
+
+
+def test_a_model_without_a_namespace_carries_nothing():
+    """A slotted object has no ``__dict__``: it comes back as it is, and there
+    is nothing to read back."""
+
+    @dataclass(slots=True)
+    class Slotted:
         x: int
 
     meta = ResponseMeta(status_code=200, request_id=None, rate_limits=None)
-    model = attach_meta(Model(1), meta)
-    key = id(model)
+    model = Slotted(1)
 
-    assert get_meta(model) is meta
-    assert vars(model) == {"x": 1}
-    assert key in _registry
-
-    del model
-    gc.collect()
-    assert key not in _registry
+    assert attach_meta(model, meta) is model
+    assert get_meta(model) is None
 
 
 def test_merge_sums_credits_and_keeps_the_newest_window():
