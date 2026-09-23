@@ -1,8 +1,10 @@
 import copy
 import csv
 import datetime
+import gc
 import json
 import pathlib
+import tracemalloc
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -571,6 +573,46 @@ def test_stocks_candles_csv_reports_an_unreadable_chunk_before_its_misaligned_ro
     assert isinstance(exc_info.value.__cause__, csv.Error)
     assert "from=2024-01-01" in exc_info.value.request_url
     assert not (tmp_path / "test.csv").exists()
+
+
+def test_stocks_candles_csv_merge_peak_stays_a_small_multiple_of_the_answers(
+    respx_mock, client, tmp_path
+):
+    """The CSV merge of a fan-out keeps the peak of the call within a small
+    multiple of the size of the answers."""
+    header = "t,o,h,l,c,v\r\n"
+    bodies = [
+        header
+        + "".join(
+            f"{start + 60 * i},185.6,186.88,182.36,184.1,82488674\r\n"
+            for i in range(25_000)
+        )
+        for start in (1672756200, 1704292200)
+    ]
+    size = sum(len(body) for body in bodies)
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=by_chunk(dict(text=bodies[0]), dict(text=bodies[1]))
+    )
+
+    gc.collect()
+    tracemalloc.start()
+    try:
+        output = client.stocks.candles(
+            symbol="AAPL",
+            resolution="H",
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+            **TWO_CHUNKS,
+        )
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    expected = bodies[0] + bodies[1][len(header) :]
+    assert pathlib.Path(output).read_bytes() == expected.encode()
+    assert peak < 10 * size, (
+        f"peak {peak:,} bytes is {peak / size:.1f} times the answers' {size:,}"
+    )
 
 
 @pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
