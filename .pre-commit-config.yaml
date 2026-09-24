@@ -3,21 +3,27 @@
 fail_fast: true
 
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Exactly the ruff pinned in uv.lock, which is the one the lint workflow
-    # installs and judges pull requests with. A different rev here formats a
-    # commit with one ruff and has CI check it with another.
-    # .github/scripts/check_ruff_version.py fails the build if the two differ,
-    # so bump this together with `uv lock --upgrade-package ruff`.
-    rev: v0.16.7
-    hooks:
-      - id: ruff-check      # lint and import order
-        args: [--fix]
-      - id: ruff-format     # format
-
   - repo: local
-
     hooks:
+      # ruff runs through uv, so these hooks use the build uv.lock pins, the one
+      # the lint workflow judges pull requests with, and a ruff bump needs no
+      # change here. .github/scripts/check_ruff_version.py fails the build if
+      # either stops going through uv. The entry flags, file types and
+      # require_serial are those of the astral-sh/ruff-pre-commit hooks.
+      - id: ruff-check      # lint and import order
+        name: ruff check
+        entry: uv run ruff check --force-exclude
+        args: [--fix]
+        language: system
+        types_or: [python, pyi, jupyter]
+        require_serial: true
+      - id: ruff-format     # format
+        name: ruff format
+        entry: uv run ruff format --force-exclude
+        language: system
+        types_or: [python, pyi, jupyter, markdown]
+        require_serial: true
+
       - id: unit_tests
         name: Run unit tests
         entry: uv run pytest -n 4 --cov="marketdata"
