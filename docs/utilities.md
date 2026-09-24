@@ -34,7 +34,7 @@ Fetches the live status of every API service: whether it is online, its 30 and 9
 
 #### Returns
 
-- `ServiceStatus` fields: `service` (str, e.g. `/v1/stocks/quotes/`), `status` (str, `online` or `offline`), `online` (bool), `uptimePct30d` (float, 0 to 1), `uptimePct90d` (float, 0 to 1), `updated` (datetime). The `is_online` property is true when both `online` and `status` say so.
+- `ServiceStatus` fields: `service` (str, e.g. `/v1/stocks/quotes/`), `status` (str, `online` or `offline`), `online` (bool), `uptimePct30d` (float, 0 to 1), `uptimePct90d` (float, 0 to 1), `updated` (datetime | None). The `is_online` property is true when both `online` and `status` say so.
 - Raises a `BaseMarketdataException` subclass if an error occurs; see the [README](../README.md#error-handling).
 
 #### Example

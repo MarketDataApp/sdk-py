@@ -201,6 +201,39 @@ def test_get_options_chain_response_200_expiration_all(load_json, respx_mock, cl
     assert respx_mock.calls.last.request.url.params["expiration"] == "all"
 
 
+@pytest.mark.parametrize(
+    ("fixture", "date_key", "attribute", "use_human_readable"),
+    [
+        ("options_chain_response_200", "firstTraded", "firstTraded", False),
+        ("options_chain_human_response_200", "First Traded", "First_Traded", True),
+    ],
+    ids=["plain", "human"],
+)
+def test_options_chain_keeps_a_null_date_in_its_row(
+    load_json, respx_mock, client, fixture, date_key, attribute, use_human_readable
+):
+    """A contract with no first trade answers `null`; the model reads it as
+    `None` in that contract's row and every other row keeps its date."""
+    body = load_json(fixture)
+    body[date_key][1] = None
+    respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
+        json=body, status_code=200
+    )
+
+    chain = client.options.chain(
+        "AAPL",
+        output_format=OutputFormat.INTERNAL,
+        use_human_readable=use_human_readable,
+    )
+
+    dates = getattr(chain, attribute)
+    assert len(dates) == len(body[date_key])
+    assert dates[1] is None
+    eastern = pytz.timezone("US/Eastern")
+    assert dates[0] == datetime.datetime.fromtimestamp(body[date_key][0], tz=eastern)
+    assert dates[2] == datetime.datetime.fromtimestamp(body[date_key][2], tz=eastern)
+
+
 def test_get_options_chain_human_response_200(load_json, respx_mock, client):
     mock_data = load_json("options_chain_human_response_200")
 

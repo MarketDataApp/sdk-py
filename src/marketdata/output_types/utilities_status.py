@@ -13,10 +13,11 @@ class ServiceStatus:
     online: bool
     uptimePct30d: float
     uptimePct90d: float
-    updated: datetime.datetime
+    updated: datetime.datetime | None
 
     def __post_init__(self):
-        self.updated = format_timestamp(self.updated)
+        """Read the dates; a null date stays ``None``."""
+        self.updated = None if self.updated is None else format_timestamp(self.updated)
 
     @property
     def is_online(self) -> bool:

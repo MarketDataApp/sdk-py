@@ -900,7 +900,7 @@ When using `OutputFormat.INTERNAL`, the `prices()` method returns a list of `Sto
 - `change_percent` (property): Alias for `changepct` - percentage change
 - `changepct` (float): Percentage change (raw field name)
 - `s` (str): Status string
-- `updated` (datetime.datetime): Last update timestamp
+- `updated` (datetime.datetime | None): Last update timestamp
 
 ### StockPricesHumanReadable Properties
 
@@ -909,7 +909,7 @@ When `use_human_readable=True`:
 - `Mid` (Decimal): Mid price
 - `Change_Price` (Decimal): Price change
 - `Change_Percent` (float): Percentage change
-- `Date` (datetime.datetime): Last update timestamp
+- `Date` (datetime.datetime | None): Last update timestamp
 
 ### Example Usage
 
@@ -971,7 +971,7 @@ When using `OutputFormat.INTERNAL`, the `quotes()` method returns a list of `Sto
 - `change_percent` (property): Alias for `changepct` - percentage change
 - `changepct` (float): Percentage change (raw field name)
 - `volume` (int): Trading volume
-- `updated` (datetime.datetime): Last update timestamp
+- `updated` (datetime.datetime | None): Last update timestamp
 
 ### StockQuotesHumanReadable Properties
 
@@ -986,7 +986,7 @@ When `use_human_readable=True`:
 - `Change_Price` (Decimal): Price change
 - `Change_Percent` (float): Percentage change
 - `Volume` (int): Trading volume
-- `Date` (datetime.datetime): Last update timestamp
+- `Date` (datetime.datetime | None): Last update timestamp
 
 ### Example Usage
 
@@ -1017,7 +1017,7 @@ When using `OutputFormat.INTERNAL`, the `candles()` method returns a list of `St
 
 ### StockCandle Properties
 
-- `t` (datetime.datetime): Timestamp of the candle
+- `t` (datetime.datetime | None): Timestamp of the candle
 - `o` (Decimal): Open price
 - `h` (Decimal): High price
 - `l` (Decimal): Low price
@@ -1027,7 +1027,7 @@ When using `OutputFormat.INTERNAL`, the `candles()` method returns a list of `St
 ### StockCandlesHumanReadable Properties
 
 When `use_human_readable=True`:
-- `Date` (datetime.datetime): Timestamp of the candle
+- `Date` (datetime.datetime | None): Timestamp of the candle
 - `Open` (Decimal): Open price
 - `High` (Decimal): High price
 - `Low` (Decimal): Low price
@@ -1065,15 +1065,15 @@ When using `OutputFormat.INTERNAL`, the `earnings()` method returns a `StockEarn
 - `symbol` (list[str]): List of stock symbols
 - `fiscalYear` (list[int]): List of fiscal years
 - `fiscalQuarter` (list[int]): List of fiscal quarters
-- `date` (list[datetime.datetime]): List of earnings dates
-- `reportDate` (list[datetime.datetime]): List of report dates
+- `date` (list[datetime.datetime | None]): List of earnings dates
+- `reportDate` (list[datetime.datetime | None]): List of report dates
 - `reportTime` (list[str]): List of report times (e.g., "after close", "before open")
 - `currency` (list[str]): List of currencies
 - `reportedEPS` (list[Decimal]): List of reported EPS values
 - `estimatedEPS` (list[Decimal]): List of estimated EPS values
 - `surpriseEPS` (list[Decimal]): List of surprise EPS values
 - `surpriseEPSpct` (list[float]): List of surprise EPS percentages
-- `updated` (list[datetime.datetime]): List of update timestamps
+- `updated` (list[datetime.datetime | None]): List of update timestamps
 
 ### StockEarningsHumanReadable Properties
 
@@ -1081,15 +1081,15 @@ When `use_human_readable=True`:
 - `Symbol` (list[str]): List of stock symbols
 - `Fiscal_Year` (list[int]): List of fiscal years
 - `Fiscal_Quarter` (list[int]): List of fiscal quarters
-- `Date` (list[datetime.datetime]): List of earnings dates
-- `Report_Date` (list[datetime.datetime]): List of report dates
+- `Date` (list[datetime.datetime | None]): List of earnings dates
+- `Report_Date` (list[datetime.datetime | None]): List of report dates
 - `Report_Time` (list[str]): List of report times
 - `Currency` (list[str]): List of currencies
 - `Reported_EPS` (list[Decimal]): List of reported EPS values
 - `Estimated_EPS` (list[Decimal]): List of estimated EPS values
 - `Surprise_EPS` (list[Decimal]): List of surprise EPS values
 - `Surprise_EPS_Percent` (list[float]): List of surprise EPS percentages
-- `Updated` (list[datetime.datetime]): List of update timestamps
+- `Updated` (list[datetime.datetime | None]): List of update timestamps
 
 ### Example Usage
 
@@ -1154,8 +1154,8 @@ When using `OutputFormat.INTERNAL`, the `news()` method returns a list of `Stock
 - `headline` (str): News headline
 - `content` (str): News content/article text
 - `source` (str): News source URL
-- `publicationDate` (datetime.datetime): Publication date timestamp
-- `updated` (datetime.datetime): Last update timestamp
+- `publicationDate` (datetime.datetime | None): Publication date timestamp
+- `updated` (datetime.datetime | None): Last update timestamp
 
 ### StockNewsHumanReadable Properties
 
@@ -1164,8 +1164,8 @@ When `use_human_readable=True`:
 - `headline` (str): News headline
 - `content` (str): News content/article text
 - `source` (str): News source URL
-- `publicationDate` (datetime.datetime): Publication date timestamp
-- `Date` (datetime.datetime): Last update timestamp (replaces `updated`)
+- `publicationDate` (datetime.datetime | None): Publication date timestamp
+- `Date` (datetime.datetime | None): Last update timestamp (replaces `updated`)
 
 ### Example Usage
 

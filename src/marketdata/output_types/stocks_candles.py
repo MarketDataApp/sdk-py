@@ -9,7 +9,7 @@ from marketdata.utils import format_timestamp
 
 @dataclass
 class StockCandle:
-    t: datetime.datetime
+    t: datetime.datetime | None
     o: Decimal
     h: Decimal
     # `l` (low) is the API's own field name, and the dataclass fields are the
@@ -20,8 +20,9 @@ class StockCandle:
     v: int
 
     def __post_init__(self):
+        """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
         coerce_numbers(self)
-        self.t = format_timestamp(self.t)
+        self.t = None if self.t is None else format_timestamp(self.t)
 
     def __repr__(self) -> str:
         result = "Stock Candles:\n"
@@ -41,7 +42,7 @@ class StockCandle:
 class StockCandlesHumanReadable:
     api_model: ClassVar[type] = StockCandle
 
-    Date: datetime.datetime
+    Date: datetime.datetime | None
     Open: Decimal
     High: Decimal
     Low: Decimal
@@ -49,8 +50,9 @@ class StockCandlesHumanReadable:
     Volume: int
 
     def __post_init__(self):
+        """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
         coerce_numbers(self)
-        self.Date = format_timestamp(self.Date)
+        self.Date = None if self.Date is None else format_timestamp(self.Date)
 
     def __repr__(self) -> str:
         result = "Stock Candle:\n"

@@ -212,7 +212,7 @@ When using `OutputFormat.INTERNAL`, the `candles()` method returns a list of `Fu
 
 ### FundsCandle Properties
 
-- `t` (datetime.datetime): Timestamp of the candle
+- `t` (datetime.datetime | None): Timestamp of the candle
 - `o` (Decimal): Open price
 - `h` (Decimal): High price
 - `l` (Decimal): Low price
@@ -223,7 +223,7 @@ When using `OutputFormat.INTERNAL`, the `candles()` method returns a list of `Fu
 ### FundsCandlesHumanReadable Properties
 
 When `use_human_readable=True`:
-- `Date` (datetime.datetime): Timestamp of the candle
+- `Date` (datetime.datetime | None): Timestamp of the candle
 - `Open` (Decimal): Open price
 - `High` (Decimal): High price
 - `Low` (Decimal): Low price

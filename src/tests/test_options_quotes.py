@@ -559,6 +559,60 @@ def test_options_quotes_merges_the_requested_columns_row_by_row(respx_mock, clie
 
 
 @pytest.mark.parametrize(
+    ("fixture", "symbol_key", "date_key", "attribute", "use_human_readable"),
+    [
+        (
+            "options_quotes_response_200",
+            "optionSymbol",
+            "firstTraded",
+            "firstTraded",
+            False,
+        ),
+        (
+            "options_quotes_human_response_200",
+            "Symbol",
+            "First Traded",
+            "First_Traded",
+            True,
+        ),
+    ],
+    ids=["plain", "human"],
+)
+def test_options_quotes_keeps_a_null_date_in_its_row(
+    load_json,
+    respx_mock,
+    client,
+    fixture,
+    symbol_key,
+    date_key,
+    attribute,
+    use_human_readable,
+):
+    """A symbol whose `firstTraded` is null reads as `None` in its own row, and
+    the symbols after it keep their own dates."""
+    first_traded = [1741872600, None, 1741872600 + 2 * 86400]
+    answers = []
+    for symbol, value in zip(THREE_SYMBOLS, first_traded):
+        body = load_json(fixture)
+        body[symbol_key] = [symbol]
+        body[date_key] = [value]
+        answers.append(body)
+    _answer_three_symbols(respx_mock, *answers)
+
+    quotes = client.options.quotes(
+        symbols=THREE_SYMBOLS,
+        output_format=OutputFormat.INTERNAL,
+        use_human_readable=use_human_readable,
+    )
+
+    eastern = pytz.timezone("US/Eastern")
+    assert getattr(quotes, attribute) == [
+        None if value is None else datetime.datetime.fromtimestamp(value, tz=eastern)
+        for value in first_traded
+    ]
+
+
+@pytest.mark.parametrize(
     "body", ["null", "[]", '"ok"'], ids=["null", "array", "string"]
 )
 @pytest.mark.parametrize("use_human_readable", [False, True])

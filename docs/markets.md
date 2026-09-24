@@ -218,7 +218,7 @@ When using `OutputFormat.INTERNAL`, the `status()` method returns a list of `Mar
 
 ### Properties
 
-- `date` (datetime.datetime): The date for which the market status applies
+- `date` (datetime.datetime | None): The date for which the market status applies
 - `status` (str): Market status, typically "open" or "closed"
 
 ### Example Usage
@@ -245,7 +245,7 @@ When using `OutputFormat.INTERNAL` with `use_human_readable=True`, the `status()
 
 ### Properties
 
-- `Date` (datetime.datetime): The date for which the market status applies
+- `Date` (datetime.datetime | None): The date for which the market status applies
 - `Status` (str): Market status, typically "open" or "closed"
 
 ### Example Usage
