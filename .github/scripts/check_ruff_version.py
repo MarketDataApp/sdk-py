@@ -6,8 +6,9 @@ judges every pull request, and `uv.lock` is the only file that names it:
   - `pyproject.toml` declares the floor, in the `dev` dependency group, and the
     locked version must satisfy it;
   - `.pre-commit-config.yaml` must run both ruff hooks through uv
-    (`uv run ruff`) and must not use the `ruff-pre-commit` repo, whose `rev`
-    would be a second version to keep in step with the lock;
+    (`uv run ruff`) and name ruff nowhere else: not the `ruff-pre-commit`
+    repo, whose `rev` would be a second version to keep in step with the lock,
+    and not a wrapper or a pin that would run another ruff;
   - `.github/workflows/lint.yml` must run ruff through uv (`uv run ruff`) and
     must not `pip install` it, which would take whatever release is newest that
     day and turn open pull requests red on untouched code.
@@ -47,6 +48,9 @@ _LOCKED = re.compile(
 
 # The pre-commit hooks that run ruff, and the command each entry must start with.
 _RUFF_HOOKS = {"ruff-check": "uv run ruff check", "ruff-format": "uv run ruff format"}
+
+# A `key: value` line of the pre-commit config, possibly the first of a list item.
+_CONFIG_LINE = re.compile(r"\s*(-\s+)?([\w-]+):(.*)")
 
 
 def _rel(path: Path) -> str:
@@ -155,29 +159,44 @@ def _workflow_problems() -> list[str]:
     return problems
 
 
-def _pre_commit_items() -> list[dict[str, str]]:
-    """The repos and hooks of the pre-commit config, comments excluded.
+def _config_line(line: str) -> tuple[bool, str, str] | None:
+    """Split one `key: value` line of the pre-commit config.
+
+    Args:
+        line: A line of the config, comments already removed.
+
+    Returns:
+        Whether the line starts a list item, its key and its unquoted value, or
+        None when the line is not a `key: value` pair.
+    """
+    match = _CONFIG_LINE.match(line)
+    if match is None:
+        return None
+    starts_item, key, value = match.groups()
+    value = value.strip()
+    if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"":
+        value = value[1:-1]
+    return starts_item is not None, key, value
+
+
+def _pre_commit_items(lines: list[str]) -> list[dict[str, str]]:
+    """The repos and hooks of the pre-commit config.
 
     Read line by line so the script needs no YAML library: a `- key: value` line
-    starts an item, and each `key: value` line after it fills that item in. An
-    item written as a flow mapping is kept as `unreadable`, never skipped.
+    starts an item, and each `key: value` line after it fills that item in.
+
+    Args:
+        lines: The lines of the config, comments already removed.
 
     Returns:
         One mapping of key to unquoted value per repo and per hook, in file order.
     """
     items: list[dict[str, str]] = []
-    text = _without_comments(PRE_COMMIT_CONFIG.read_text(encoding="utf-8"))
-    for line in text.splitlines():
-        if re.match(r"\s*-\s*\{", line):
-            items.append({"unreadable": line.strip()})
+    for line in lines:
+        parsed = _config_line(line)
+        if parsed is None:
             continue
-        match = re.match(r"\s*(-\s+)?([\w-]+):(.*)", line)
-        if match is None:
-            continue
-        starts_item, key, value = match.groups()
-        value = value.strip()
-        if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"":
-            value = value[1:-1]
+        starts_item, key, value = parsed
         if starts_item:
             items.append({})
         if items:
@@ -186,46 +205,52 @@ def _pre_commit_items() -> list[dict[str, str]]:
 
 
 def _pre_commit_problems() -> list[str]:
-    """How the pre-commit hooks call ruff, read from each hook's own `entry`.
+    """How the pre-commit hooks call ruff, comments excluded.
+
+    Only a hook's `id` or `name`, or an `entry` that starts with `uv run ruff`,
+    may name ruff. Any other line that does, whatever its form, is a problem:
+    a wrapper such as `python -m ruff`, the continuation of a multi-line entry,
+    a pin in `additional_dependencies` or the ruff-pre-commit repo.
 
     Returns:
         One line per problem, empty when every `ruff-check` and `ruff-format`
-        hook runs its command through uv, no other hook runs ruff without uv and
-        no hook repo pins a ruff version of its own.
+        hook runs its own command through uv and nothing else names ruff.
     """
     config = _rel(PRE_COMMIT_CONFIG)
     if not PRE_COMMIT_CONFIG.is_file():
         return [f"  {config}: the pre-commit config is missing"]
 
-    items = _pre_commit_items()
-    problems = [
-        f"  {config}: cannot read `{item['unreadable']}`; write it as a block mapping"
-        for item in items
-        if "unreadable" in item
-    ]
-    if any("ruff-pre-commit" in item.get("repo", "") for item in items):
-        problems.append(
-            f"  {config}: uses the ruff-pre-commit repo, whose rev is a second "
-            "ruff version; run the hooks through `uv run ruff`"
-        )
+    text = _without_comments(PRE_COMMIT_CONFIG.read_text(encoding="utf-8"))
+    lines = text.splitlines()
+    problems = []
+    for line in lines:
+        if "ruff" not in line.lower():
+            continue
+        _, key, value = _config_line(line) or (False, None, "")
+        if key in ("id", "name"):
+            continue
+        if key == "entry" and value.split()[:3] == ["uv", "run", "ruff"]:
+            continue
+        if key == "repo":
+            problems.append(
+                f"  {config}: uses the {value} repo, whose rev is a second ruff "
+                "version; run the hooks through `uv run ruff`"
+            )
+        else:
+            problems.append(
+                f"  {config}: `{line.strip()}` names ruff outside a hook's id, "
+                "name or `uv run ruff` entry"
+            )
+
+    items = _pre_commit_items(lines)
     for hook_id, command in _RUFF_HOOKS.items():
-        entries = [item.get("entry", "") for item in items if item.get("id") == hook_id]
         expected = command.split()
+        entries = [item.get("entry", "") for item in items if item.get("id") == hook_id]
         if not entries or any(
             entry.split()[: len(expected)] != expected for entry in entries
         ):
             problems.append(
                 f"  {config}: the `{hook_id}` hook does not run `{command}`"
-            )
-    for item in items:
-        words = item.get("entry", "").split()
-        if (
-            item.get("id") not in _RUFF_HOOKS
-            and words
-            and Path(words[0]).stem == "ruff"
-        ):
-            problems.append(
-                f"  {config}: the `{item.get('id')}` hook runs ruff without uv"
             )
     return problems
 
