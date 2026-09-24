@@ -259,6 +259,21 @@ def test_merge_csv_responses_turns_a_body_the_csv_module_cannot_read_into_a_pars
     assert isinstance(exc_info.value.__cause__, csv.Error)
 
 
+def test_merge_csv_responses_reports_an_unreadable_body_before_a_misaligned_row():
+    """A body the reader refuses is reported as such even when an earlier row
+    of it is misaligned: the merge reads a body a row at a time, and the
+    reason must not depend on which of the two it reaches first."""
+    oversized = "x" * (csv.field_size_limit() + 1)
+    response = _csv_response(f"t,c\n1,2,3\n{oversized},1\n")
+
+    with pytest.raises(ParseError) as exc_info:
+        merge_csv_responses([response], COLUMNS)
+
+    assert "unreadable CSV" in exc_info.value.message
+    assert exc_info.value.response is response
+    assert isinstance(exc_info.value.__cause__, csv.Error)
+
+
 # ----------------------------------------------------- json_answer_columns
 
 
