@@ -101,8 +101,9 @@ tag exists. Actions tab → **Tag and release** → *Run workflow*, from `main`:
 |---|---|
 | `version` | `X.Y.Z`, no `v`. The same number the release PR wrote into `pyproject.toml` |
 | `ref` | the branch or commit to release, normally `main` |
-| `prerelease` | tick it for `X.Y.Zrc1` and the like; it only marks the GitHub Release |
 | `confirm` | `RELEASE`, typed. Anything else stops the run before it does anything |
+
+The version alone decides how the GitHub Release is marked: one with a pre-release part (`2.0.0rc1`, `2.0.0b1`, `2.0.0.dev1`) is a pre-release, and any other version becomes the Latest release.
 
 What runs, in order:
 

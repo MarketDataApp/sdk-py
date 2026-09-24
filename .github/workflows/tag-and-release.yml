@@ -20,10 +20,6 @@ on:
         required: true
         default: main
         type: string
-      prerelease:
-        description: Mark the GitHub release as a pre-release.
-        type: boolean
-        default: false
       confirm:
         description: Type RELEASE to confirm. Anything else stops the run.
         required: true
@@ -44,6 +40,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - name: Checkout the ref being released
         uses: actions/checkout@v7
@@ -83,12 +80,14 @@ jobs:
           fi
 
       - name: Check the version, the tag, `pyproject.toml` and the CHANGELOG
+        id: version
         env:
           VERSION: ${{ inputs.version }}
         run: |
           # VERSION has no `v` and must already be the normalised spelling pip
           # serves: 2.0.0rc1, not 2.0.0RC1.
           uv run --no-project --quiet --with packaging --python 3.12 python - "$VERSION" <<'EOF'
+          import os
           import sys
 
           from packaging.version import InvalidVersion, Version
@@ -102,6 +101,9 @@ jobs:
               sys.exit(f"::error::{asked} is spelled differently from the version it means: pip would serve {parsed}. Use that spelling.")
           if parsed.local:
               sys.exit(f"::error::{asked} carries a local version, and PyPI refuses those.")
+          # The version alone decides: an rc, a beta or a dev release is a pre-release.
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"prerelease={str(parsed.is_prerelease).lower()}\n")
           EOF
 
           if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null 2>&1; then
@@ -189,7 +191,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
           SHA: ${{ needs.validate.outputs.sha }}
-          PRERELEASE: ${{ inputs.prerelease }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
         run: |
           flag="--latest"
           if [ "$PRERELEASE" = "true" ]; then
