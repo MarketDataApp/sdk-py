@@ -13,7 +13,11 @@ import pytest
 import pytz
 from freezegun import freeze_time
 
-from marketdata.exceptions import ParseError, ServerError
+from marketdata.exceptions import (
+    MinMaxDateValidationError,
+    ParseError,
+    ServerError,
+)
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.input_types.stocks import StocksCandlesInput
 from marketdata.output_types.stocks_candles import (
@@ -918,6 +922,84 @@ def test_stocks_candles_intraday_string_dates(load_json, respx_mock, client):
         output_format=OutputFormat.INTERNAL,
     )
     assert len(candles) == 253
+
+
+@pytest.mark.parametrize(
+    ("from_date", "to_date"),
+    [
+        ("60", None),
+        ("9999", None),
+        ("yesterday", "today"),
+        ("2026-09-01", "today"),
+    ],
+)
+def test_intraday_relative_dates_go_to_the_api_as_they_are(
+    load_json, respx_mock, client, from_date, to_date
+):
+    """A relative range (a number under 10000) or a keyword is the API's to
+    read, with its own rule: the SDK sends it untouched, in one request,
+    instead of guessing a date from it."""
+    route = respx_mock.get(
+        "https://api.marketdata.app/v1/stocks/candles/1/AAPL/"
+    ).respond(json=load_json("stocks_candles_response_200"), status_code=200)
+
+    client.stocks.candles(
+        symbol="AAPL",
+        resolution="1",
+        from_date=from_date,
+        to_date=to_date,
+        output_format=OutputFormat.JSON,
+    )
+
+    assert route.call_count == 1
+    params = route.calls.last.request.url.params
+    assert params["from"] == from_date
+    assert params.get("to") == to_date
+
+
+@pytest.mark.parametrize(
+    ("from_date", "to_date"),
+    [
+        pytest.param("1600000000", "1700000000", id="unix-seconds"),
+        pytest.param("44087", "45244", id="spreadsheet-serials"),
+    ],
+)
+def test_intraday_unix_and_serial_strings_are_split_by_year(
+    load_json, respx_mock, client, from_date, to_date
+):
+    """A number the API reads as a date names a day, so a range of several
+    years goes out one year per request, as an ISO range does."""
+    respx_mock.get("https://api.marketdata.app/v1/stocks/candles/1/AAPL/").respond(
+        json=load_json("stocks_candles_response_200"), status_code=200
+    )
+
+    client.stocks.candles(
+        "AAPL",
+        resolution="1",
+        from_date=from_date,
+        to_date=to_date,
+        output_format=OutputFormat.JSON,
+    )
+
+    assert _wire_ranges(respx_mock) == [
+        (datetime.date(2020, 9, 13), datetime.date(2021, 9, 12)),
+        (datetime.date(2021, 9, 13), datetime.date(2022, 9, 12)),
+        (datetime.date(2022, 9, 13), datetime.date(2023, 9, 12)),
+        (datetime.date(2023, 9, 13), datetime.date(2023, 11, 14)),
+    ]
+
+
+def test_intraday_unix_range_that_runs_backwards_is_refused(respx_mock, client):
+    """A Unix-time range is compared once read, as an ISO range is: a start
+    after the end raises before any request goes out."""
+    route = respx_mock.get("https://api.marketdata.app/v1/stocks/candles/1/AAPL/")
+
+    with pytest.raises(MinMaxDateValidationError):
+        client.stocks.candles(
+            "AAPL", resolution="1", from_date="1700000000", to_date="1600000000"
+        )
+
+    assert not route.called
 
 
 def _wire_ranges(respx_mock) -> list[tuple[datetime.date, datetime.date]]:

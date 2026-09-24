@@ -85,7 +85,10 @@ def candles(
         return retry_adapter(self.client._make_request, method="GET", url=url)
 
     if input_params.from_date is not None:
-        if input_params.is_intraday:
+        splittable = isinstance(input_params.from_date, datetime.datetime) and (
+            not isinstance(input_params.to_date, str)
+        )
+        if input_params.is_intraday and splittable:
             year_ranges = split_dates_by_timeframe(
                 input_params.from_date,
                 input_params.to_date or datetime.datetime.now(),
