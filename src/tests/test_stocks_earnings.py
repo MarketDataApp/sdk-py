@@ -166,9 +166,9 @@ def test_get_stocks_earnings_response_200_dataframe_pandas(
         assert earnings["reportDate"].tolist() == expected_report_date
         assert earnings["reportTime"].tolist() == ["after close", "before open"]
         assert earnings["currency"].tolist() == ["USD", None]
-        assert earnings["reportedEPS"].tolist() == [None, None]
-        assert earnings["surpriseEPS"].tolist() == [None, None]
-        assert earnings["surpriseEPSpct"].tolist() == [None, None]
+        for column in ("reportedEPS", "surpriseEPS", "surpriseEPSpct"):
+            assert earnings[column].dtype == "float64"
+            assert earnings[column].isna().all()
         expected_updated = [
             datetime.datetime.fromtimestamp(1765861200, tz=pytz.timezone("US/Eastern")),
             datetime.datetime.fromtimestamp(1765861200, tz=pytz.timezone("US/Eastern")),

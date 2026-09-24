@@ -1,11 +1,32 @@
 import types
 from abc import ABC, abstractmethod
-from dataclasses import is_dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Iterable, Union, get_args, get_origin
+
+from marketdata.input_types.base import DateFormat
+from marketdata.output_types.columns import _column_types, _model_columns
 
 if TYPE_CHECKING:
     from marketdata.input_types.base import UserUniversalAPIParams
+
+
+def _scalar_type(annotation: Any) -> Any:
+    """Unwrap ``list[X]`` and ``X | None`` down to ``X``.
+
+    Args:
+        annotation: A field annotation of an output model.
+
+    Returns:
+        The scalar type, or ``None`` for a union of several types.
+    """
+    origin = get_origin(annotation)
+    if origin in (list, Iterable):
+        return _scalar_type(get_args(annotation)[0])
+    if origin is Union or origin is types.UnionType:
+        args = [arg for arg in get_args(annotation) if arg is not type(None)]
+        return _scalar_type(args[0]) if len(args) == 1 else None
+    return annotation
 
 
 class BaseOutputHandler(ABC):
@@ -40,19 +61,67 @@ class BaseOutputHandler(ABC):
             )
         return False
 
+    def _columns_of_type(self, target: type) -> list[str]:
+        """List the columns whose field annotation includes ``target``.
+
+        Args:
+            target: The type to look for.
+
+        Returns:
+            The column names, as the API spells them.
+        """
+        return [
+            column
+            for column, annotation in _column_types(self.output_schema).items()
+            if self._type_includes(annotation, target)
+        ]
+
     def _get_date_columns(self) -> list[str]:
-        if not is_dataclass(self.output_schema):
-            return []
-        fields = self.output_schema.__dataclass_fields__.values()
-        return [field.name for field in fields if self._type_includes(field.type, date)]
+        """List the columns annotated as dates."""
+        return self._columns_of_type(date)
 
     def _get_datetime_columns(self) -> list[str]:
-        if not is_dataclass(self.output_schema):
-            return []
-        fields = self.output_schema.__dataclass_fields__.values()
-        return [
-            field.name for field in fields if self._type_includes(field.type, datetime)
-        ]
+        """List the columns annotated as datetimes."""
+        return self._columns_of_type(datetime)
+
+    def _column_order(self, present: list[str]) -> list[str]:
+        """Order the columns of a result like the model.
+
+        Args:
+            present: The columns the result has.
+
+        Returns:
+            The present columns in model order or, under a ``columns=`` filter,
+            in request order. Columns the model does not name go last.
+        """
+        known = _model_columns(self.output_schema, self.user_universal_params.columns)
+        order = [column for column in known if column in present]
+        return order + [column for column in present if column not in order]
+
+    def _column_kinds(self) -> dict[str, type]:
+        """Map each column to the kind of value its annotation promises.
+
+        Returns:
+            ``float`` (money included), ``int``, ``bool`` or ``str`` per
+            column. A date column gets the type the API sends it as: ``str``
+            under ``DateFormat.TIMESTAMP``, ``float`` under
+            ``DateFormat.SPREADSHEET`` and ``int`` otherwise. Columns of any
+            other type are left out.
+        """
+        date_format = self.user_universal_params.date_format
+        date_kind = {DateFormat.TIMESTAMP: str, DateFormat.SPREADSHEET: float}.get(
+            date_format, int
+        )
+        kinds = {}
+        for column, annotation in _column_types(self.output_schema).items():
+            scalar = _scalar_type(annotation)
+            if scalar in (date, datetime):
+                kinds[column] = date_kind
+            elif scalar is Decimal:
+                kinds[column] = float
+            elif scalar in (float, int, bool, str):
+                kinds[column] = scalar
+        return kinds
 
     def _validate_result(self, result, **kwargs) -> Any:
         return result

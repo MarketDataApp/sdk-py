@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import ClassVar
 
+from marketdata.output_types.columns import _to_fields
 from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
 
@@ -41,6 +42,10 @@ class StockPrice:
 @dataclass
 class StockPricesHumanReadable:
     api_model: ClassVar[type] = StockPrice
+    api_names: ClassVar[dict[str, str]] = {
+        "Change_Price": "Change $",
+        "Change_Percent": "Change %",
+    }
 
     Symbol: str
     Mid: Decimal
@@ -67,8 +72,5 @@ class StockPricesHumanReadable:
 
     @classmethod
     def from_dict(cls, data: dict) -> "StockPricesHumanReadable":
-        data["Change_Price"] = data["Change $"]
-        data["Change_Percent"] = data["Change %"]
-        data.pop("Change $")
-        data.pop("Change %")
-        return cls(**data)
+        """Build the model from an API answer keyed by column name."""
+        return cls(**_to_fields(cls, data))

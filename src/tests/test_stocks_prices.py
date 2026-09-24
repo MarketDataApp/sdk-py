@@ -3,10 +3,11 @@ import pathlib
 from decimal import Decimal
 from unittest.mock import patch
 
+import httpx
 import pytest
 import pytz
 
-from marketdata.exceptions import ServerError
+from marketdata.exceptions import ParseError, ServerError
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.stocks_prices import StockPrice, StockPricesHumanReadable
 from src.tests.conftest import assert_failed_answer, load_api_status
@@ -225,3 +226,21 @@ def test_get_stocks_prices_response_200_csv(respx_mock, client):
         symbols="TSLA", output_format=OutputFormat.CSV, filename="test.csv"
     )
     assert pathlib.Path(output).read_text() == "AS RECEIVED FROM API"
+
+
+def test_a_human_readable_answer_without_a_renamed_column_is_a_parse_error(
+    respx_mock, client
+):
+    """A human-readable answer that lacks `Change $` is refused as a body that
+    is not an answer of this resource."""
+    respx_mock.get(url__regex=r".*/stocks/prices/.*").mock(
+        return_value=httpx.Response(
+            200,
+            json={"Symbol": ["AAPL"], "Mid": [1.0], "Change %": [0.1], "Date": [1]},
+        )
+    )
+
+    with pytest.raises(ParseError, match="Change_Price"):
+        client.stocks.prices(
+            "AAPL", output_format=OutputFormat.INTERNAL, use_human_readable=True
+        )

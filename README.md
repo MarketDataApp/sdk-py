@@ -504,7 +504,7 @@ When the API has no data for a valid question (candles over a weekend, news for 
 
 | Output format | Empty result |
 |---|---|
-| `DATAFRAME` | a DataFrame with the model's columns and no rows; under `columns=`, the requested ones (names of the model, or API names under `use_human_readable=True`; the API's aliases such as `open` or `price` are not translated) |
+| `DATAFRAME` | a DataFrame with no rows and the column names, order and dtypes of a populated one; under `columns=`, the requested ones (names of the model, or API names under `use_human_readable=True`; the API's aliases such as `open` or `price` are not translated) |
 | `INTERNAL` | `[]` for list-shaped resources (`prices`, `quotes`, `candles`, `news`, `markets.status`, `utilities.status`), `None` for single-object ones (`earnings`, `options.chain`, `options.expirations`, `options.lookup`, `options.quotes`, `utilities.headers`, `utilities.user`) |
 | `JSON` | the API's `{"s": "no_data"}` body |
 | `CSV` | a file with the header row only (the requested columns under `columns=`; an empty file under `add_headers=False`) |
@@ -513,7 +513,7 @@ For the fan-out calls, a chunk (`stocks.candles`) or a symbol (`options.quotes`)
 
 The API renders the CSV empty answer as a `200` with a placeholder body instead of a `404` (MarketData-App/api#422); the SDK recognises it, so CSV output behaves as above.
 
-**One `columns=` case where the empty and the populated shapes still differ.** The API resolves its own column aliases (`open` for `o`, `price`, `date`), which the SDK does not mirror, because the accepted set depends on the endpoint. Asking for one of those (`stocks.candles(columns=["open"])`) gets a populated frame with the single column the API sent and an empty frame with every model column, so the two cannot be concatenated. Filter on the names the model exposes (or the API names of its twin under `use_human_readable=True`) and both shapes have the same columns in the same order. Under `use_human_readable=True` the names are still spelled differently (the API's `Expiration Date` in a populated result, the model's `Expiration_Date` in an empty one), and on polars an empty frame cannot come first in `pl.concat`; both are #107.
+**One `columns=` case where the empty and the populated shapes still differ.** The API resolves its own column aliases (`open` for `o`, `price`, `date`), which the SDK does not mirror, because the accepted set depends on the endpoint. Asking for one of those (`stocks.candles(columns=["open"])`) gets a populated frame with the single column the API sent and an empty frame with every model column, so the two cannot be concatenated. Filter on the names the model exposes (or the API names of its twin under `use_human_readable=True`) and both shapes have the same columns in the same order.
 
 ### `ValueError`
 

@@ -6,6 +6,7 @@ import pathlib
 from unittest.mock import patch
 
 import httpx
+import polars as pl
 import pytest
 
 from marketdata.api_error import should_retry
@@ -681,27 +682,129 @@ RESOURCES = [
 ]
 
 
+_CHAIN_HUMAN_KEYS = {
+    "optionSymbol": "Symbol",
+    "underlying": "Underlying",
+    "expiration": "Expiration Date",
+    "side": "Option Side",
+    "strike": "Strike",
+    "firstTraded": "First Traded",
+    "dte": "Days To Expiration",
+    "updated": "Date",
+    "bid": "Bid",
+    "bidSize": "Bid Size",
+    "mid": "Mid",
+    "ask": "Ask",
+    "askSize": "Ask Size",
+    "last": "Last",
+    "openInterest": "Open Interest",
+    "volume": "Volume",
+    "inTheMoney": "In The Money",
+    "intrinsicValue": "Intrinsic Value",
+    "extrinsicValue": "Extrinsic Value",
+    "underlyingPrice": "Underlying Price",
+    "iv": "IV",
+    "delta": "Delta",
+    "gamma": "Gamma",
+    "theta": "Theta",
+    "vega": "Vega",
+}
+_CANDLE_HUMAN_KEYS = {"t": "Date", "o": "Open", "h": "High", "l": "Low", "c": "Close"}
+
+# The keys of a `human=true` answer, in the order the API sends them (read off
+# live answers), for each key of the fixture's plain answer.
+HUMAN_KEYS = {
+    "funds_candles": _CANDLE_HUMAN_KEYS,
+    "markets_status": {"date": "Date", "status": "Status"},
+    "stocks_prices": {
+        "symbol": "Symbol",
+        "mid": "Mid",
+        "change": "Change $",
+        "changepct": "Change %",
+        "updated": "Date",
+    },
+    "stocks_quotes": {
+        "symbol": "Symbol",
+        "ask": "Ask",
+        "askSize": "Ask Size",
+        "bid": "Bid",
+        "bidSize": "Bid Size",
+        "mid": "Mid",
+        "last": "Last",
+        "change": "Change $",
+        "changepct": "Change %",
+        "volume": "Volume",
+        "updated": "Date",
+    },
+    "stocks_candles": {**_CANDLE_HUMAN_KEYS, "v": "Volume"},
+    "stocks_earnings": {
+        "symbol": "Symbol",
+        "fiscalYear": "Fiscal Year",
+        "fiscalQuarter": "Fiscal Quarter",
+        "date": "Date",
+        "reportDate": "Report Date",
+        "reportTime": "Report Time",
+        "currency": "Currency",
+        "reportedEPS": "Reported EPS",
+        "estimatedEPS": "Estimated EPS",
+        "surpriseEPS": "Surprise EPS",
+        "surpriseEPSpct": "Surprise EPS %",
+        "updated": "Updated",
+    },
+    "stocks_news": {
+        "headline": "headline",
+        "content": "content",
+        "source": "source",
+        "publicationDate": "publicationDate",
+        "symbol": "Symbol",
+        "updated": "Date",
+    },
+    "options_chain": _CHAIN_HUMAN_KEYS,
+    "options_expirations": {"expirations": "Expirations", "updated": "Date"},
+    "options_lookup": {"optionSymbol": "Symbol"},
+    "options_quotes": _CHAIN_HUMAN_KEYS,
+}
+
+
+def _frame_shape(frame) -> list[tuple[str | None, str]]:
+    """List the index and column names of a pandas or polars frame with their
+    dtypes."""
+    if isinstance(frame, pl.DataFrame):
+        return [(name, str(dtype)) for name, dtype in frame.schema.items()]
+    index = [(name, str(frame.index.dtype)) for name in frame.index.names]
+    return index + [(name, str(dtype)) for name, dtype in frame.dtypes.items()]
+
+
+@pytest.mark.parametrize("human", [False, True], ids=["plain", "human"])
+@pytest.mark.parametrize("handler", ["pandas", "polars"])
 @pytest.mark.parametrize(("call", "url_pattern", "fixture"), RESOURCES)
 def test_every_resource_no_data_dataframe_has_the_shape_of_a_populated_one(
-    load_json, respx_mock, client, call, url_pattern, fixture
+    load_json, respx_mock, client, call, url_pattern, fixture, handler, human
 ):
-    """Issue #84 for every resource: an empty DataFrame must be usable in
-    place of a populated one (same index name, same columns), whatever the
-    resource. `options.expirations` was the one that differed."""
+    """An empty DataFrame has the index, column names, column order and dtypes
+    of a populated one, so the two concatenate in either order."""
+    body = load_json(fixture)
+    if human:
+        keys = HUMAN_KEYS[fixture.replace("_response_200", "")]
+        body = {human_key: body[key] for key, human_key in keys.items()}
     respx_mock.get(url__regex=url_pattern).mock(
         side_effect=[
-            httpx.Response(200, json=load_json(fixture)),
+            httpx.Response(200, json=body),
             httpx.Response(404, json=NO_DATA),
         ]
     )
     client.default_params.output_format = OutputFormat.DATAFRAME
+    client.default_params.use_human_readable = human
 
-    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [handler]):
         populated = call(client)
         empty = call(client)
 
-    assert list(empty.index.names) == list(populated.index.names)
-    assert list(empty.columns) == list(populated.columns)
+    assert len(empty) == 0
+    assert _frame_shape(empty) == _frame_shape(populated)
+    if handler == "polars":
+        assert pl.concat([empty, populated]).shape == populated.shape
+        assert pl.concat([populated, empty]).shape == populated.shape
 
 
 @pytest.mark.parametrize(("call", "url_pattern", "fixture"), RESOURCES)
@@ -875,6 +978,23 @@ def test_no_data_csv_carries_the_requested_columns_in_request_order(
     )
 
     assert pathlib.Path(path).read_bytes() == b"updated,mid\r\n"
+
+
+def test_no_data_csv_header_spells_human_readable_columns_as_the_api(
+    respx_mock, client, tmp_path
+):
+    """Under `use_human_readable`, the empty CSV header is the one the API
+    sends: spaces and symbols, not the model's field names."""
+    respx_mock.get(PRICES_URL).respond(json=NO_DATA, status_code=404)
+
+    path = client.stocks.prices(
+        "AAPL",
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "empty.csv",
+        use_human_readable=True,
+    )
+
+    assert pathlib.Path(path).read_bytes() == b"Symbol,Mid,Change $,Change %,Date\r\n"
 
 
 @pytest.mark.parametrize(
