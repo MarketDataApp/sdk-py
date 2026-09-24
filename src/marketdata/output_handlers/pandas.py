@@ -1,8 +1,11 @@
+import numpy as np
 import pandas as pd
 import pytz
 
 from marketdata.input_types.base import DateFormat
 from marketdata.output_handlers.base import BaseOutputHandler
+
+_DTYPES = {float: "float64", int: "int64", bool: "bool", str: "object"}
 
 
 class PandasOutputHandler(BaseOutputHandler):
@@ -59,13 +62,9 @@ class PandasOutputHandler(BaseOutputHandler):
                 continue
             try:
                 if format_to_use == DateFormat.TIMESTAMP:
-                    df[col] = pd.to_datetime(df[col], utc=True).dt.tz_convert(
-                        default_tz
-                    )
+                    df[col] = _from_timestamp_text(df[col], default_tz)
                 elif format_to_use == DateFormat.SPREADSHEET:
-                    df[col] = pd.to_datetime(
-                        df[col], unit="D", origin="1899-12-30", utc=True
-                    ).dt.tz_convert(default_tz)
+                    df[col] = _from_serial(df[col], default_tz)
                 else:
                     df[col] = pd.to_datetime(df[col], unit="s", utc=True).dt.tz_convert(
                         default_tz
@@ -75,7 +74,46 @@ class PandasOutputHandler(BaseOutputHandler):
 
         return df
 
+    def _cast_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Give each column the dtype of its annotation where no value changes.
+
+        An empty column takes the dtype outright, an all-null number column
+        becomes ``float64`` and whole numbers in a float column become floats.
+        pandas holds no null in an ``int64`` or ``bool`` column, so a column
+        with nulls keeps the dtype its values give it.
+
+        Args:
+            df: The result, before its date columns are converted.
+
+        Returns:
+            The same frame with its columns cast.
+        """
+        for column, kind in self._column_kinds().items():
+            if column not in df.columns:
+                continue
+            values = df[column]
+            if values.empty:
+                df[column] = values.astype(_DTYPES[kind])
+            elif kind in (float, int) and values.isna().all():
+                df[column] = values.astype("float64")
+            elif kind is float and pd.api.types.is_integer_dtype(values):
+                df[column] = values.astype("float64")
+        return df
+
     def _validate_result(self, result: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        """Order, type and index the result.
+
+        Args:
+            result: The frame built from the answer.
+            **kwargs: ``date_columns`` to convert besides the model's, and
+                ``index_columns`` to index by when present.
+
+        Returns:
+            The frame in model order, with its columns cast, its dates
+            converted and its index set.
+        """
+        result = result.reindex(columns=self._column_order(list(result.columns)))
+        result = self._cast_columns(result)
         date_columns = self._get_date_columns() + self._get_datetime_columns()
         manual_date_columns = kwargs.get("date_columns", [])
         date_columns.extend(manual_date_columns)
@@ -95,3 +133,59 @@ class PandasOutputHandler(BaseOutputHandler):
         df = self._initialize_dataframe()
         df = self._validate_dataframe(df)
         return df
+
+
+def _localize(wall: pd.Series, tz) -> pd.Series:
+    """Read naive wall-clock datetimes as times in ``tz``.
+
+    Args:
+        wall: Naive datetimes.
+        tz: The zone they are wall-clock times of.
+
+    Returns:
+        The datetimes in ``tz``. A time the clocks go through twice is the
+        first one, a time they skip is ``NaT``.
+    """
+    return wall.dt.tz_localize(
+        tz, ambiguous=np.ones(len(wall), dtype=bool), nonexistent="NaT"
+    )
+
+
+def _from_timestamp_text(values: pd.Series, tz) -> pd.Series:
+    """Read the API's ``dateformat=timestamp`` strings.
+
+    Args:
+        values: Datetimes with their UTC offset (``2026-09-21 14:02:10 -04:00``)
+            or dates (``2026-09-21``).
+        tz: The zone to express them in, and the one a date is a day of.
+
+    Returns:
+        The datetimes in ``tz``; a date is its midnight there.
+
+    Raises:
+        ValueError: If a value is not a date or a datetime.
+    """
+    text = values.astype("string")
+    is_date = text.str.fullmatch(r"\d{4}-\d{2}-\d{2}").fillna(False).astype(bool)
+    moments = pd.to_datetime(text.where(~is_date), utc=True).dt.tz_convert(tz)
+    dates = _localize(pd.to_datetime(text.where(is_date), format="%Y-%m-%d"), tz)
+    return moments.where(~is_date, dates)
+
+
+def _from_serial(values: pd.Series, tz) -> pd.Series:
+    """Read the API's ``dateformat=spreadsheet`` serials.
+
+    Args:
+        values: Days since 1899-12-30 of a wall-clock time in ``tz``.
+        tz: The zone of that wall clock.
+
+    Returns:
+        The datetimes in ``tz``, to the second.
+
+    Raises:
+        ValueError: If a value is not a number.
+    """
+    seconds = (pd.to_numeric(values) * 86400).round()
+    return _localize(
+        pd.to_datetime(seconds, unit="s", origin=pd.Timestamp("1899-12-30")), tz
+    )

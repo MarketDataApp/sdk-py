@@ -11,6 +11,7 @@ from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.input_types.options import OptionsQuotesInput
 from marketdata.internal_settings import MAX_CONCURRENT_REQUESTS, VALID_STATUS_CODES
 from marketdata.output_handlers import get_dataframe_output_handler
+from marketdata.output_types.columns import _to_fields
 from marketdata.output_types.options_quotes import (
     OptionsQuotes,
     OptionsQuotesHumanReadable,
@@ -84,16 +85,13 @@ def quotes(
         else OptionsQuotes
     )
 
-    # Per-symbol answers: a symbol with no data (a 404 no_data, or its CSV
-    # placeholder, #89) contributes no rows; only when every symbol is empty
-    # is the whole call empty.
+    # An error names an answer with data, never a symbol that only had none.
+    answered = [response for response in responses if not is_no_data(response)]
     usable = [
-        response
-        for response in responses
-        if response.status_code in VALID_STATUS_CODES and not is_no_data(response)
+        response for response in answered if response.status_code in VALID_STATUS_CODES
     ]
     if not usable:
-        if all(is_no_data(response) for response in responses):
+        if not answered:
             return no_data_result(
                 user_universal_params,
                 output_model,
@@ -101,12 +99,11 @@ def quotes(
                 index_columns=["optionSymbol", "Symbol"],
                 response=responses[0],
             )
-        # The API answered, just not with anything usable. Terminal on purpose:
-        # raising a retryable class here would re-run the whole fan-out.
+        # Terminal on purpose: a retryable class would re-run the whole fan-out.
         raise MarketdataHttpError(
             message="No responses from API",
-            request=responses[0].request,
-            response=responses[0],
+            request=answered[0].request,
+            response=answered[0],
         )
 
     if user_universal_params.output_format in [
@@ -141,10 +138,11 @@ def quotes(
                 keys = json_answer_columns(
                     [response], alone, output_model.answer_keys()
                 )
-                return output_model(**output_model.join_dicts(alone, keys))
+                joined = output_model.join_dicts(alone, keys)
+                return output_model(**_to_fields(output_model, joined))
 
             with merged_model_errors(usable, _model_alone):
-                return output_model(**data)
+                return output_model(**_to_fields(output_model, data))
         if user_universal_params.output_format == OutputFormat.JSON:
             return data
 

@@ -11,6 +11,7 @@ import pytest
 from marketdata.api_status import API_STATUS_DATA, APIStatusResult
 from marketdata.exceptions import NetworkError, ServerError
 from marketdata.input_types.base import OutputFormat
+from src.tests.conftest import assert_failed_answer
 
 CANDLES_URL = "https://api.marketdata.app/v1/stocks/candles/H/AAPL/"
 GOOD_URL = "https://api.marketdata.app/v1/options/quotes/AAPL250117C00150000/"
@@ -70,11 +71,12 @@ def test_an_offline_service_stops_the_per_request_retry(
     good = respx_mock.get(GOOD_URL).respond(json=quotes, status_code=200)
     bad = respx_mock.get(BAD_URL).respond(json={}, status_code=503)
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.options.quotes(SYMBOLS, output_format=OutputFormat.INTERNAL)
 
     assert good.call_count == 1
     assert bad.call_count == 1
+    assert_failed_answer(exc_info.value, 503, BAD_URL, "{}")
 
 
 def test_a_failing_candle_chunk_is_retried_alone(load_json, respx_mock, client):
@@ -115,7 +117,7 @@ def test_an_unreachable_candle_chunk_fails_the_call_without_re_sending_the_other
 
     respx_mock.get(CANDLES_URL).mock(side_effect=_answer)
 
-    with pytest.raises(NetworkError):
+    with pytest.raises(NetworkError) as exc_info:
         client.stocks.candles(
             "AAPL",
             resolution="H",
@@ -126,6 +128,9 @@ def test_an_unreachable_candle_chunk_fails_the_call_without_re_sending_the_other
 
     assert calls.count("2023-01-01") == 1
     assert len(calls) == 1 + client.max_retries + 1
+    error = exc_info.value
+    assert_failed_answer(error, 0, CANDLES_URL, "ConnectError: boom")
+    assert httpx.URL(error.request_url).params["from"].startswith("2024-01-01")
 
 
 @patch(
@@ -143,10 +148,16 @@ def test_an_outage_is_reported_once_for_the_whole_fan_out(
     symbols = [f"AAPL25011{i}C00150000" for i in range(8)]
 
     with caplog.at_level("ERROR", logger="marketdata.logger"):
-        with pytest.raises(ServerError):
+        with pytest.raises(ServerError) as exc_info:
             client.options.quotes(symbols, output_format=OutputFormat.INTERNAL)
 
     # One lookup for the call, and the only ERROR line is the decorator's.
     assert get_api_status.call_count == 1
     assert len(caplog.records) == 1
     assert "quotes failed" in caplog.records[0].message
+    assert_failed_answer(
+        exc_info.value,
+        503,
+        f"https://api.marketdata.app/v1/options/quotes/{symbols[0]}/",
+        "{}",
+    )

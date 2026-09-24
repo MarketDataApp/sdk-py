@@ -1,6 +1,7 @@
 import csv
 import datetime
 import sys
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -25,47 +26,89 @@ from marketdata.utils import (
     split_dates_by_timeframe,
     validate_single_param,
 )
+from src.tests.conftest import assert_failed_answer
+
+_EASTERN = pytz.timezone("US/Eastern")
 
 
-def test_format_timestamp():
-    # format_timestamp returns naive datetime for string ISO format inputs
-    assert format_timestamp("2024-01-01 12:00:00") == datetime.datetime(
-        2024, 1, 1, 12, 0, 0
-    )
-    assert format_timestamp(1714732800) == datetime.datetime.fromtimestamp(
-        1714732800, tz=pytz.timezone("US/Eastern")
-    )
-    assert format_timestamp(1714732800.0) == datetime.datetime.fromtimestamp(
-        1714732800, tz=pytz.timezone("US/Eastern")
-    )
-    # Test 'Z' suffix for Python < 3.11 compatibility
-    # Construct expected datetime using localize to avoid pytz LMT issues
-    expected_z = pytz.timezone("US/Eastern").localize(
-        datetime.datetime(2024, 1, 1, 7, 0, 0)
-    )
-    assert format_timestamp("2024-01-01T12:00:00Z") == expected_z
-
-    with pytest.raises(ValueError):
-        format_timestamp("2024-01-01 12:00:00.0:00:00")
-    # Coverage for line 21-23 (string that's not float)
-    with pytest.raises(ValueError):
-        format_timestamp("invalid-date")
-    # Test numeric exceptions (OSError/OverflowError) - coverage for line 30-31
-    with pytest.raises(ValueError):
-        format_timestamp(99999999999999)
-    # Coverage for line 33 (final fallback)
-    with pytest.raises(ValueError):
-        # List is not str, int, float, or None
-        format_timestamp([])
-    with pytest.raises(ValueError):
-        format_timestamp(None)
+def _eastern(*args: int, is_dst: bool = False) -> datetime.datetime:
+    """Build a US/Eastern datetime from its wall-clock fields."""
+    return _EASTERN.localize(datetime.datetime(*args), is_dst=is_dst)
 
 
-def test_format_timestamp_date_only_localization():
-    val = "2026-02-20"
-    dt = format_timestamp(val)
-    assert dt == datetime.datetime(2026, 2, 20, 0, 0, 0)
-    assert dt.tzinfo is None
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        # The API's bands (`DateHelper.date_from_number`): a spreadsheet serial
+        # for 10000 <= n < 200000, then Unix seconds, milliseconds, nanoseconds.
+        (10_000, _eastern(1927, 5, 18)),
+        (45000, _eastern(2023, 3, 15)),
+        (59999, _eastern(2064, 4, 7)),
+        (60000, _eastern(2064, 4, 8)),
+        (100000, _eastern(2173, 10, 14)),
+        (199_999, _eastern(2447, 7, 29)),
+        (200_000, _eastern(1970, 1, 3, 2, 33, 20)),
+        (9_999_999_999, _eastern(2286, 11, 20, 12, 46, 39)),
+        (10_000_000_000, _eastern(1970, 4, 26, 13, 46, 40)),
+        (10_000_000_000_000, _eastern(1969, 12, 31, 21, 46, 40)),
+        (46286.60208, _eastern(2026, 9, 21, 14, 27)),
+        (Decimal("46286.60208"), _eastern(2026, 9, 21, 14, 27)),
+        ("46286.60208", _eastern(2026, 9, 21, 14, 27)),
+        # Digits are a number even where Python 3.11+ would read an ISO date.
+        ("20240101", _eastern(1970, 8, 23, 2, 15, 1)),
+        (" 45000 ", _eastern(2023, 3, 15)),
+        (1_789_000_000, _eastern(2026, 9, 9, 20, 26, 40)),
+        (1_789_000_000_000, _eastern(2026, 9, 9, 20, 26, 40)),
+        (1_789_000_000_000_000_000, _eastern(2026, 9, 9, 20, 26, 40)),
+        # `dateformat=timestamp` strings, as `DateHelper.format_date` writes them.
+        ("2026-09-21 14:02:10 -04:00", _eastern(2026, 9, 21, 14, 2, 10)),
+        ("2026-01-15 09:30:00 -05:00", _eastern(2026, 1, 15, 9, 30)),
+        ("2026-09-21", _eastern(2026, 9, 21)),
+        ("2024-01-01T12:00:00Z", _eastern(2024, 1, 1, 7)),
+        ("2024-01-01 12:00:00", _eastern(2024, 1, 1, 12)),
+        # A wall time the clocks pass twice is the first one.
+        ("2026-11-01 01:30:00", _eastern(2026, 11, 1, 1, 30, is_dst=True)),
+    ],
+)
+def test_format_timestamp_reads_what_the_api_sends(value, expected):
+    """Every value comes back as the US/Eastern datetime it names."""
+    result = format_timestamp(value)
+
+    assert result == expected
+    assert result.utcoffset() == expected.utcoffset()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        60,
+        5000,
+        -5,
+        -10000,
+        9999.9,
+        "60",
+        True,
+        "invalid-date",
+        "2024-01-01 12:00:00.0:00:00",
+        "nan",
+        float("inf"),
+        [],
+        None,
+    ],
+)
+def test_format_timestamp_refuses_what_is_not_a_date(value):
+    """A number under 10000 is a relative range for the API, not a date, and
+    anything else that is not a date raises too."""
+    with pytest.raises(ValueError, match="Unrecognized date format"):
+        format_timestamp(value)
+
+
+def test_format_timestamp_keeps_a_datetime():
+    """A datetime is already a date: it comes back as it is, without a zone
+    if it had none."""
+    moment = datetime.datetime(2026, 9, 21, 14, 2)
+
+    assert format_timestamp(moment) is moment
 
 
 def test_check_is_date():
@@ -208,10 +251,19 @@ def test_merge_csv_responses_without_headers_concatenates_rows_of_one_width():
     result = merge_csv_responses(responses, COLUMNS, with_header=False)
 
     assert result == "1,2\r\n3,4\r\n5,6\r\n"
-    with pytest.raises(ParseError):
+    with pytest.raises(ParseError) as exc_info:
         merge_csv_responses(
             responses + [_csv_response("7\n")], COLUMNS, with_header=False
         )
+    assert_failed_answer(
+        exc_info.value,
+        200,
+        "https://api.marketdata.app/v1/x/",
+        (
+            "Response body is not a valid answer of this resource"
+            " (row ['7'] does not have 2 values): '7\\n'"
+        ),
+    )
 
 
 # A field past the reader's limit fails on every Python; a NUL byte only
@@ -246,6 +298,21 @@ def test_merge_csv_responses_turns_a_body_the_csv_module_cannot_read_into_a_pars
 
     assert "unreadable CSV" in exc_info.value.message
     assert exc_info.value.response is responses[1]
+    assert isinstance(exc_info.value.__cause__, csv.Error)
+
+
+def test_merge_csv_responses_reports_an_unreadable_body_before_a_misaligned_row():
+    """A body the reader refuses is reported as such even when an earlier row
+    of it is misaligned: the merge reads a body a row at a time, and the
+    reason must not depend on which of the two it reaches first."""
+    oversized = "x" * (csv.field_size_limit() + 1)
+    response = _csv_response(f"t,c\n1,2,3\n{oversized},1\n")
+
+    with pytest.raises(ParseError) as exc_info:
+        merge_csv_responses([response], COLUMNS)
+
+    assert "unreadable CSV" in exc_info.value.message
+    assert exc_info.value.response is response
     assert isinstance(exc_info.value.__cause__, csv.Error)
 
 
@@ -392,6 +459,9 @@ def test_parse_csv_errmsg_reports_no_table_when_the_reader_refuses_the_body():
 
 # ----------------------------------------------------------- is_no_data
 
+# Built here, not imported from utils, so a wrong constant there fails these tests.
+BOM = chr(0xFEFF)
+
 CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
 
 
@@ -407,6 +477,20 @@ CSV_HEADERS = {"content-type": "text/csv; charset=utf-8"}
         (200, "0\r\n", False),
         (200, "", False),
         (500, '0\r\n""\r\n', False),
+        # A byte order mark in front of the placeholder.
+        (200, BOM + '0\r\n""\r\n', True),
+        (200, BOM + '""\r\n', True),
+        (203, BOM + '0\r\n""\r\n', True),
+        # The size limit is measured after the leading marks: 15 bytes of blank
+        # lines and placeholder are the empty answer with or without them.
+        (200, "\r\n" * 4 + '0\r\n""\r\n', True),
+        (200, BOM + "\r\n" * 4 + '0\r\n""\r\n', True),
+        (200, BOM + BOM + "\r\n" * 4 + '0\r\n""\r\n', True),
+        (200, "\r\n" * 5 + '0\r\n""\r\n', False),
+        (200, BOM + "\r\n" * 5 + '0\r\n""\r\n', False),
+        # A mark inside a value is data, and so is one that does not open the body.
+        (200, '0\r\n"' + BOM + '"\r\n', False),
+        (200, "0\r\n" + BOM + '""\r\n', False),
     ],
 )
 def test_is_no_data_recognises_the_404_and_the_csv_placeholder(status, body, expected):

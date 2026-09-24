@@ -1,8 +1,11 @@
 """Request-scoped response metadata (#49, SDK requirements §8.2): every
 result carries the credits its own request cost, also under concurrency."""
 
+import copy
+import dataclasses
 import gc
 import pathlib
+import pickle
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -19,7 +22,6 @@ from marketdata.meta import (
     ResponseMeta,
     ResultDict,
     ResultList,
-    _registry,
     attach_meta,
     get_meta,
 )
@@ -129,8 +131,6 @@ def test_single_object_results_carry_the_response_meta(respx_mock, real_headers)
 
     assert len(expirations.expirations) == 1
     assert get_meta(expirations).request_id == "single-1"
-    # The model's own namespace is untouched: vars(model) stays the model.
-    assert "meta" not in vars(expirations)
 
 
 def test_no_data_results_carry_the_meta_when_they_can(respx_mock, real_headers):
@@ -466,28 +466,76 @@ def test_attach_and_get_meta_on_plain_values():
     assert wrapped == [1, 2] and get_meta(wrapped) is meta
     assert get_meta(attach_meta({"a": 1}, meta)) is meta
     assert get_meta(attach_meta("out.csv", meta)) is meta
-    # Not weak-referenceable: returned untouched, nothing to read back.
+    # No `__dict__` and no weak references: returned untouched, nothing to read.
     plain = object()
     assert attach_meta(plain, meta) is plain
     assert get_meta(plain) is None
 
 
-def test_models_are_remembered_by_identity_and_forgotten_with_the_object():
-    @dataclass
-    class Model:
+def test_a_model_keeps_its_metadata_through_copy_deepcopy_and_pickle(
+    respx_mock, real_headers
+):
+    """A single-object model carries its metadata in its own namespace, so a
+    copy, a deep copy and a pickle of it carry the metadata too. The metadata
+    is not a field: equality and ``asdict`` still see the model alone."""
+    respx_mock.get(EXPIRATIONS_URL).respond(
+        json={"s": "ok", "expirations": ["2025-01-17"], "updated": RESET},
+        status_code=200,
+        headers=credit_headers(1, 99, request_id="single-1"),
+    )
+    expirations = real_headers.options.expirations(
+        "AAPL", output_format=OutputFormat.INTERNAL
+    )
+    meta = get_meta(expirations)
+
+    for twin in (
+        copy.copy(expirations),
+        copy.deepcopy(expirations),
+        pickle.loads(pickle.dumps(expirations)),
+    ):
+        assert twin == expirations
+        assert get_meta(twin) == meta
+    assert meta.request_id == "single-1"
+    assert list(dataclasses.asdict(expirations)) == ["s", "expirations", "updated"]
+
+
+def test_a_model_without_a_namespace_carries_nothing():
+    """A slotted object without a ``__weakref__`` slot has neither a
+    ``__dict__`` nor weak references: it comes back as it is, and there is
+    nothing to read back."""
+
+    @dataclass(slots=True)
+    class Slotted:
         x: int
 
     meta = ResponseMeta(status_code=200, request_id=None, rate_limits=None)
-    model = attach_meta(Model(1), meta)
+    model = Slotted(1)
+
+    assert attach_meta(model, meta) is model
+    assert get_meta(model) is None
+
+
+def test_a_slotted_object_that_takes_weak_references_carries_the_metadata():
+    """An object with no ``__dict__`` that can be weak-referenced carries the
+    metadata while it lives, and its entry leaves with it."""
+
+    class Slotted:
+        __slots__ = ("x", "__weakref__")
+
+        def __init__(self, x: int) -> None:
+            self.x = x
+
+    meta = ResponseMeta(status_code=200, request_id=None, rate_limits=None)
+    model = Slotted(1)
     key = id(model)
 
+    assert attach_meta(model, meta) is model
     assert get_meta(model) is meta
-    assert vars(model) == {"x": 1}
-    assert key in _registry
+    assert key in marketdata.meta._registry
 
     del model
     gc.collect()
-    assert key not in _registry
+    assert key not in marketdata.meta._registry
 
 
 def test_merge_sums_credits_and_keeps_the_newest_window():
@@ -495,7 +543,7 @@ def test_merge_sums_credits_and_keeps_the_newest_window():
     late = ResponseMeta(200, "r2", limits(3, 40, reset=RESET - 3600))  # old window
     last = ResponseMeta(203, "r3", limits(4, 90, reset=RESET + 3600, limit=200))
 
-    merged = ResponseMeta.merge([first, late, last])
+    merged = ResponseMeta._merge([first, late, last])
 
     assert merged.responses == 3
     assert merged.status_code == 203 and merged.request_id == "r3"
@@ -509,25 +557,22 @@ def test_merge_sums_credits_and_keeps_the_newest_window():
 
 
 def test_merge_takes_the_lowest_balance_inside_the_newest_window():
-    """Two responses of the same window: the lowest count is the balance after
-    the call, whatever order they completed in."""
+    """Two responses of the same window, recorded out of order."""
     first = ResponseMeta(200, "r1", limits(2, 98, reset=RESET))
     second = ResponseMeta(200, "r2", limits(3, 95, reset=RESET))
 
-    merged = ResponseMeta.merge([second, first])
+    merged = ResponseMeta._merge([second, first])
 
     assert merged.rate_limits.credits_remaining == 95
     assert merged.rate_limits.credits_consumed == 5
 
 
 def test_merge_does_not_carry_a_closed_window_balance_across_a_reset():
-    """A call whose retry crosses the reset: the credits went back up, so the
-    pre-reset count paired with the new window's `reset_time` would report a
-    state that never existed (the rule `RateLimitTracker` already applies)."""
+    """A 503 before the reset, retried successfully after it."""
     before = ResponseMeta(503, "r1", limits(0, 2, reset=RESET))
     after = ResponseMeta(200, "r2", limits(1, 99, reset=RESET + 60))
 
-    merged = ResponseMeta.merge([before, after])
+    merged = ResponseMeta._merge([before, after])
 
     assert merged.rate_limits.credits_remaining == 99
     assert merged.rate_limits.reset_time == after.rate_limits.reset_time
@@ -537,7 +582,7 @@ def test_merge_does_not_carry_a_closed_window_balance_across_a_reset():
 def test_merge_without_credit_headers_has_no_rate_limits():
     metas = [ResponseMeta(200, "a", None), ResponseMeta(200, "b", None)]
 
-    merged = ResponseMeta.merge(metas)
+    merged = ResponseMeta._merge(metas)
 
     assert merged.rate_limits is None
     assert merged.responses == 2
@@ -545,27 +590,23 @@ def test_merge_without_credit_headers_has_no_rate_limits():
 
 
 def test_merge_speaks_for_the_last_response_that_could_have_contributed():
-    """A dropped `no_data` answer must not label the call: `status_code` and
-    `request_id` come from the last usable response, whatever the order the
-    responses were recorded in. `responses` still counts every one of them."""
+    """A 200 and a 404 `no_data`, recorded in either order."""
     empty = ResponseMeta(404, "no-data", limits(0, 99))
     good = ResponseMeta(200, "has-data", limits(1, 98))
 
-    assert ResponseMeta.merge([good, empty]).request_id == "has-data"
-    assert ResponseMeta.merge([empty, good]).request_id == "has-data"
+    assert ResponseMeta._merge([good, empty]).request_id == "has-data"
+    assert ResponseMeta._merge([empty, good]).request_id == "has-data"
     for order in ([good, empty], [empty, good]):
-        merged = ResponseMeta.merge(order)
+        merged = ResponseMeta._merge(order)
         assert merged.status_code == 200
         assert merged.responses == 2
 
 
 def test_merge_falls_back_to_the_last_response_when_none_was_usable():
-    """Every attempt failed: there is no usable response to speak for the
-    call, so the last one is reported as it stands."""
     first = ResponseMeta(503, "try-1", limits(0, 99))
     second = ResponseMeta(503, "try-2", limits(0, 99))
 
-    merged = ResponseMeta.merge([first, second])
+    merged = ResponseMeta._merge([first, second])
 
     assert merged.status_code == 503
     assert merged.request_id == "try-2"
@@ -573,19 +614,15 @@ def test_merge_falls_back_to_the_last_response_when_none_was_usable():
 
 
 def test_merge_accepts_a_203_as_a_usable_answer():
-    """`VALID_STATUS_CODES` is the same list the fan-outs filter on, so a 203
-    speaks for the call exactly as a 200 does."""
     partial = ResponseMeta(203, "partial", limits(1, 98))
     empty = ResponseMeta(404, "no-data", limits(0, 99))
 
-    assert ResponseMeta.merge([partial, empty]).request_id == "partial"
+    assert ResponseMeta._merge([partial, empty]).request_id == "partial"
 
 
 def test_merge_of_nothing_is_a_value_error():
-    """`ResponseMeta` is exported from the package root; an empty merge used
-    to surface as a bare IndexError."""
     with pytest.raises(ValueError, match="empty list"):
-        ResponseMeta.merge([])
+        ResponseMeta._merge([])
 
 
 @pytest.mark.parametrize(

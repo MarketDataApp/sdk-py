@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import ClassVar
 
+from marketdata.output_types.columns import _to_fields
 from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
 
@@ -19,22 +20,29 @@ class StockEarnings:
     symbol: list[str]
     fiscalYear: list[int]
     fiscalQuarter: list[int]
-    date: list[datetime.datetime]
-    reportDate: list[datetime.datetime]
+    date: list[datetime.datetime | None]
+    reportDate: list[datetime.datetime | None]
     reportTime: list[str]
     currency: list[str]
     reportedEPS: list[Decimal]
     estimatedEPS: list[Decimal]
     surpriseEPS: list[Decimal]
     surpriseEPSpct: list[float]
-    updated: list[datetime.datetime]
+    updated: list[datetime.datetime | None]
 
     def __post_init__(self):
+        """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
         coerce_numbers(self)
-        self.updated = [format_timestamp(updated) for updated in self.updated]
-        self.date = [format_timestamp(date) for date in self.date]
+        self.updated = [
+            None if updated is None else format_timestamp(updated)
+            for updated in self.updated
+        ]
+        self.date = [
+            None if date is None else format_timestamp(date) for date in self.date
+        ]
         self.reportDate = [
-            format_timestamp(reportDate) for reportDate in self.reportDate
+            None if reportDate is None else format_timestamp(reportDate)
+            for reportDate in self.reportDate
         ]
 
     def __repr__(self) -> str:
@@ -67,26 +75,34 @@ class StockEarnings:
 @dataclass
 class StockEarningsHumanReadable:
     api_model: ClassVar[type] = StockEarnings
+    api_names: ClassVar[dict[str, str]] = {"Surprise_EPS_Percent": "Surprise EPS %"}
 
     Symbol: list[str]
     Fiscal_Year: list[int]
     Fiscal_Quarter: list[int]
-    Date: list[datetime.datetime]
-    Report_Date: list[datetime.datetime]
+    Date: list[datetime.datetime | None]
+    Report_Date: list[datetime.datetime | None]
     Report_Time: list[str]
     Currency: list[str]
     Reported_EPS: list[Decimal]
     Estimated_EPS: list[Decimal]
     Surprise_EPS: list[Decimal]
     Surprise_EPS_Percent: list[float]
-    Updated: list[datetime.datetime]
+    Updated: list[datetime.datetime | None]
 
     def __post_init__(self):
+        """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
         coerce_numbers(self)
-        self.Updated = [format_timestamp(updated) for updated in self.Updated]
-        self.Date = [format_timestamp(date) for date in self.Date]
+        self.Updated = [
+            None if updated is None else format_timestamp(updated)
+            for updated in self.Updated
+        ]
+        self.Date = [
+            None if date is None else format_timestamp(date) for date in self.Date
+        ]
         self.Report_Date = [
-            format_timestamp(reportDate) for reportDate in self.Report_Date
+            None if reportDate is None else format_timestamp(reportDate)
+            for reportDate in self.Report_Date
         ]
 
     def __repr__(self) -> str:
@@ -114,7 +130,5 @@ class StockEarningsHumanReadable:
 
     @classmethod
     def from_dict(cls, data: dict) -> "StockEarningsHumanReadable":
-        data["Surprise_EPS_Percent"] = data["Surprise EPS %"]
-        data.pop("Surprise EPS %")
-        data = {k.replace(" ", "_"): v for k, v in data.items()}
-        return cls(**data)
+        """Build the model from an API answer keyed by column name."""
+        return cls(**_to_fields(cls, data))

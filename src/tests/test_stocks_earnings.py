@@ -7,11 +7,12 @@ import pytest
 import pytz
 
 from marketdata.exceptions import ServerError
-from marketdata.input_types.base import OutputFormat
+from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.output_types.stocks_earnings import (
     StockEarnings,
     StockEarningsHumanReadable,
 )
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 
 def test_stock_earnings_str():
@@ -165,9 +166,9 @@ def test_get_stocks_earnings_response_200_dataframe_pandas(
         assert earnings["reportDate"].tolist() == expected_report_date
         assert earnings["reportTime"].tolist() == ["after close", "before open"]
         assert earnings["currency"].tolist() == ["USD", None]
-        assert earnings["reportedEPS"].tolist() == [None, None]
-        assert earnings["surpriseEPS"].tolist() == [None, None]
-        assert earnings["surpriseEPSpct"].tolist() == [None, None]
+        for column in ("reportedEPS", "surpriseEPS", "surpriseEPSpct"):
+            assert earnings[column].dtype == "float64"
+            assert earnings[column].isna().all()
         expected_updated = [
             datetime.datetime.fromtimestamp(1765861200, tz=pytz.timezone("US/Eastern")),
             datetime.datetime.fromtimestamp(1765861200, tz=pytz.timezone("US/Eastern")),
@@ -239,12 +240,19 @@ def test_get_stocks_earnings_status_offline(respx_mock, client):
         json=mock_data,
         status_code=200,
     )
-    respx_mock.get("https://api.marketdata.app/v1/stocks/earnings/AAPL/").respond(
+    load_api_status(client)
+    route = respx_mock.get(
+        "https://api.marketdata.app/v1/stocks/earnings/AAPL/"
+    ).respond(
         json={},
         status_code=501,
     )
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.stocks.earnings(symbol="AAPL")
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value, 501, "https://api.marketdata.app/v1/stocks/earnings/AAPL/", "{}"
+    )
 
 
 def test_get_stocks_earnings_response_200_csv(respx_mock, client):
@@ -256,3 +264,83 @@ def test_get_stocks_earnings_response_200_csv(respx_mock, client):
         symbol="AAPL", output_format=OutputFormat.CSV, filename="test.csv"
     )
     assert pathlib.Path(output).read_text() == "AS RECEIVED FROM API"
+
+
+def test_earnings_internal_reads_timestamp_dates_as_us_eastern_midnight(
+    load_json, respx_mock, client
+):
+    """Under `dateformat=timestamp` the API sends these dates as the day alone;
+    the model reads each as midnight of that day in US/Eastern, the instant the
+    default format gives."""
+    eastern = pytz.timezone("US/Eastern")
+    body = load_json("stocks_earnings_response_200")
+    for key in ("date", "reportDate", "updated"):
+        body[key] = [
+            datetime.datetime.fromtimestamp(value, tz=eastern).strftime("%Y-%m-%d")
+            for value in body[key]
+        ]
+    respx_mock.get("https://api.marketdata.app/v1/stocks/earnings/AAPL/").respond(
+        json=body, status_code=200
+    )
+
+    earnings = client.stocks.earnings(
+        symbol="AAPL",
+        output_format=OutputFormat.INTERNAL,
+        date_format=DateFormat.TIMESTAMP,
+    )
+
+    fixture = load_json("stocks_earnings_response_200")
+    for key in ("date", "reportDate", "updated"):
+        expected = [
+            datetime.datetime.fromtimestamp(value, tz=eastern) for value in fixture[key]
+        ]
+        assert getattr(earnings, key) == expected
+        assert all(moment.tzinfo is not None for moment in getattr(earnings, key))
+
+
+@pytest.mark.parametrize(
+    ("number", "expected"),
+    [
+        pytest.param(199_999, (2447, 7, 29, 0, 0, 0), id="last-serial"),
+        pytest.param(200_000, (1970, 1, 3, 2, 33, 20), id="first-unix-second"),
+    ],
+)
+def test_earnings_internal_reads_numbers_with_the_api_serial_boundary(
+    number, expected, load_json, respx_mock, client
+):
+    """The API reads ``10000 <= n < 200000`` as a spreadsheet serial and 200000
+    as Unix seconds, and the model reads the same number the same way."""
+    body = load_json("stocks_earnings_response_200")
+    body["date"] = [number] * len(body["date"])
+    respx_mock.get("https://api.marketdata.app/v1/stocks/earnings/AAPL/").respond(
+        json=body, status_code=200
+    )
+
+    earnings = client.stocks.earnings(
+        symbol="AAPL", output_format=OutputFormat.INTERNAL
+    )
+
+    moment = pytz.timezone("US/Eastern").localize(datetime.datetime(*expected))
+    assert earnings.date == [moment] * len(body["date"])
+    assert all(date.utcoffset() == moment.utcoffset() for date in earnings.date)
+
+
+def test_earnings_internal_reads_a_string_of_digits_as_a_number(
+    load_json, respx_mock, client
+):
+    """``"20240101"`` is Unix seconds for the API, which reads a number before
+    a date, and for the model on every Python, although Python 3.11+ would
+    read the same text as an ISO date."""
+    body = load_json("stocks_earnings_response_200")
+    body["date"] = ["20240101"] * len(body["date"])
+    respx_mock.get("https://api.marketdata.app/v1/stocks/earnings/AAPL/").respond(
+        json=body, status_code=200
+    )
+
+    earnings = client.stocks.earnings(
+        symbol="AAPL", output_format=OutputFormat.INTERNAL
+    )
+
+    moment = datetime.datetime.fromtimestamp(20_240_101, tz=pytz.timezone("US/Eastern"))
+    assert earnings.date == [moment] * len(body["date"])
+    assert all(date.utcoffset() == moment.utcoffset() for date in earnings.date)

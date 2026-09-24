@@ -8,14 +8,16 @@ from marketdata.utils import format_timestamp
 @dataclass
 class OptionsExpirations:
     s: str
-    expirations: list[datetime.datetime]
+    expirations: list[datetime.datetime | None]
     updated: datetime.datetime | None = None
 
     def __post_init__(self):
+        """Read the dates; a null date stays ``None``."""
         if self.updated is not None:
             self.updated = format_timestamp(self.updated)
         self.expirations = [
-            format_timestamp(expiration) for expiration in self.expirations
+            None if expiration is None else format_timestamp(expiration)
+            for expiration in self.expirations
         ]
 
     def __repr__(self) -> str:
@@ -33,14 +35,16 @@ class OptionsExpirations:
 class OptionsExpirationsHumanReadable:
     api_model: ClassVar[type] = OptionsExpirations
 
-    Expirations: list[datetime.datetime]
-    Date: datetime.datetime
+    Expirations: list[datetime.datetime | None]
+    Date: datetime.datetime | None
 
     def __post_init__(self):
+        """Read the dates; a null date stays ``None``."""
         self.Expirations = [
-            format_timestamp(expiration) for expiration in self.Expirations
+            None if expiration is None else format_timestamp(expiration)
+            for expiration in self.Expirations
         ]
-        self.Date = format_timestamp(self.Date)
+        self.Date = None if self.Date is None else format_timestamp(self.Date)
 
     def __repr__(self) -> str:
         expirations = [

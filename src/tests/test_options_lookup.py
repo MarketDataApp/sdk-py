@@ -9,6 +9,7 @@ from marketdata.output_types.options_lookup import (
     OptionsLookup,
     OptionsLookupHumanReadable,
 )
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 
 def test_options_lookup_str():
@@ -121,11 +122,17 @@ def test_get_options_lookup_response_400(respx_mock, client):
     respx_mock.get(
         "https://api.marketdata.app/v1/options/lookup/AAPL 28-00-2023 200.0 call/"
     ).respond(
-        json={"error": "Invalid symbol"},
+        json={"s": "error", "errmsg": "Invalid symbol"},
         status_code=400,
     )
-    with pytest.raises(BadRequestError):
+    with pytest.raises(BadRequestError) as exc_info:
         client.options.lookup("AAPL 28-00-2023 200.0 call")
+    assert_failed_answer(
+        exc_info.value,
+        400,
+        "https://api.marketdata.app/v1/options/lookup/AAPL 28-00-2023 200.0 call/",
+        "Invalid symbol",
+    )
 
 
 def test_get_options_lookup_status_offline(respx_mock, client):
@@ -141,14 +148,22 @@ def test_get_options_lookup_status_offline(respx_mock, client):
         },
         status_code=200,
     )
-    respx_mock.get(
+    load_api_status(client)
+    route = respx_mock.get(
         "https://api.marketdata.app/v1/options/lookup/AAPL 28-00-2023 200.0 call/"
     ).respond(json={}, status_code=501)
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.options.lookup(
             "AAPL 28-00-2023 200.0 call", output_format=OutputFormat.INTERNAL
         )
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value,
+        501,
+        "https://api.marketdata.app/v1/options/lookup/AAPL 28-00-2023 200.0 call/",
+        "{}",
+    )
 
 
 def test_get_options_lookup_response_200_csv(respx_mock, client):

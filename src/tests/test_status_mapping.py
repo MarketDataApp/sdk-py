@@ -6,6 +6,7 @@ import pathlib
 from unittest.mock import patch
 
 import httpx
+import polars as pl
 import pytest
 
 from marketdata.api_error import should_retry
@@ -25,6 +26,7 @@ from marketdata.exceptions import (
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.options_expirations import OptionsExpirations
 from marketdata.output_types.stocks_candles import StockCandle
+from src.tests.conftest import assert_failed_answer
 
 PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 EXPIRATIONS_URL = "https://api.marketdata.app/v1/options/expirations/AAPL/"
@@ -51,6 +53,80 @@ def _no_sleep(monkeypatch):
     monkeypatch.setattr("time.sleep", lambda *_: None)
 
 
+# One call per resource, and the URL its request goes to. The fan-outs send a
+# single request here and raise from inside their executor.
+EVERY_RESOURCE = [
+    pytest.param(
+        lambda c, **kw: c.stocks.prices("AAPL", **kw), PRICES_URL, id="stocks.prices"
+    ),
+    pytest.param(
+        lambda c, **kw: c.stocks.quotes("AAPL", **kw),
+        QUOTES_URL_STOCKS,
+        id="stocks.quotes",
+    ),
+    pytest.param(
+        lambda c, **kw: c.stocks.candles("AAPL", resolution="H", **kw),
+        CANDLES_URL,
+        id="stocks.candles",
+    ),
+    pytest.param(
+        lambda c, **kw: c.stocks.earnings("AAPL", **kw),
+        "https://api.marketdata.app/v1/stocks/earnings/AAPL/",
+        id="stocks.earnings",
+    ),
+    pytest.param(
+        lambda c, **kw: c.stocks.news("AAPL", **kw),
+        "https://api.marketdata.app/v1/stocks/news/AAPL/",
+        id="stocks.news",
+    ),
+    pytest.param(
+        lambda c, **kw: c.options.chain("AAPL", **kw),
+        "https://api.marketdata.app/v1/options/chain/AAPL/",
+        id="options.chain",
+    ),
+    pytest.param(
+        lambda c, **kw: c.options.expirations("AAPL", **kw),
+        EXPIRATIONS_URL,
+        id="options.expirations",
+    ),
+    pytest.param(
+        lambda c, **kw: c.options.lookup("AAPL 28-00-2023 200.0 call", **kw),
+        "https://api.marketdata.app/v1/options/lookup/AAPL 28-00-2023 200.0 call/",
+        id="options.lookup",
+    ),
+    pytest.param(
+        lambda c, **kw: c.options.quotes("AAPL271217C00255000", **kw),
+        f"{QUOTES_URL}AAPL271217C00255000/",
+        id="options.quotes",
+    ),
+    pytest.param(
+        lambda c, **kw: c.funds.candles("VFINX", **kw),
+        "https://api.marketdata.app/v1/funds/candles/D/VFINX/",
+        id="funds.candles",
+    ),
+    pytest.param(
+        lambda c, **kw: c.markets.status(**kw),
+        "https://api.marketdata.app/v1/markets/status/",
+        id="markets.status",
+    ),
+    pytest.param(
+        lambda c, **kw: c.utilities.status(**kw),
+        "https://api.marketdata.app/status/",
+        id="utilities.status",
+    ),
+    pytest.param(
+        lambda c, **kw: c.utilities.headers(**kw),
+        "https://api.marketdata.app/headers/",
+        id="utilities.headers",
+    ),
+    pytest.param(
+        lambda c, **kw: c.utilities.user(**kw),
+        "https://api.marketdata.app/user/",
+        id="utilities.user",
+    ),
+]
+
+
 @pytest.mark.parametrize(
     ("status", "exception_class"),
     [
@@ -65,21 +141,22 @@ def _no_sleep(monkeypatch):
     ],
 )
 @pytest.mark.parametrize("envelope", ["json", "csv"])
+@pytest.mark.parametrize(("call", "url"), EVERY_RESOURCE)
 def test_status_maps_to_its_exception(
-    respx_mock, client, status, exception_class, envelope
+    respx_mock, client, status, exception_class, envelope, call, url
 ):
-    """The envelope the API answers with must not change the exception nor its
-    message: the same error arrives as a JSON object or as a two-line CSV
-    table depending on the format asked for, and the SDK reads both (#91)."""
-    respx_mock.get(PRICES_URL).mock(return_value=error_response(status, envelope))
+    """Every resource raises the same exception for the same status, carrying
+    the status, the API's message and the URL of its request. The envelope
+    the API answers with must not change the exception nor its message: the
+    same error arrives as a JSON object or as a two-line CSV table depending
+    on the format asked for, and the SDK reads both (#91)."""
+    respx_mock.get(url).mock(return_value=error_response(status, envelope))
 
     with pytest.raises(exception_class) as exc_info:
-        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+        call(client, output_format=OutputFormat.JSON)
 
     error = exc_info.value
-    assert error.status_code == status
-    assert error.message == ERROR_BODY["errmsg"]
-    assert error.request_url.startswith(PRICES_URL)
+    assert_failed_answer(error, status, url, ERROR_BODY["errmsg"])
     assert error.exception_type == exception_class.__name__
 
 
@@ -87,10 +164,14 @@ def test_status_maps_to_its_exception(
 def test_terminal_statuses_are_not_retried(respx_mock, client, status):
     route = respx_mock.get(PRICES_URL).respond(json=ERROR_BODY, status_code=status)
 
-    with pytest.raises(MarketdataHttpError if status != 429 else RateLimitError):
+    with pytest.raises(
+        MarketdataHttpError if status != 429 else RateLimitError
+    ) as exc_info:
         client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
 
     assert route.call_count == 1
+    assert exc_info.value.status_code == status
+    assert exc_info.value.message == ERROR_BODY["errmsg"]
 
 
 def test_server_errors_above_500_are_retried(respx_mock, client, monkeypatch):
@@ -601,27 +682,129 @@ RESOURCES = [
 ]
 
 
+_CHAIN_HUMAN_KEYS = {
+    "optionSymbol": "Symbol",
+    "underlying": "Underlying",
+    "expiration": "Expiration Date",
+    "side": "Option Side",
+    "strike": "Strike",
+    "firstTraded": "First Traded",
+    "dte": "Days To Expiration",
+    "updated": "Date",
+    "bid": "Bid",
+    "bidSize": "Bid Size",
+    "mid": "Mid",
+    "ask": "Ask",
+    "askSize": "Ask Size",
+    "last": "Last",
+    "openInterest": "Open Interest",
+    "volume": "Volume",
+    "inTheMoney": "In The Money",
+    "intrinsicValue": "Intrinsic Value",
+    "extrinsicValue": "Extrinsic Value",
+    "underlyingPrice": "Underlying Price",
+    "iv": "IV",
+    "delta": "Delta",
+    "gamma": "Gamma",
+    "theta": "Theta",
+    "vega": "Vega",
+}
+_CANDLE_HUMAN_KEYS = {"t": "Date", "o": "Open", "h": "High", "l": "Low", "c": "Close"}
+
+# The keys of a `human=true` answer, in the order the API sends them (read off
+# live answers), for each key of the fixture's plain answer.
+HUMAN_KEYS = {
+    "funds_candles": _CANDLE_HUMAN_KEYS,
+    "markets_status": {"date": "Date", "status": "Status"},
+    "stocks_prices": {
+        "symbol": "Symbol",
+        "mid": "Mid",
+        "change": "Change $",
+        "changepct": "Change %",
+        "updated": "Date",
+    },
+    "stocks_quotes": {
+        "symbol": "Symbol",
+        "ask": "Ask",
+        "askSize": "Ask Size",
+        "bid": "Bid",
+        "bidSize": "Bid Size",
+        "mid": "Mid",
+        "last": "Last",
+        "change": "Change $",
+        "changepct": "Change %",
+        "volume": "Volume",
+        "updated": "Date",
+    },
+    "stocks_candles": {**_CANDLE_HUMAN_KEYS, "v": "Volume"},
+    "stocks_earnings": {
+        "symbol": "Symbol",
+        "fiscalYear": "Fiscal Year",
+        "fiscalQuarter": "Fiscal Quarter",
+        "date": "Date",
+        "reportDate": "Report Date",
+        "reportTime": "Report Time",
+        "currency": "Currency",
+        "reportedEPS": "Reported EPS",
+        "estimatedEPS": "Estimated EPS",
+        "surpriseEPS": "Surprise EPS",
+        "surpriseEPSpct": "Surprise EPS %",
+        "updated": "Updated",
+    },
+    "stocks_news": {
+        "headline": "headline",
+        "content": "content",
+        "source": "source",
+        "publicationDate": "publicationDate",
+        "symbol": "Symbol",
+        "updated": "Date",
+    },
+    "options_chain": _CHAIN_HUMAN_KEYS,
+    "options_expirations": {"expirations": "Expirations", "updated": "Date"},
+    "options_lookup": {"optionSymbol": "Symbol"},
+    "options_quotes": _CHAIN_HUMAN_KEYS,
+}
+
+
+def _frame_shape(frame) -> list[tuple[str | None, str]]:
+    """List the index and column names of a pandas or polars frame with their
+    dtypes."""
+    if isinstance(frame, pl.DataFrame):
+        return [(name, str(dtype)) for name, dtype in frame.schema.items()]
+    index = [(name, str(frame.index.dtype)) for name in frame.index.names]
+    return index + [(name, str(dtype)) for name, dtype in frame.dtypes.items()]
+
+
+@pytest.mark.parametrize("human", [False, True], ids=["plain", "human"])
+@pytest.mark.parametrize("handler", ["pandas", "polars"])
 @pytest.mark.parametrize(("call", "url_pattern", "fixture"), RESOURCES)
 def test_every_resource_no_data_dataframe_has_the_shape_of_a_populated_one(
-    load_json, respx_mock, client, call, url_pattern, fixture
+    load_json, respx_mock, client, call, url_pattern, fixture, handler, human
 ):
-    """Issue #84 for every resource: an empty DataFrame must be usable in
-    place of a populated one (same index name, same columns), whatever the
-    resource. `options.expirations` was the one that differed."""
+    """An empty DataFrame has the index, column names, column order and dtypes
+    of a populated one, so the two concatenate in either order."""
+    body = load_json(fixture)
+    if human:
+        keys = HUMAN_KEYS[fixture.replace("_response_200", "")]
+        body = {human_key: body[key] for key, human_key in keys.items()}
     respx_mock.get(url__regex=url_pattern).mock(
         side_effect=[
-            httpx.Response(200, json=load_json(fixture)),
+            httpx.Response(200, json=body),
             httpx.Response(404, json=NO_DATA),
         ]
     )
     client.default_params.output_format = OutputFormat.DATAFRAME
+    client.default_params.use_human_readable = human
 
-    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [handler]):
         populated = call(client)
         empty = call(client)
 
-    assert list(empty.index.names) == list(populated.index.names)
-    assert list(empty.columns) == list(populated.columns)
+    assert len(empty) == 0
+    assert _frame_shape(empty) == _frame_shape(populated)
+    if handler == "polars":
+        assert pl.concat([empty, populated]).shape == populated.shape
+        assert pl.concat([populated, empty]).shape == populated.shape
 
 
 @pytest.mark.parametrize(("call", "url_pattern", "fixture"), RESOURCES)
@@ -701,18 +884,22 @@ def test_an_api_alias_column_filter_does_not_keep_the_no_data_shape(
     assert list(empty.index.names) == ["t"]
 
 
+# Built here, not imported from utils, so a wrong constant there fails these tests.
+BOM = chr(0xFEFF)
+
 CSV_PLACEHOLDER = '0\r\n""\r\n'
 
 
 @pytest.mark.parametrize(("call", "url_pattern", "fixture"), RESOURCES)
+@pytest.mark.parametrize(
+    "placeholder", [CSV_PLACEHOLDER, BOM + CSV_PLACEHOLDER], ids=["plain", "with-bom"]
+)
 def test_every_resource_renders_the_csv_no_data_placeholder_as_a_header_only_file(
-    respx_mock, client, call, url_pattern, fixture, tmp_path
+    respx_mock, client, call, url_pattern, fixture, tmp_path, placeholder
 ):
-    """Issue #89: in CSV format the empty answer arrives as a 200 whose body is
-    a placeholder table (MarketData-App/api#422); it must be the same header-only
-    file as a JSON 404 no_data, on every resource."""
+    """A 200 CSV placeholder, with or without a BOM, is written like a JSON 404."""
     respx_mock.get(url__regex=url_pattern).respond(
-        text=CSV_PLACEHOLDER,
+        text=placeholder,
         status_code=200,
         headers={"content-type": "text/csv; charset=utf-8"},
     )
@@ -730,15 +917,12 @@ def test_every_resource_renders_the_csv_no_data_placeholder_as_a_header_only_fil
 @pytest.mark.parametrize(
     "output_format", [OutputFormat.JSON, OutputFormat.DATAFRAME, OutputFormat.INTERNAL]
 )
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
 def test_the_placeholder_body_is_an_empty_result_on_every_format(
-    respx_mock, client, call, url_pattern, fixture, output_format
+    respx_mock, client, call, url_pattern, fixture, output_format, mark
 ):
-    """The placeholder rule (#89) reads the body, not the format that was
-    asked for, and its `""` is also a JSON document, the empty string. The
-    answer is then the empty result on every resource and format: JSON output
-    used to echo `''` while the other formats returned their empty value,
-    which let the output format decide what the call returns (#91)."""
-    respx_mock.get(url__regex=url_pattern).respond(text='""', status_code=200)
+    """`""`, with or without a BOM, is the empty result, not the JSON string ''."""
+    respx_mock.get(url__regex=url_pattern).respond(text=mark + '""', status_code=200)
     client.default_params.output_format = output_format
 
     with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
@@ -794,6 +978,23 @@ def test_no_data_csv_carries_the_requested_columns_in_request_order(
     )
 
     assert pathlib.Path(path).read_bytes() == b"updated,mid\r\n"
+
+
+def test_no_data_csv_header_spells_human_readable_columns_as_the_api(
+    respx_mock, client, tmp_path
+):
+    """Under `use_human_readable`, the empty CSV header is the one the API
+    sends: spaces and symbols, not the model's field names."""
+    respx_mock.get(PRICES_URL).respond(json=NO_DATA, status_code=404)
+
+    path = client.stocks.prices(
+        "AAPL",
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "empty.csv",
+        use_human_readable=True,
+    )
+
+    assert pathlib.Path(path).read_bytes() == b"Symbol,Mid,Change $,Change %,Date\r\n"
 
 
 @pytest.mark.parametrize(

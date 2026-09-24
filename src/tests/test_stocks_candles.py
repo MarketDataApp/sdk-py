@@ -1,7 +1,10 @@
 import copy
+import csv
 import datetime
+import gc
 import json
 import pathlib
+import tracemalloc
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -10,13 +13,18 @@ import pytest
 import pytz
 from freezegun import freeze_time
 
-from marketdata.exceptions import ParseError, ServerError
+from marketdata.exceptions import (
+    MinMaxDateValidationError,
+    ParseError,
+    ServerError,
+)
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.input_types.stocks import StocksCandlesInput
 from marketdata.output_types.stocks_candles import (
     StockCandle,
     StockCandlesHumanReadable,
 )
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 
 def test_stock_candle_str():
@@ -220,6 +228,14 @@ def test_get_stocks_candles_response_200_dataframe_polars(
         assert candles["v"][0] == 135647456
 
 
+def _spreadsheet_serial(timestamp: int) -> float:
+    """Write a Unix time the way the API's ``dateformat=spreadsheet`` does: days
+    since 1899-12-30 of its US/Eastern wall-clock time, to 5 decimals."""
+    wall = datetime.datetime.fromtimestamp(timestamp, tz=pytz.timezone("US/Eastern"))
+    days = (wall.replace(tzinfo=None) - datetime.datetime(1899, 12, 30)).total_seconds()
+    return round(days / 86400, 5)
+
+
 def test_get_stocks_candles_response_200_dataframe_pandas_spreadsheet_dateformat(
     load_json, respx_mock, client
 ):
@@ -228,14 +244,8 @@ def test_get_stocks_candles_response_200_dataframe_pandas_spreadsheet_dateformat
         ["pandas"],
     ):
         mock_data = copy.deepcopy(load_json("stocks_candles_response_200"))
-        epoch = datetime.datetime(1899, 12, 30, tzinfo=datetime.timezone.utc)
-        mock_data["t"] = [
-            (
-                datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc) - epoch
-            ).total_seconds()
-            / 86400
-            for ts in mock_data["t"]
-        ]
+        timestamps = mock_data["t"]
+        mock_data["t"] = [_spreadsheet_serial(ts) for ts in timestamps]
 
         respx_mock.get("https://api.marketdata.app/v1/stocks/candles/D/AAPL/").respond(
             json=mock_data,
@@ -249,7 +259,7 @@ def test_get_stocks_candles_response_200_dataframe_pandas_spreadsheet_dateformat
             date_format=DateFormat.SPREADSHEET,
         )
         assert len(candles) == 253
-        assert int(candles.index[0].timestamp()) == 1577941200
+        assert [int(moment.timestamp()) for moment in candles.index] == timestamps
 
 
 def test_get_stocks_candles_response_200_dataframe_polars_spreadsheet_dateformat(
@@ -260,14 +270,8 @@ def test_get_stocks_candles_response_200_dataframe_polars_spreadsheet_dateformat
         ["polars"],
     ):
         mock_data = copy.deepcopy(load_json("stocks_candles_response_200"))
-        epoch = datetime.datetime(1899, 12, 30, tzinfo=datetime.timezone.utc)
-        mock_data["t"] = [
-            (
-                datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc) - epoch
-            ).total_seconds()
-            / 86400
-            for ts in mock_data["t"]
-        ]
+        timestamps = mock_data["t"]
+        mock_data["t"] = [_spreadsheet_serial(ts) for ts in timestamps]
 
         respx_mock.get("https://api.marketdata.app/v1/stocks/candles/D/AAPL/").respond(
             json=mock_data,
@@ -280,7 +284,7 @@ def test_get_stocks_candles_response_200_dataframe_polars_spreadsheet_dateformat
             date_format=DateFormat.SPREADSHEET,
         )
         assert len(candles) == 253
-        assert int(candles["t"][0].timestamp()) == 1577941200
+        assert [int(moment.timestamp()) for moment in candles["t"]] == timestamps
 
 
 def test_get_stocks_candles_response_bad_status_code(respx_mock, client):
@@ -421,18 +425,28 @@ def test_get_stocks_candles_status_offline(load_json, respx_mock, client):
         json=mock_data,
         status_code=200,
     )
+    load_api_status(client)
 
-    respx_mock.get("https://api.marketdata.app/v1/stocks/candles/D/AAPL/").respond(
+    route = respx_mock.get(
+        "https://api.marketdata.app/v1/stocks/candles/D/AAPL/"
+    ).respond(
         json={},
         status_code=501,
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.stocks.candles(
             symbol="AAPL",
             resolution="D",
             output_format=OutputFormat.INTERNAL,
         )
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value,
+        501,
+        "https://api.marketdata.app/v1/stocks/candles/D/AAPL/",
+        "{}",
+    )
 
 
 # ------------------------------------------------------------------- CSV
@@ -444,6 +458,9 @@ CSV_BODY = (
     "1704171600,185.6,186.88,182.36,184.1,82488674\r\n"
     "1704258000,182.69,184.34,181.91,182.72,58414460\r\n"
 )
+# Built here, not imported from utils, so a wrong constant there fails these tests.
+BOM = chr(0xFEFF)
+
 CSV_PLACEHOLDER = '0\r\n""\r\n'
 TWO_CHUNKS = dict(from_date="2023-01-01", to_date="2024-06-01")
 CHUNK_STARTS = ["2023-01-01", "2024-01-01"]
@@ -508,7 +525,7 @@ def test_stocks_candles_csv_undecodable_chunk_body_is_a_parse_error(
         side_effect=by_chunk(dict(text=CSV_BODY), dict(text="<html>error page</html>"))
     )
 
-    with pytest.raises(ParseError):
+    with pytest.raises(ParseError) as exc_info:
         client.stocks.candles(
             symbol="AAPL",
             resolution="H",
@@ -518,6 +535,17 @@ def test_stocks_candles_csv_undecodable_chunk_body_is_a_parse_error(
         )
 
     assert not (tmp_path / "test.csv").exists()
+    error = exc_info.value
+    assert_failed_answer(
+        error,
+        200,
+        HOURLY_URL,
+        (
+            "Response body is not a valid answer of this resource (unknown columns"
+            " ['<html>error page</html>']): '<html>error page</html>'"
+        ),
+    )
+    assert httpx.URL(error.request_url).params["from"].startswith("2024-01-01")
 
 
 def test_stocks_candles_csv_chunk_the_csv_module_cannot_read_is_a_parse_error(
@@ -544,12 +572,78 @@ def test_stocks_candles_csv_chunk_the_csv_module_cannot_read_is_a_parse_error(
     assert not (tmp_path / "test.csv").exists()
 
 
-def test_stocks_candles_csv_leaves_out_a_chunk_with_no_data(
+def test_stocks_candles_csv_reports_an_unreadable_chunk_before_its_misaligned_row(
     respx_mock, client, tmp_path
 ):
-    """Issue #89: the API's CSV placeholder for an empty chunk is a 200."""
+    """A chunk the csv reader refuses is reported as unreadable even when one
+    of its rows before the refused field is misaligned."""
+    unreadable = CSV_BODY + "1,2,3\r\n" + "x" * 200_000 + ",1,1,1,1,1\r\n"
     respx_mock.get(HOURLY_URL).mock(
-        side_effect=by_chunk(dict(text=CSV_PLACEHOLDER), dict(text=CSV_BODY))
+        side_effect=by_chunk(dict(text=CSV_BODY), dict(text=unreadable))
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.stocks.candles(
+            symbol="AAPL",
+            resolution="H",
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+            **TWO_CHUNKS,
+        )
+
+    assert "unreadable CSV" in exc_info.value.message
+    assert isinstance(exc_info.value.__cause__, csv.Error)
+    assert "from=2024-01-01" in exc_info.value.request_url
+    assert not (tmp_path / "test.csv").exists()
+
+
+def test_stocks_candles_csv_merge_peak_stays_a_small_multiple_of_the_answers(
+    respx_mock, client, tmp_path
+):
+    """The CSV merge of a fan-out keeps the peak of the call within a small
+    multiple of the size of the answers."""
+    header = "t,o,h,l,c,v\r\n"
+    bodies = [
+        header
+        + "".join(
+            f"{start + 60 * i},185.6,186.88,182.36,184.1,82488674\r\n"
+            for i in range(25_000)
+        )
+        for start in (1672756200, 1704292200)
+    ]
+    size = sum(len(body) for body in bodies)
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=by_chunk(dict(text=bodies[0]), dict(text=bodies[1]))
+    )
+
+    gc.collect()
+    tracemalloc.start()
+    try:
+        output = client.stocks.candles(
+            symbol="AAPL",
+            resolution="H",
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+            **TWO_CHUNKS,
+        )
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    expected = bodies[0] + bodies[1][len(header) :]
+    assert pathlib.Path(output).read_bytes() == expected.encode()
+    assert peak < 10 * size, (
+        f"peak {peak:,} bytes is {peak / size:.1f} times the answers' {size:,}"
+    )
+
+
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
+def test_stocks_candles_csv_leaves_out_a_chunk_with_no_data(
+    respx_mock, client, tmp_path, mark
+):
+    """The 200 CSV placeholder, with or without a BOM, adds no rows to the file."""
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=by_chunk(dict(text=mark + CSV_PLACEHOLDER), dict(text=CSV_BODY))
     )
 
     output = client.stocks.candles(
@@ -561,6 +655,40 @@ def test_stocks_candles_csv_leaves_out_a_chunk_with_no_data(
     )
 
     assert pathlib.Path(output).read_bytes() == CSV_BODY.encode()
+
+
+JSON_CHUNK = {
+    "s": "ok",
+    "t": [1704171600, 1704258000],
+    "o": [185.6, 182.69],
+    "h": [186.88, 184.34],
+    "l": [182.36, 181.91],
+    "c": [184.1, 182.72],
+    "v": [82488674, 58414460],
+}
+
+
+@pytest.mark.parametrize(
+    "output_format", [OutputFormat.INTERNAL, OutputFormat.JSON, OutputFormat.DATAFRAME]
+)
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
+def test_stocks_candles_leaves_out_a_placeholder_chunk_on_every_format(
+    respx_mock, client, output_format, mark
+):
+    """A chunk answering `""`, with or without a BOM, adds no rows."""
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=by_chunk(dict(text=mark + '""'), dict(json=JSON_CHUNK))
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        result = client.stocks.candles(
+            symbol="AAPL", resolution="H", output_format=output_format, **TWO_CHUNKS
+        )
+
+    if output_format == OutputFormat.JSON:
+        assert result["t"] == JSON_CHUNK["t"]
+    else:
+        assert len(result) == 2
 
 
 def test_stocks_candles_csv_with_every_chunk_empty_is_a_header_only_file(
@@ -790,6 +918,84 @@ def test_stocks_candles_intraday_string_dates(load_json, respx_mock, client):
         output_format=OutputFormat.INTERNAL,
     )
     assert len(candles) == 253
+
+
+@pytest.mark.parametrize(
+    ("from_date", "to_date"),
+    [
+        ("60", None),
+        ("9999", None),
+        ("yesterday", "today"),
+        ("2026-09-01", "today"),
+    ],
+)
+def test_intraday_relative_dates_go_to_the_api_as_they_are(
+    load_json, respx_mock, client, from_date, to_date
+):
+    """A relative range (a number under 10000) or a keyword is the API's to
+    read, with its own rule: the SDK sends it untouched, in one request,
+    instead of guessing a date from it."""
+    route = respx_mock.get(
+        "https://api.marketdata.app/v1/stocks/candles/1/AAPL/"
+    ).respond(json=load_json("stocks_candles_response_200"), status_code=200)
+
+    client.stocks.candles(
+        symbol="AAPL",
+        resolution="1",
+        from_date=from_date,
+        to_date=to_date,
+        output_format=OutputFormat.JSON,
+    )
+
+    assert route.call_count == 1
+    params = route.calls.last.request.url.params
+    assert params["from"] == from_date
+    assert params.get("to") == to_date
+
+
+@pytest.mark.parametrize(
+    ("from_date", "to_date"),
+    [
+        pytest.param("1600000000", "1700000000", id="unix-seconds"),
+        pytest.param("44087", "45244", id="spreadsheet-serials"),
+    ],
+)
+def test_intraday_unix_and_serial_strings_are_split_by_year(
+    load_json, respx_mock, client, from_date, to_date
+):
+    """A number the API reads as a date names a day, so a range of several
+    years goes out one year per request, as an ISO range does."""
+    respx_mock.get("https://api.marketdata.app/v1/stocks/candles/1/AAPL/").respond(
+        json=load_json("stocks_candles_response_200"), status_code=200
+    )
+
+    client.stocks.candles(
+        "AAPL",
+        resolution="1",
+        from_date=from_date,
+        to_date=to_date,
+        output_format=OutputFormat.JSON,
+    )
+
+    assert _wire_ranges(respx_mock) == [
+        (datetime.date(2020, 9, 13), datetime.date(2021, 9, 12)),
+        (datetime.date(2021, 9, 13), datetime.date(2022, 9, 12)),
+        (datetime.date(2022, 9, 13), datetime.date(2023, 9, 12)),
+        (datetime.date(2023, 9, 13), datetime.date(2023, 11, 14)),
+    ]
+
+
+def test_intraday_unix_range_that_runs_backwards_is_refused(respx_mock, client):
+    """A Unix-time range is compared once read, as an ISO range is: a start
+    after the end raises before any request goes out."""
+    route = respx_mock.get("https://api.marketdata.app/v1/stocks/candles/1/AAPL/")
+
+    with pytest.raises(MinMaxDateValidationError):
+        client.stocks.candles(
+            "AAPL", resolution="1", from_date="1700000000", to_date="1600000000"
+        )
+
+    assert not route.called
 
 
 def _wire_ranges(respx_mock) -> list[tuple[datetime.date, datetime.date]]:

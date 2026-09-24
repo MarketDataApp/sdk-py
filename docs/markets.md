@@ -37,7 +37,7 @@ Fetches market status information (open/closed) for one or more dates. Supports 
   - `DateFormat.TIMESTAMP`: ISO timestamp format
   - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
   - `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
-- `columns` (list[str], optional): List of column names to include in the response
+- `columns` (list[str], optional): List of column names to include in the response. The API applies it to the answer it sends, so it is ignored when `output_format=OutputFormat.INTERNAL`, which needs the whole answer to build its model
 - `add_headers` (bool, optional): Whether to add headers to the response
 - `use_human_readable` (bool, optional): Whether to use human-readable format
 - `mode` (Mode, optional): The data feed mode to use (`Mode.LIVE`, `Mode.CACHED`, `Mode.DELAYED`)
@@ -218,7 +218,7 @@ When using `OutputFormat.INTERNAL`, the `status()` method returns a list of `Mar
 
 ### Properties
 
-- `date` (datetime.datetime): The date for which the market status applies
+- `date` (datetime.datetime | None): The date for which the market status applies
 - `status` (str): Market status, typically "open" or "closed"
 
 ### Example Usage
@@ -245,7 +245,7 @@ When using `OutputFormat.INTERNAL` with `use_human_readable=True`, the `status()
 
 ### Properties
 
-- `Date` (datetime.datetime): The date for which the market status applies
+- `Date` (datetime.datetime | None): The date for which the market status applies
 - `Status` (str): Market status, typically "open" or "closed"
 
 ### Example Usage

@@ -3,8 +3,8 @@ import importlib
 import os
 import time
 from dataclasses import fields
-from logging import DEBUG, ERROR, Logger
-from unittest.mock import MagicMock, patch
+from logging import DEBUG, ERROR, INFO, Logger
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 import pytz
@@ -17,7 +17,7 @@ from marketdata.input_types.base import OutputFormat
 from marketdata.internal_settings import NO_TOKEN_VALUE
 from marketdata.settings import MarketDataSettings, settings
 from marketdata.types import UserRateLimits
-from src.tests.conftest import use_real_header_extraction
+from src.tests.conftest import assert_failed_answer, use_real_header_extraction
 
 PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 
@@ -71,7 +71,7 @@ def test_client_make_request_retry(client, respx_mock, monkeypatch):
         status_code=502,
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.stocks.prices(symbols="AAPL")
 
     prices_calls = [
@@ -81,6 +81,7 @@ def test_client_make_request_retry(client, respx_mock, monkeypatch):
     assert len(prices_calls) == 4
     assert len(status_calls) == 1
     assert respx_mock.calls.call_count == 6
+    assert_failed_answer(exc_info.value, 502, PRICES_URL, "{}")
 
 
 def test_client_make_request_bad_status_not_retry(client, respx_mock):
@@ -89,7 +90,7 @@ def test_client_make_request_bad_status_not_retry(client, respx_mock):
         status_code=400,
     )
 
-    with pytest.raises(BadRequestError):
+    with pytest.raises(BadRequestError) as exc_info:
         client.stocks.prices(symbols="AAPL")
 
     assert respx_mock.calls.call_count == 2
@@ -99,6 +100,7 @@ def test_client_make_request_bad_status_not_retry(client, respx_mock):
 
     # 2nd request is stocks.prices (and it fails with 400 status code and not retried)
     assert respx_mock.calls[1].request.url.path == "/v1/stocks/prices/"
+    assert_failed_answer(exc_info.value, 400, PRICES_URL, "{}")
 
 
 def test_validate_user_universal_params__settings_default(monkeypatch):
@@ -143,6 +145,70 @@ def test_validate_user_universal_params__function_json(monkeypatch):
         client.default_params.output_format = OutputFormat.CSV
         client.stocks.prices(symbols="AAPL", output_format=OutputFormat.JSON)
         assert "format=json" in make_request_mock.call_args[1]["url"]
+
+
+def test_validate_user_universal_params__internal_drops_a_function_column_filter(
+    load_json, respx_mock, client
+):
+    mock_data = load_json("stocks_prices_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json=mock_data,
+        status_code=200,
+    )
+
+    client.stocks.prices(
+        symbols="AAPL", output_format=OutputFormat.INTERNAL, columns=["last"]
+    )
+
+    assert "columns" not in respx_mock.calls.last.request.url.params
+
+
+def test_validate_user_universal_params__internal_drops_a_client_column_filter(
+    load_json, respx_mock, client
+):
+    mock_data = load_json("stocks_prices_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json=mock_data,
+        status_code=200,
+    )
+    client.default_params.columns = ["last"]
+
+    client.stocks.prices(symbols="AAPL", output_format=OutputFormat.INTERNAL)
+
+    assert "columns" not in respx_mock.calls.last.request.url.params
+
+
+def test_validate_user_universal_params__internal_drops_a_settings_column_filter(
+    load_json, respx_mock, client
+):
+    mock_data = load_json("stocks_prices_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json=mock_data,
+        status_code=200,
+    )
+
+    with patch.object(settings, "marketdata_columns", ["last"]):
+        client.stocks.prices(symbols="AAPL", output_format=OutputFormat.INTERNAL)
+
+    assert "columns" not in respx_mock.calls.last.request.url.params
+
+
+@pytest.mark.parametrize(
+    "output_format",
+    [OutputFormat.DATAFRAME, OutputFormat.JSON, OutputFormat.CSV],
+)
+def test_validate_user_universal_params__every_other_format_sends_the_column_filter(
+    output_format, load_json, respx_mock, client
+):
+    mock_data = load_json("stocks_prices_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+        json=mock_data,
+        status_code=200,
+    )
+
+    client.stocks.prices(symbols="AAPL", output_format=output_format, columns=["last"])
+
+    assert respx_mock.calls.last.request.url.params["columns"] == "last"
 
 
 def test_client_get_user_agent(client):
@@ -262,12 +328,15 @@ def test_a_refusal_writes_the_one_error_line_a_failure_gets(respx_mock, client, 
     respx_mock.get(PRICES_URL).respond(json={"s": "ok"}, status_code=200)
 
     with caplog.at_level(DEBUG, logger="marketdata"):
-        with pytest.raises(RateLimitError):
+        with pytest.raises(RateLimitError) as exc_info:
             client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
 
     errors = [record for record in caplog.records if record.levelno == ERROR]
     assert len(errors) == 1
     assert errors[0].getMessage().startswith("prices failed: No API credits left")
+    error = exc_info.value
+    assert (error.status_code, error.request_url) == (0, "N/A")
+    assert error.message.startswith("No API credits left")
 
 
 def test_exhausted_credits_of_a_window_that_reset_are_dropped(respx_mock, client):
@@ -381,6 +450,20 @@ def test_a_reset_time_a_dst_change_repeats_is_refused_rather_than_moved(client):
     assert _exhausted(aware).reset_time == aware
 
 
+def test_a_reset_time_is_unix_seconds_or_a_datetime():
+    """The `x-api-ratelimit-reset` header is Unix seconds, as a number or as the
+    header's text; anything else is refused, a bool included."""
+    expected = datetime.datetime.fromtimestamp(
+        1_790_000_000, tz=pytz.timezone("US/Eastern")
+    )
+
+    assert _exhausted(1_790_000_000).reset_time == expected
+    assert _exhausted("1790000000").reset_time == expected
+    for value in ("tomorrow", True, False):
+        with pytest.raises(ValueError, match="Unix seconds"):
+            _exhausted(value)
+
+
 def test_a_reset_time_the_client_cannot_read_lets_the_request_through(
     respx_mock, client
 ):
@@ -455,8 +538,9 @@ def test_a_429_still_raises_with_its_response(respx_mock, client):
 def test_client_raise_for_status_fails(client):
     request = Request(method="GET", url="https://api.marketdata.app/v1/stocks/prices/")
     response = Response(status_code=501, request=request)
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client._raise_for_status(response)
+    assert_failed_answer(exc_info.value, 501, PRICES_URL, "")
 
 
 def test_client_raise_for_status_passes(client):
@@ -553,8 +637,8 @@ def test_client_pre_and_post_request_logs(client, respx_mock):
             mock_format.return_value = "000ms"
             client.stocks.prices(symbols="AAPL")
             last_request = respx_mock.calls.last
-            mock_logger_info.call_args_list[0].assert_called_with(
-                f"GET 200 000ms 1234567890 {last_request.request.url}"
+            assert mock_logger_info.call_args_list[0] == call(
+                INFO, f"GET 200 000ms 1234567890 {last_request.request.url}"
             )
 
 
@@ -632,9 +716,10 @@ def test_client_max_retries_zero_no_retry(respx_mock, monkeypatch):
         ),
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         c.stocks.prices(symbols="AAPL")
     assert respx_mock.calls.call_count == 2
+    assert_failed_answer(exc_info.value, 502, PRICES_URL, "{}")
 
 
 def test_client_max_retries_one(respx_mock, monkeypatch):
@@ -679,12 +764,13 @@ def test_client_max_retries_one(respx_mock, monkeypatch):
         ),
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         c.stocks.prices(symbols="AAPL")
     prices_calls = [
         c for c in respx_mock.calls if c.request.url.path == "/v1/stocks/prices/"
     ]
     assert len(prices_calls) == 2
+    assert_failed_answer(exc_info.value, 502, PRICES_URL, "{}")
 
 
 def test_settings_extra_env_vars():

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from pytz.exceptions import InvalidTimeError
 
-from marketdata.utils import DEFAULT_TIMEZONE, format_timestamp
+from marketdata.utils import DEFAULT_TIMEZONE
 
 
 @dataclass
@@ -17,27 +17,33 @@ class UserRateLimits:
     credits_consumed: int
 
     def __post_init__(self):
-        """Settle the timezone once, so the state holds one instant.
+        """Settle ``reset_time`` as one US/Eastern instant.
 
-        A value that arrives without an offset is US/Eastern, the timezone
-        every other timestamp in the SDK is rendered in and the one
-        ``format_timestamp`` leaves implicit when it parses a date with no
-        offset. Reading it as UTC put the value hours away from what it meant,
-        which the pre-flight check turns into a refusal that is early or late
-        by that much (#42).
+        A number, or a numeric string such as the ``x-api-ratelimit-reset``
+        header, is Unix seconds. A datetime without an offset is US/Eastern.
 
-        Settling it here rather than on each read is what makes the rendered
-        value and the compared value the same: ``__repr__``, the client's log
-        and error messages and ``get_meta(...).rate_limits.reset_time`` all
-        carry the offset, and ``localize`` runs one time per state instead of
-        on every read.
+        Raises:
+            ValueError: If ``reset_time`` is neither a datetime nor Unix
+                seconds (a bool included), or is a wall time a daylight-saving
+                change repeats or skips.
         """
-        reset_time = format_timestamp(self.reset_time)
+        reset_time = self.reset_time
+        if not isinstance(reset_time, datetime.datetime):
+            refused = ValueError(
+                f"reset_time is neither a datetime nor Unix seconds: {reset_time!r}"
+            )
+            if isinstance(reset_time, bool):
+                raise refused
+            try:
+                reset_time = datetime.datetime.fromtimestamp(
+                    float(reset_time), tz=DEFAULT_TIMEZONE
+                )
+            except (TypeError, ValueError, OverflowError, OSError):
+                raise refused from None
         if reset_time.tzinfo is None:
             try:
-                # `is_dst=None`: a wall time a DST change repeats or skips
-                # names no single instant. Picking one silently puts the reset
-                # an hour from what the caller meant, so say so instead.
+                # `is_dst=None`: a repeated or skipped wall time names no single
+                # instant, and picking one would move the reset by an hour.
                 reset_time = DEFAULT_TIMEZONE.localize(reset_time, is_dst=None)
             except InvalidTimeError as exc:
                 raise ValueError(

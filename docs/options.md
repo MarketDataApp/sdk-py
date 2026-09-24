@@ -38,7 +38,7 @@ Fetches available expiration dates for a given symbol. This method includes API 
   - `DateFormat.TIMESTAMP`: ISO timestamp format
   - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
   - `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
-- `columns` (list[str], optional): List of column names to include in the response
+- `columns` (list[str], optional): List of column names to include in the response. The API applies it to the answer it sends, so it is ignored when `output_format=OutputFormat.INTERNAL`, which needs the whole answer to build its model
 - `add_headers` (bool, optional): Whether to add headers to the response
 - `use_human_readable` (bool, optional): Whether to use human-readable format
 - `mode` (Mode, optional): The data feed mode to use (`Mode.LIVE`, `Mode.CACHED`, `Mode.DELAYED`)
@@ -175,7 +175,7 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   - `DateFormat.TIMESTAMP`: ISO timestamp format
   - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
   - `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
-- `columns` (list[str], optional): List of column names to include in the response
+- `columns` (list[str], optional): List of column names to include in the response. The API applies it to the answer it sends, so it is ignored when `output_format=OutputFormat.INTERNAL`, which needs the whole answer to build its model
 - `add_headers` (bool, optional): Whether to add headers to the response
 - `use_human_readable` (bool, optional): Whether to use human-readable format
 - `mode` (Mode, optional): The data feed mode to use (`Mode.LIVE`, `Mode.CACHED`, `Mode.DELAYED`)
@@ -196,10 +196,35 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 
 **Strike Filters:**
 
-- `strike` (str, optional): Filter by strike price (e.g., "150", "ATM", "ITM", "OTM")
-- `delta` (float, optional): Filter by delta value
+- `strike` (str | int | float | Decimal, optional): Filter by strike. A number is one
+  strike; a string is the API's expression: `"250,255"` for a set, `"250-260"` for an
+  inclusive range, `">=250"` or `"<250"` for a bound. `StrikeFilter` builds all of
+  them: `StrikeFilter.between(250, 260)`, `StrikeFilter.at_least(250)`. A negative is
+  refused: the API reads a number by its absolute value, so `-250` would answer for
+  `250`. A number is sent as plain digits, never in exponent form, and one a float cannot
+  hold is refused, since the API reads each number with `float()`. A string is passed
+  through as written, so `strike="-250"` still reaches the API
+  and the API decides. The vocabulary of `range` does not belong here: `strike="ITM"` is
+  a `400`
+- `delta` (str | int | float | Decimal, optional): Filter by delta, built the same way
+  with `DeltaFilter`, whose single-value constructor is `nearest` rather than `exact`.
+  Two things the API does with it are worth knowing: it matches the
+  **nearest** delta rather than an exact one, so `DeltaFilter.nearest(0.5)` answers with the
+  closest strike per side and never with nothing; and it filters on the **absolute value**
+  and answers both sides, so `0.5` and `-0.5` give the same rows. A delta is a number from
+  -1 to 1, and one outside that, such as `30`, is refused before any request. A negative is
+  kept for a single value or a set and refused
+  in a range or a bound, where the absolute value would change the question. A small delta
+  is sent as plain digits too, `0.00005` rather than `5e-05`: the API answers a query of
+  `delta=5e-05` with a `400`, since it splits that text at its minus. A `bool`, a NaN or an
+  infinity is refused rather than sent, since the API reads `delta=nan` as no filter and
+  answers with the whole chain. The filter is
+  skipped entirely if any contract in the chain carries a null delta, and it is a `400`
+  together with a historical `date`
 - `strike_limit` (int, optional): Limit the number of strikes
-- `range` (str, optional): Strike range filter
+- `range` (str, optional): Moneyness filter. The API reads `itm`, `inthemoney`, `otm`,
+  `outthemoney` and `outofthemoney`; any other value is dropped without an error, so
+  the chain comes back unfiltered
 
 **Price / Liquidity Filters:**
 
@@ -270,19 +295,19 @@ print(chain)
 **Filter by strike and side:**
 
 ```python
-from marketdata import MarketDataClient
+from marketdata import MarketDataClient, StrikeFilter
 
 client = MarketDataClient()
 # symbol can be passed positionally or as keyword argument
 chain = client.options.chain(
     "AAPL",
-    strike="ATM",
+    strike=StrikeFilter.exact(250),
     side="call"
 )
 # or
 chain = client.options.chain(
     symbol="AAPL",
-    strike="ATM",
+    strike=StrikeFilter.exact(250),
     side="call"
 )
 print(chain)
@@ -322,7 +347,7 @@ client = MarketDataClient()
 chain = client.options.chain(
     "AAPL",
     expiration=datetime.date(2024, 12, 20),
-    strike="ITM",
+    range="itm",
     side="call",
     min_open_interest=100,
     min_volume=50
@@ -331,7 +356,7 @@ chain = client.options.chain(
 chain = client.options.chain(
     symbol="AAPL",
     expiration=datetime.date(2024, 12, 20),
-    strike="ITM",
+    range="itm",
     side="call",
     min_open_interest=100,
     min_volume=50
@@ -436,7 +461,7 @@ Fetches the option symbol for a given lookup string. The lookup string should co
   - `DateFormat.TIMESTAMP`: ISO timestamp format
   - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
   - `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
-- `columns` (list[str], optional): List of column names to include in the response
+- `columns` (list[str], optional): List of column names to include in the response. The API applies it to the answer it sends, so it is ignored when `output_format=OutputFormat.INTERNAL`, which needs the whole answer to build its model
 - `add_headers` (bool, optional): Whether to add headers to the response
 - `use_human_readable` (bool, optional): Whether to use human-readable format
 - `mode` (Mode, optional): The data feed mode to use (`Mode.LIVE`, `Mode.CACHED`, `Mode.DELAYED`)
@@ -565,7 +590,7 @@ Fetches options quotes for one or more option symbols. This method includes API 
   - `DateFormat.TIMESTAMP`: ISO timestamp format
   - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
   - `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
-- `columns` (list[str], optional): List of column names to include in the response
+- `columns` (list[str], optional): List of column names to include in the response. The API applies it to the answer it sends, so it is ignored when `output_format=OutputFormat.INTERNAL`, which needs the whole answer to build its model
 - `add_headers` (bool, optional): Whether to add headers to the response
 - `use_human_readable` (bool, optional): Whether to use human-readable format
 - `mode` (Mode, optional): The data feed mode to use (`Mode.LIVE`, `Mode.CACHED`, `Mode.DELAYED`)
@@ -579,7 +604,7 @@ Fetches options quotes for one or more option symbols. This method includes API 
   - All timestamp fields are automatically converted to `datetime.datetime` objects
   - Data from multiple symbols is merged into a single DataFrame
 - If `output_format=OutputFormat.INTERNAL`: An `OptionsQuotes` object (or `OptionsQuotesHumanReadable` if `use_human_readable=True`) (single object, not a list) containing merged data from all requested symbols. All properties are lists where each index represents a single option contract.
-- If `output_format=OutputFormat.JSON`: A dictionary with the API's JSON, merged across the requested symbols. Under `use_human_readable=True` the keys take the model's underscores (`Expiration_Date`), and the status flag `s` is added as `"ok"` when the answers carry none (under `columns=`)
+- If `output_format=OutputFormat.JSON`: A dictionary with the API's JSON, merged across the requested symbols. Under `use_human_readable=True` the keys are the API's (`Expiration Date`), and the status flag `s` is added as `"ok"` when the answers carry none (under `columns=`)
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written (merged from all requested symbols)
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, no valid responses received, etc.); see the [README](../README.md#error-handling)
 
@@ -702,14 +727,14 @@ When using `OutputFormat.INTERNAL` with `expirations()`, the method returns an `
 ### OptionsExpirations Properties
 
 - `s` (str): Status string
-- `expirations` (list[datetime.datetime]): List of expiration dates
-- `updated` (datetime.datetime): Last update timestamp
+- `expirations` (list[datetime.datetime | None]): List of expiration dates
+- `updated` (datetime.datetime | None): Last update timestamp
 
 ### OptionsExpirationsHumanReadable Properties
 
 When `use_human_readable=True`:
-- `Expirations` (list[datetime.datetime]): List of expiration dates
-- `Date` (datetime.datetime): Last update timestamp (replaces `updated`)
+- `Expirations` (list[datetime.datetime | None]): List of expiration dates
+- `Date` (datetime.datetime | None): Last update timestamp (replaces `updated`)
 
 ### Example Usage
 
@@ -740,12 +765,12 @@ All properties are lists with the same length, where each index represents a sin
 - `s` (str): Status string
 - `optionSymbol` (list[str]): List of option symbols
 - `underlying` (list[str]): List of underlying stock symbols
-- `expiration` (list[datetime.datetime]): List of expiration dates
+- `expiration` (list[datetime.datetime | None]): List of expiration dates
 - `side` (list[str]): List of option sides ("call" or "put")
 - `strike` (list[Decimal]): List of strike prices
-- `firstTraded` (list[datetime.datetime]): List of first traded dates
+- `firstTraded` (list[datetime.datetime | None]): List of first traded dates
 - `dte` (list[int]): List of days to expiration
-- `updated` (list[datetime.datetime]): List of last update timestamps
+- `updated` (list[datetime.datetime | None]): List of last update timestamps
 - `bid` (list[Decimal]): List of bid prices
 - `bidSize` (list[int]): List of bid sizes
 - `mid` (list[Decimal]): List of mid prices
@@ -800,12 +825,12 @@ if chain:
 When `use_human_readable=True`, the object uses human-readable field names similar to `OptionsQuotesHumanReadable`:
 - `Symbol` (list[str]): List of option symbols (replaces `optionSymbol`)
 - `Underlying` (list[str]): List of underlying stock symbols
-- `Expiration_Date` (list[datetime.datetime]): List of expiration dates (replaces `expiration`)
+- `Expiration_Date` (list[datetime.datetime | None]): List of expiration dates (replaces `expiration`)
 - `Option_Side` (list[str]): List of option sides (replaces `side`)
 - `Strike` (list[Decimal]): List of strike prices
-- `First_Traded` (list[datetime.datetime]): List of first traded dates (replaces `firstTraded`)
+- `First_Traded` (list[datetime.datetime | None]): List of first traded dates (replaces `firstTraded`)
 - `Days_To_Expiration` (list[int]): List of days to expiration (replaces `dte`)
-- `Date` (list[datetime.datetime]): List of last update timestamps (replaces `updated`)
+- `Date` (list[datetime.datetime | None]): List of last update timestamps (replaces `updated`)
 - `Bid`, `Bid_Size`, `Mid`, `Ask`, `Ask_Size`, `Last`, `Open_Interest`, `Volume`, `In_The_Money`, `Intrinsic_Value`, `Extrinsic_Value`, `Underlying_Price`, `IV`, `Delta`, `Gamma`, `Theta`, `Vega`: Same structure as `OptionsQuotesHumanReadable`
 ```
 
@@ -820,12 +845,12 @@ All properties are lists with the same length, where each index represents a sin
 - `s` (str): Status string
 - `optionSymbol` (list[str]): List of option symbols
 - `underlying` (list[str]): List of underlying stock symbols
-- `expiration` (list[datetime.datetime]): List of expiration dates
+- `expiration` (list[datetime.datetime | None]): List of expiration dates
 - `side` (list[str]): List of option sides ("call" or "put")
 - `strike` (list[Decimal]): List of strike prices
-- `firstTraded` (list[datetime.datetime]): List of first traded dates
+- `firstTraded` (list[datetime.datetime | None]): List of first traded dates
 - `dte` (list[int]): List of days to expiration
-- `updated` (list[datetime.datetime]): List of last update timestamps
+- `updated` (list[datetime.datetime | None]): List of last update timestamps
 - `bid` (list[Decimal]): List of bid prices
 - `bidSize` (list[int]): List of bid sizes
 - `mid` (list[Decimal]): List of mid prices
@@ -849,12 +874,12 @@ All properties are lists with the same length, where each index represents a sin
 When `use_human_readable=True`:
 - `Symbol` (list[str]): List of option symbols (replaces `optionSymbol`)
 - `Underlying` (list[str]): List of underlying stock symbols
-- `Expiration_Date` (list[datetime.datetime]): List of expiration dates (replaces `expiration`)
+- `Expiration_Date` (list[datetime.datetime | None]): List of expiration dates (replaces `expiration`)
 - `Option_Side` (list[str]): List of option sides (replaces `side`)
 - `Strike` (list[Decimal]): List of strike prices
-- `First_Traded` (list[datetime.datetime]): List of first traded dates (replaces `firstTraded`)
+- `First_Traded` (list[datetime.datetime | None]): List of first traded dates (replaces `firstTraded`)
 - `Days_To_Expiration` (list[int]): List of days to expiration (replaces `dte`)
-- `Date` (list[datetime.datetime]): List of last update timestamps (replaces `updated`)
+- `Date` (list[datetime.datetime | None]): List of last update timestamps (replaces `updated`)
 - `Bid` (list[Decimal]): List of bid prices
 - `Bid_Size` (list[int]): List of bid sizes (replaces `bidSize`)
 - `Mid` (list[Decimal]): List of mid prices

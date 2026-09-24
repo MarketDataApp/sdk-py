@@ -1,9 +1,10 @@
 import csv
 import datetime
+import re
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from io import StringIO
-from typing import Any, NoReturn
+from typing import Any, Iterator, NoReturn
 from urllib.parse import quote
 
 import pytz
@@ -105,6 +106,11 @@ def parse_json(response: Response, *, exact: bool = False) -> Any:
         ) from exc
 
 
+# A byte order mark. A proxy may put one in front of a body, where it is not data.
+# Built with chr() so no tool can turn an escape into the invisible character.
+BOM = chr(0xFEFF)
+_BOM_BYTES = BOM.encode()
+
 # The API's CSV rendering of the empty answer (MarketData-App/api#422): a
 # one-column table named "0" with one empty cell, the cell alone under
 # ``add_headers=False``. Compared on the non-blank lines of the body. The
@@ -119,15 +125,22 @@ def is_no_data(response: Response) -> bool:
 
     ``MarketDataClient._raise_for_status`` lets exactly one 404 through: the
     one without an ``errmsg``. In CSV format the same answer arrives as a
-    ``200`` whose body is a placeholder table, because the API drops the
-    status when it renders it (MarketData-App/api#422, #89); that rule can go
-    once the API answers ``404`` for CSV too.
+    ``200`` whose body is a placeholder table; byte order marks in front of
+    it are ignored.
     """
     if response.status_code == 404:
         return True
-    if response.status_code not in VALID_STATUS_CODES or len(response.content) > 16:
+    if response.status_code not in VALID_STATUS_CODES:
         return False
-    return [line for line in response.text.splitlines() if line] in _CSV_NO_DATA_BODIES
+    content = response.content
+    start = 0
+    while content.startswith(_BOM_BYTES, start):
+        start += len(_BOM_BYTES)
+    if len(content) - start > 16:
+        return False
+    # Leading marks only: one after a blank line or inside a value is data.
+    body = response.text.lstrip(BOM)
+    return [line for line in body.splitlines() if line] in _CSV_NO_DATA_BODIES
 
 
 def column_key(name: str) -> str:
@@ -154,29 +167,47 @@ _CSV_ERROR_STATUS_KEYS = {column_key(status) for status in _CSV_ERROR_STATUSES}
 _CSV_ERROR_MAX_LENGTH = 4096
 
 
-def _csv_rows(text: str) -> list[list[str]]:
-    """The rows of a CSV body, blank lines dropped and a BOM taken off.
+def _csv_records(text: str) -> Iterator[list[str]]:
+    """Yield the rows of a CSV body, blank lines dropped and a BOM taken off.
 
-    The error envelope and the fan-out merge both read a body through here, so
-    the two cannot drift apart. It is not every CSV the SDK touches: the body
-    of a single-request CSV answer is written to file unread, and
-    ``is_no_data`` matches the placeholder line by line.
+    Lines ending in a lone CR read as rows, and a quoted value keeps the line
+    endings it carries.
 
-    The text is read with ``newline=""``, as the ``csv`` module prescribes, so
-    a body whose lines end in a lone CR reads as rows instead of raising, and
-    a quoted value keeps the line endings it carries.
+    Args:
+        text: The body.
 
-    ``csv.Error`` (a field past the reader's size limit, or a NUL byte before
-    Python 3.11) propagates: each caller decides what an unreadable body means.
+    Yields:
+        Each row, as the ``csv`` module reads it.
+
+    Raises:
+        csv.Error: When the reader reaches something it refuses: a field past
+            its size limit, or a NUL byte before Python 3.11.
     """
+    first = True
     # Before the parse, so a BOM does not break the quoting of the first value,
     # and after it, for a body that starts with blank lines.
-    rows = [
-        row for row in csv.reader(StringIO(text.lstrip("\ufeff"), newline="")) if row
-    ]
-    if rows:
-        rows[0][0] = rows[0][0].lstrip("\ufeff")  # a BOM is not data
-    return rows
+    for row in csv.reader(StringIO(text.lstrip(BOM), newline="")):
+        if not row:
+            continue
+        if first:
+            row[0] = row[0].lstrip(BOM)  # a BOM is not data
+            first = False
+        yield row
+
+
+def _csv_rows(text: str) -> list[list[str]]:
+    """Read every row of a CSV body at once, as ``_csv_records`` yields them.
+
+    Args:
+        text: The body.
+
+    Returns:
+        The rows.
+
+    Raises:
+        csv.Error: For a body the reader refuses.
+    """
+    return list(_csv_records(text))
 
 
 def parse_csv_errmsg(text: str) -> str | None:
@@ -222,33 +253,70 @@ def parse_error(response: Response, reason: str) -> ParseError:
     )
 
 
-def format_timestamp(
-    value: str | int | float | datetime.datetime | None,
-) -> datetime.datetime:
-    default_tz = DEFAULT_TIMEZONE
+_SPREADSHEET_EPOCH = datetime.datetime(1899, 12, 30)
+_SPACE_BEFORE_OFFSET = re.compile(r"\s+(?=[+-]\d{2}:?\d{2}$)")
 
+
+def format_timestamp(
+    value: str | int | float | Decimal | datetime.datetime | None,
+) -> datetime.datetime:
+    """Read a date the API sent as a US/Eastern datetime.
+
+    Args:
+        value: A datetime, returned as it is. A number, or a string that reads
+            as one even where it could also read as an ISO date
+            (``"20240101"``), with the API's own rule: ``10000 <= n < 200000``
+            a spreadsheet serial of US/Eastern wall-clock time, from 200000
+            Unix seconds, from 1e10 milliseconds and from 1e13 nanoseconds.
+            Any other string is a ``dateformat=timestamp`` value: a datetime
+            with its UTC offset, or a date or a time with none, which is
+            US/Eastern.
+
+    Returns:
+        A datetime argument unchanged, with its zone or without one. Any other
+        value as a US/Eastern datetime: a date is its midnight there, a serial
+        is rounded to the second, and a wall-clock time the clocks pass twice
+        is the first one.
+
+    Raises:
+        ValueError: If the value is none of those, a number under 10000
+            included: the API reads it as a relative range, not as a date.
+    """
     if isinstance(value, datetime.datetime):
         return value
 
     if isinstance(value, str):
-        if value.endswith("Z"):
-            value = value[:-1] + "+00:00"
+        text = value.strip()
         try:
-            dt = datetime.datetime.fromisoformat(value)
-            return dt.astimezone(default_tz) if dt.tzinfo else dt
+            # A number first: Python 3.11+ also reads "20240101" as an ISO date.
+            value = float(text)
         except ValueError:
+            text = _SPACE_BEFORE_OFFSET.sub("", text)
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
             try:
-                value = float(value)
+                moment = datetime.datetime.fromisoformat(text)
             except ValueError:
-                raise ValueError("Unrecognized date format")
+                raise ValueError("Unrecognized date format") from None
+            if moment.tzinfo is not None:
+                return moment.astimezone(DEFAULT_TIMEZONE)
+            return DEFAULT_TIMEZONE.localize(moment, is_dst=True)
 
-    if isinstance(value, (int, float)):
-        if 0 < value < 60000:
-            return datetime.datetime(1899, 12, 30) + datetime.timedelta(days=value)
-        try:
-            return datetime.datetime.fromtimestamp(value, tz=default_tz)
-        except (ValueError, OSError, OverflowError):
-            pass
+    if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+        number = float(value)
+        if 10_000 <= number < 200_000:
+            wall = _SPREADSHEET_EPOCH + datetime.timedelta(
+                seconds=round(number * 86_400)
+            )
+            return DEFAULT_TIMEZONE.localize(wall, is_dst=True)
+        if number >= 200_000:
+            scale = 1 if number < 1e10 else 1e3 if number < 1e13 else 1e9
+            try:
+                return datetime.datetime.fromtimestamp(
+                    number / scale, tz=DEFAULT_TIMEZONE
+                )
+            except (ValueError, OSError, OverflowError):
+                pass
 
     raise ValueError("Unrecognized date format")
 
@@ -287,64 +355,90 @@ def csv_header(columns: list[str]) -> str:
 def merge_csv_responses(
     responses: list[Response], known_columns: list[str], *, with_header: bool = True
 ) -> str:
-    """Merge the CSV bodies of a fan-out into one CSV text (#86).
+    """Merge the CSV bodies of a fan-out into one CSV text.
 
-    The header comes from the answers, never from the model: under
-    ``columns=`` the API sends the requested columns only, and under
-    ``use_human_readable`` their human-readable names. Every body must carry
-    the same header, made of this resource's column names, and every row must
-    be as wide as it; anything else (an HTML error page, a truncated body,
-    a body the ``csv`` module cannot read, two symbols answering with
-    different columns) raises ``ParseError`` naming the offending response. Headers are compared through ``column_key``,
-    the same way they are validated, so two answers spelling the same column
-    differently (case, a space after the comma) still merge; a different
-    *order* is refused, because merging misaligned rows would corrupt the
-    data. The file keeps the first answer's spelling. With ``with_header=False``
-    (``add_headers=False``) the bodies carry no header, so only the row width
-    is checked, against the first row seen. Either way a BOM at the start of
-    a body is not data, and is dropped.
+    Each body is read and written a row at a time, so the merge holds the
+    output and one row rather than every row of every body.
+
+    Args:
+        responses: The answers, in the order their rows go in the file.
+        known_columns: The resource's column names. A header name must match
+            one of them through ``column_key``, which also compares the
+            headers of two answers, so a different spelling of the same
+            column still merges.
+        with_header: Whether the bodies start with a header row. Without one,
+            only the row width is checked, against the first row seen.
+
+    Returns:
+        The first answer's header, if any, then every row of every answer,
+        written by ``csv.writer``. A BOM at the start of a body and blank
+        lines are dropped.
+
+    Raises:
+        ParseError: Naming the offending response, for a body the ``csv``
+            module cannot read, a body with no header row, a header with a
+            column the resource does not have or with other columns, or in
+            another order, than the first answer's, or a row not as wide as
+            the header.
     """
     known = {column_key(name) for name in known_columns}
     header: list[str] | None = None
     header_key: list[str] | None = None
     width: int | None = None
-    rows_out: list[list[str]] = []
-
-    for response in responses:
-        try:
-            rows = _csv_rows(response.text)
-        except csv.Error as exc:
-            # A field past the reader's limit, or a NUL byte before Python
-            # 3.11. `csv.Error` is not an SDK exception, and the body is not
-            # this resource's answer either.
-            raise parse_error(response, f"unreadable CSV: {exc}") from exc
-        if with_header:
-            if not rows:
-                raise parse_error(response, "no header row")
-            incoming, rows = rows[0], rows[1:]
-            unknown = [name for name in incoming if column_key(name) not in known]
-            if unknown:
-                raise parse_error(response, f"unknown columns {unknown!r}")
-            incoming_key = [column_key(name) for name in incoming]
-            if header is None:
-                header, header_key, width = incoming, incoming_key, len(incoming)
-            elif incoming_key != header_key:
-                raise parse_error(
-                    response, f"header {incoming!r} differs from {header!r}"
-                )
-        for row in rows:
-            if width is None:
-                width = len(row)
-            if len(row) != width:
-                raise parse_error(response, f"row {row!r} does not have {width} values")
-        rows_out.extend(rows)
-
     output = StringIO()
     writer = csv.writer(output)
-    if header is not None:
-        writer.writerow(header)
-    writer.writerows(rows_out)
+
+    for response in responses:
+        rows = _csv_records(response.text)
+        try:
+            if with_header:
+                incoming = next(rows, None)
+                if incoming is None:
+                    raise parse_error(response, "no header row")
+                unknown = [name for name in incoming if column_key(name) not in known]
+                if unknown:
+                    raise parse_error(response, f"unknown columns {unknown!r}")
+                incoming_key = [column_key(name) for name in incoming]
+                if header is None:
+                    header, header_key, width = incoming, incoming_key, len(incoming)
+                    writer.writerow(header)
+                elif incoming_key != header_key:
+                    raise parse_error(
+                        response, f"header {incoming!r} differs from {header!r}"
+                    )
+            for row in rows:
+                if width is None:
+                    width = len(row)
+                if len(row) != width:
+                    raise parse_error(
+                        response, f"row {row!r} does not have {width} values"
+                    )
+                writer.writerow(row)
+        except csv.Error as exc:
+            raise _unreadable_csv(response, exc) from exc
+        except ParseError:
+            # A body the reader refuses is reported as such even when a check
+            # failed first on an earlier row.
+            try:
+                for _ in rows:
+                    pass
+            except csv.Error as exc:
+                raise _unreadable_csv(response, exc) from exc
+            raise
     return output.getvalue()
+
+
+def _unreadable_csv(response: Response, error: csv.Error) -> ParseError:
+    """Build the ``ParseError`` for a body the ``csv`` module refuses.
+
+    Args:
+        response: The answer whose body was read.
+        error: What the reader raised.
+
+    Returns:
+        The exception to raise.
+    """
+    return parse_error(response, f"unreadable CSV: {error}")
 
 
 def json_answer_columns(

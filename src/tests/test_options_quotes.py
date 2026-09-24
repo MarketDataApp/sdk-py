@@ -1,3 +1,4 @@
+import csv
 import datetime
 import json
 import pathlib
@@ -22,6 +23,7 @@ from marketdata.output_types.options_quotes import (
     OptionsQuotes,
     OptionsQuotesHumanReadable,
 )
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 
 def test_options_quotes_str():
@@ -363,10 +365,16 @@ def test_options_quotes_empty_symbol_body_is_a_parse_error(respx_mock, client):
         status_code=200,
     )
 
-    with pytest.raises(ParseError):
+    with pytest.raises(ParseError) as exc_info:
         client.options.quotes(
             symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
         )
+    assert_failed_answer(
+        exc_info.value,
+        200,
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/",
+        "Response body is not valid JSON: ''",
+    )
 
 
 def test_options_quotes_no_one_good_status_code(respx_mock, client):
@@ -551,6 +559,60 @@ def test_options_quotes_merges_the_requested_columns_row_by_row(respx_mock, clie
 
 
 @pytest.mark.parametrize(
+    ("fixture", "symbol_key", "date_key", "attribute", "use_human_readable"),
+    [
+        (
+            "options_quotes_response_200",
+            "optionSymbol",
+            "firstTraded",
+            "firstTraded",
+            False,
+        ),
+        (
+            "options_quotes_human_response_200",
+            "Symbol",
+            "First Traded",
+            "First_Traded",
+            True,
+        ),
+    ],
+    ids=["plain", "human"],
+)
+def test_options_quotes_keeps_a_null_date_in_its_row(
+    load_json,
+    respx_mock,
+    client,
+    fixture,
+    symbol_key,
+    date_key,
+    attribute,
+    use_human_readable,
+):
+    """A symbol whose `firstTraded` is null reads as `None` in its own row, and
+    the symbols after it keep their own dates."""
+    first_traded = [1741872600, None, 1741872600 + 2 * 86400]
+    answers = []
+    for symbol, value in zip(THREE_SYMBOLS, first_traded):
+        body = load_json(fixture)
+        body[symbol_key] = [symbol]
+        body[date_key] = [value]
+        answers.append(body)
+    _answer_three_symbols(respx_mock, *answers)
+
+    quotes = client.options.quotes(
+        symbols=THREE_SYMBOLS,
+        output_format=OutputFormat.INTERNAL,
+        use_human_readable=use_human_readable,
+    )
+
+    eastern = pytz.timezone("US/Eastern")
+    assert getattr(quotes, attribute) == [
+        None if value is None else datetime.datetime.fromtimestamp(value, tz=eastern)
+        for value in first_traded
+    ]
+
+
+@pytest.mark.parametrize(
     "body", ["null", "[]", '"ok"'], ids=["null", "array", "string"]
 )
 @pytest.mark.parametrize("use_human_readable", [False, True])
@@ -712,10 +774,16 @@ def test_get_options_quotes_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadRequestError):
+    with pytest.raises(BadRequestError) as exc_info:
         client.options.quotes(
             symbols=["AAPL271217C00255000"], output_format=OutputFormat.INTERNAL
         )
+    assert_failed_answer(
+        exc_info.value,
+        400,
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/",
+        "{}",
+    )
 
 
 def test_get_options_quotes_status_offline(respx_mock, client):
@@ -732,18 +800,26 @@ def test_get_options_quotes_status_offline(respx_mock, client):
         json=mock_data,
         status_code=200,
     )
+    load_api_status(client)
 
-    respx_mock.get(
+    route = respx_mock.get(
         "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
     ).respond(
         json={},
         status_code=501,
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.options.quotes(
             symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
         )
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value,
+        501,
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/",
+        "{}",
+    )
 
 
 # ------------------------------------------------------------------- CSV
@@ -763,6 +839,9 @@ CALL_ROW = (
 PUT_ROW = CALL_ROW.replace("AAPL271217C00255000", "AAPL271217P00255000").replace(
     ",call,", ",put,"
 )
+# Built here, not imported from utils, so a wrong constant there fails these tests.
+BOM = chr(0xFEFF)
+
 CSV_PLACEHOLDER = '0\r\n""\r\n'
 
 
@@ -889,13 +968,36 @@ def test_options_quotes_csv_body_the_csv_module_cannot_read_is_a_parse_error(
     assert not (tmp_path / "test.csv").exists()
 
 
-def test_options_quotes_csv_leaves_out_a_symbol_with_no_data(
+def test_options_quotes_csv_reports_an_unreadable_body_before_its_misaligned_row(
     respx_mock, client, tmp_path
 ):
-    """Issue #89: the API's CSV placeholder for an empty symbol is a 200; it
-    must be skipped like a JSON 404 no_data, not merged, not an error."""
+    """A body the csv reader refuses is reported as unreadable even when one
+    of its rows before the refused field is misaligned."""
     respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
-    respx_mock.get(PUT_URL).respond(text=CSV_PLACEHOLDER)
+    respx_mock.get(PUT_URL).respond(
+        text=f"{CSV_HEADER}\r\n{PUT_ROW},1\r\n{'x' * 200_000},{PUT_ROW}\r\n"
+    )
+
+    with pytest.raises(ParseError) as exc_info:
+        client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+        )
+
+    assert "unreadable CSV" in exc_info.value.message
+    assert isinstance(exc_info.value.__cause__, csv.Error)
+    assert exc_info.value.request_url.startswith(PUT_URL)
+    assert not (tmp_path / "test.csv").exists()
+
+
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
+def test_options_quotes_csv_leaves_out_a_symbol_with_no_data(
+    respx_mock, client, tmp_path, mark
+):
+    """The 200 CSV placeholder, with or without a BOM, is skipped like a JSON 404."""
+    respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
+    respx_mock.get(PUT_URL).respond(text=mark + CSV_PLACEHOLDER)
 
     output = client.options.quotes(
         symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
@@ -906,6 +1008,33 @@ def test_options_quotes_csv_leaves_out_a_symbol_with_no_data(
     assert pathlib.Path(output).read_bytes() == (
         f"{CSV_HEADER}\r\n{CALL_ROW}\r\n".encode()
     )
+
+
+@pytest.mark.parametrize(
+    "output_format", [OutputFormat.INTERNAL, OutputFormat.JSON, OutputFormat.DATAFRAME]
+)
+@pytest.mark.parametrize("mark", ["", BOM], ids=["plain", "with-bom"])
+def test_options_quotes_leaves_out_a_placeholder_symbol_on_every_format(
+    load_json, respx_mock, client, output_format, mark
+):
+    """A symbol answering `""`, with or without a BOM, adds no rows."""
+    respx_mock.get(CALL_URL).respond(
+        json=load_json("options_quotes_response_200"), status_code=200
+    )
+    respx_mock.get(PUT_URL).respond(text=mark + '""', status_code=200)
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", ["pandas"]):
+        output = client.options.quotes(
+            symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+            output_format=output_format,
+        )
+
+    if output_format == OutputFormat.INTERNAL:
+        assert output.optionSymbol == ["AAPL271217C00255000"]
+    elif output_format == OutputFormat.JSON:
+        assert output["optionSymbol"] == ["AAPL271217C00255000"]
+    else:
+        assert list(output.index) == ["AAPL271217C00255000"]
 
 
 def test_options_quotes_csv_with_every_symbol_empty_is_a_header_only_file(
@@ -944,7 +1073,7 @@ def test_options_quotes_one_unknown_symbol_fails_the_call_on_every_format(
     respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
     respx_mock.get(PUT_URL).respond(status_code=404, **answer)
 
-    with pytest.raises(NotFoundError):
+    with pytest.raises(NotFoundError) as exc_info:
         client.options.quotes(
             symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
             output_format=output_format,
@@ -952,6 +1081,7 @@ def test_options_quotes_one_unknown_symbol_fails_the_call_on_every_format(
         )
 
     assert not (tmp_path / "test.csv").exists()
+    assert_failed_answer(exc_info.value, 404, PUT_URL, "No option found.")
 
 
 def test_options_quotes_csv_without_headers_and_every_symbol_empty_is_an_empty_file(
@@ -1016,11 +1146,8 @@ def test_options_quotes_join_dicts():
 
 
 def test_options_quotes_human_readable_join_dicts():
-    """The human-readable merge, the only place the API's spaced names are
-    translated to the model's underscored ones. It went out of this PR with
-    the null helpers by mistake: nothing else exercises it with more than one
-    symbol, so a `join_dicts` that kept only the first symbol's rows would
-    leave the suite green and the file at 100% coverage."""
+    """The human-readable merge keeps every symbol's rows under the API's
+    column names. Nothing else exercises it with more than one symbol."""
     dicts = [
         {
             "s": "ok",
@@ -1039,7 +1166,7 @@ def test_options_quotes_human_readable_join_dicts():
     assert OptionsQuotesHumanReadable.join_dicts(dicts) == {
         "Symbol": ["AAPL271217C00255000", "AAPL271217C00255000"],
         "Underlying": ["AAPL", "AAPL"],
-        "Expiration_Date": [1829077200, 1829077200],
+        "Expiration Date": [1829077200, 1829077200],
     }
 
 

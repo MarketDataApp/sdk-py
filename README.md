@@ -156,7 +156,7 @@ print(meta.request_id)                      # the cf-ray id, for support, or Non
 print(meta.rate_limits)                     # "Credits used X/Y, remaining: Z, reset at: ISO timestamp"
 ```
 
-`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `status_code` and `request_id` describe one response, so they come from the last one that could have contributed to the result, never from a symbol or chunk that answered "no data" and was dropped from the merge, which matters because `request_id` is what you quote in a support ticket; it is `None` when the answer carried no usable `cf-ray`. On the metadata of a call that raised, the same rule points the other way: there they come from the last response that failed, so the id names the request the ticket is about. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data). `meta.detected_ip` is the address the API saw the call come from, on every answer it serves, the empty one included.
+`get_meta()` works on every output format: record lists, single objects, JSON dicts and CSV paths (they stay `list`, `dict` and `str` for `isinstance`), pandas DataFrames (also reachable as `df.attrs["marketdata"]`) and polars DataFrames. For a call made of several requests (candle chunks, option symbols, retried attempts) `credits_consumed` adds up, `credits_remaining` is the lowest count seen in the newest reset window, and `meta.responses` says how many responses are behind the result. `status_code` and `request_id` describe one response, so they come from the last one that could have contributed to the result, never from a symbol or chunk that answered "no data" and was dropped from the merge, which matters because `request_id` is what you quote in a support ticket; it is `None` when the answer carried no usable `cf-ray`. On the metadata of a call that raised, they describe the request the exception is about, the one a ticket would be about, so they agree with `exc.status_code` and `exc.request_id` (where the exception says `"N/A"`, the metadata says `None`): the response the exception carries, or `0` and `None` when the SDK has no response for that request (a network failure, the pre-flight refusal, a body that does not match its `Content-Encoding`). An exception that is not the SDK's own (a `FileExistsError` from the CSV write) does not say which request caused it, so there they follow the rule of a successful call. `rate_limits` is `None` when the API sent no credit headers (`utilities.status()` and `utilities.headers()`), and the only result that cannot carry metadata is `None` itself (a single-object endpoint with no data). `meta.detected_ip` is the address the API saw the call come from, on every answer it serves, the empty one included.
 
 A failed call is billed too, so the exception carries the same metadata a result would:
 
@@ -362,12 +362,16 @@ The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
 
 ### `date_format` (DateFormat, optional)
 The date format to use in the response. Defaults to `DateFormat.UNIX`. Available options:
-- `DateFormat.TIMESTAMP`: ISO timestamp format
+- `DateFormat.TIMESTAMP`: US/Eastern text, `2026-09-21 14:02:10 -04:00`, or `2026-09-21` for a date
 - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
-- `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
+- `DateFormat.SPREADSHEET`: days since 1899-12-30 of the US/Eastern wall-clock time, as a spreadsheet serial
+
+On `OutputFormat.DATAFRAME`, date columns hold the same US/Eastern datetimes under every format (a date is its midnight), except under an explicit `DateFormat.UNIX`, which keeps the numbers.
 
 ### `columns` (list[str], optional)
 Specify which columns to include in the response. If not provided, all available columns are returned.
+
+The API applies the filter to the answer it sends, so a filtered answer arrives without the fields the `INTERNAL` models require, `s` included unless you list it among the columns. `output_format=OutputFormat.INTERNAL` therefore ignores the filter and asks for the whole answer; every other output format hands you exactly the columns you asked for.
 
 ### `add_headers` (bool, optional)
 Whether to include headers in the response. Uses API alias `headers`.
@@ -500,7 +504,7 @@ When the API has no data for a valid question (candles over a weekend, news for 
 
 | Output format | Empty result |
 |---|---|
-| `DATAFRAME` | a DataFrame with the model's columns and no rows; under `columns=`, the requested ones (names of the model, or API names under `use_human_readable=True`; the API's aliases such as `open` or `price` are not translated) |
+| `DATAFRAME` | a DataFrame with no rows and the column names, order and dtypes of a populated one; under `columns=`, the requested ones (names of the model, or API names under `use_human_readable=True`; the API's aliases such as `open` or `price` are not translated) |
 | `INTERNAL` | `[]` for list-shaped resources (`prices`, `quotes`, `candles`, `news`, `markets.status`, `utilities.status`), `None` for single-object ones (`earnings`, `options.chain`, `options.expirations`, `options.lookup`, `options.quotes`, `utilities.headers`, `utilities.user`) |
 | `JSON` | the API's `{"s": "no_data"}` body |
 | `CSV` | a file with the header row only (the requested columns under `columns=`; an empty file under `add_headers=False`) |
@@ -509,7 +513,7 @@ For the fan-out calls, a chunk (`stocks.candles`) or a symbol (`options.quotes`)
 
 The API renders the CSV empty answer as a `200` with a placeholder body instead of a `404` (MarketData-App/api#422); the SDK recognises it, so CSV output behaves as above.
 
-**One `columns=` case where the empty and the populated shapes still differ.** The API resolves its own column aliases (`open` for `o`, `price`, `date`), which the SDK does not mirror, because the accepted set depends on the endpoint. Asking for one of those (`stocks.candles(columns=["open"])`) gets a populated frame with the single column the API sent and an empty frame with every model column, so the two cannot be concatenated. Filter on the names the model exposes (or the API names of its twin under `use_human_readable=True`) and both shapes have the same columns in the same order. Under `use_human_readable=True` the names are still spelled differently (the API's `Expiration Date` in a populated result, the model's `Expiration_Date` in an empty one), and on polars an empty frame cannot come first in `pl.concat`; both are #107.
+**One `columns=` case where the empty and the populated shapes still differ.** The API resolves its own column aliases (`open` for `o`, `price`, `date`), which the SDK does not mirror, because the accepted set depends on the endpoint. Asking for one of those (`stocks.candles(columns=["open"])`) gets a populated frame with the single column the API sent and an empty frame with every model column, so the two cannot be concatenated. Filter on the names the model exposes (or the API names of its twin under `use_human_readable=True`) and both shapes have the same columns in the same order.
 
 ### `ValueError`
 
@@ -696,8 +700,10 @@ MARKETDATA_MODE=live
 **Defaults:**
 - `MARKETDATA_BASE_URL`: `https://api.marketdata.app`
 - `MARKETDATA_API_VERSION`: `v1`
-- `MARKETDATA_LOGGING_LEVEL`: `INFO`
+- `MARKETDATA_LOGGING_LEVEL`: `WARNING`
 - Universal parameters: `None` (uses method defaults)
+
+**Logging:** the SDK logs to the `marketdata.logger` logger. A client built without a `logger=` attaches a stream handler to it whenever the logger has none, writing to `sys.stderr` at `MARKETDATA_LOGGING_LEVEL`; the logger gets that level too while it has none of its own. A level your application sets on `marketdata.logger` is kept, and records below it are dropped before any handler sees them, the SDK's included. A handler you attach to that logger before the first client is built stands in for the SDK's; one attached later is added next to it. Two limits: a level set only on a parent logger (`marketdata`, or the root through `logging.basicConfig`) is not inherited, and a level equal to the one the SDK applied cannot be told apart from it, so it keeps following `MARKETDATA_LOGGING_LEVEL`.
 
 **Note:** Universal parameters set via environment variables will be used as defaults for all API calls, but can be overridden by passing them as method arguments. See the [Universal Parameters](#universal-parameters) section for available values.
 
@@ -843,13 +849,15 @@ ValueError: No dataframe output handler found
 
 ### Date Format Handling
 
-The SDK automatically handles multiple date formats:
+With `OutputFormat.INTERNAL`, every date in a response object is a US/Eastern `datetime.datetime`, whatever `date_format` was asked for. The SDK reads a value with the API's own rule:
 
-- **ISO timestamp strings**: Parsed using `datetime.fromisoformat()`
-- **Unix timestamps**: Parsed using `datetime.fromtimestamp()` (seconds since epoch)
-- **Spreadsheet dates**: Values between 0 and 60000 are treated as Excel-style dates (days since 1899-12-30)
+- **`timestamp` strings**: a datetime with its UTC offset (`2026-09-21 14:02:10 -04:00`), or a date (`2026-09-21`), which is midnight of that day in US/Eastern
+- **Spreadsheet serials**: a number from 10000 up to 200000, days since 1899-12-30 of the US/Eastern wall-clock time, rounded to the second
+- **Unix times**: a number from 200000 on, in seconds, from `1e10` in milliseconds and from `1e13` in nanoseconds
 
-All timestamps in response objects are automatically converted to `datetime.datetime` objects when using `OutputFormat.INTERNAL`. When using `OutputFormat.DATAFRAME`, timestamp conversion behavior varies by resource. See the specific resource documentation for details.
+A number under 10000 is not a date for the API (it reads it as a relative range), so a response that carried one raises `ParseError`.
+
+The `from_date` and `to_date` of an intraday `stocks.candles()` call are read by the SDK only when they are ISO dates or numbers the API reads as dates (a spreadsheet serial or a Unix time), because it splits a long range into one request per year. A relative range (a number under 10000, such as `"60"`) or a keyword (`"yesterday"`) goes to the API as it is, in one request, and the API resolves it. When using `OutputFormat.DATAFRAME`, timestamp conversion behavior varies by resource. See the specific resource documentation for details.
 
 ### DataFrame Processing
 

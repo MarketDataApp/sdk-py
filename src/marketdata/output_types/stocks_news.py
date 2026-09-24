@@ -11,12 +11,17 @@ class StockNews:
     headline: str
     content: str
     source: str
-    publicationDate: datetime.datetime
-    updated: datetime.datetime
+    publicationDate: datetime.datetime | None
+    updated: datetime.datetime | None
 
     def __post_init__(self):
-        self.publicationDate = format_timestamp(self.publicationDate)
-        self.updated = format_timestamp(self.updated)
+        """Read the dates; a null date stays ``None``."""
+        self.publicationDate = (
+            None
+            if self.publicationDate is None
+            else format_timestamp(self.publicationDate)
+        )
+        self.updated = None if self.updated is None else format_timestamp(self.updated)
 
     def __repr__(self) -> str:
         result = "Stock News:\n"
@@ -40,12 +45,17 @@ class StockNewsHumanReadable:
     headline: str
     content: str
     source: str
-    publicationDate: datetime.datetime
-    Date: datetime.datetime
+    publicationDate: datetime.datetime | None
+    Date: datetime.datetime | None
 
     def __post_init__(self):
-        self.publicationDate = format_timestamp(self.publicationDate)
-        self.Date = format_timestamp(self.Date)
+        """Read the dates; a null date stays ``None``."""
+        self.publicationDate = (
+            None
+            if self.publicationDate is None
+            else format_timestamp(self.publicationDate)
+        )
+        self.Date = None if self.Date is None else format_timestamp(self.Date)
 
     def __repr__(self) -> str:
         result = "Stock News:\n"

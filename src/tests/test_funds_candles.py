@@ -10,6 +10,7 @@ from marketdata.exceptions import BadRequestError, ServerError
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.funds import FundsCandlesInput
 from marketdata.output_types.funds_candles import FundsCandle, FundsCandlesHumanReadable
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 
 def test_fund_candle_str():
@@ -211,16 +212,22 @@ def test_get_funds_candles_human_response_200(load_json, respx_mock, client):
 
 def test_get_funds_candles_response_400(respx_mock, client):
     respx_mock.get("https://api.marketdata.app/v1/funds/candles/D/VFINX/").respond(
-        json={"s": "error", "err": "invalid symbol"},
+        json={"s": "error", "errmsg": "invalid symbol"},
         status_code=400,
     )
 
-    with pytest.raises(BadRequestError):
+    with pytest.raises(BadRequestError) as exc_info:
         client.funds.candles(
             symbol="VFINX",
             resolution="D",
             output_format=OutputFormat.INTERNAL,
         )
+    assert_failed_answer(
+        exc_info.value,
+        400,
+        "https://api.marketdata.app/v1/funds/candles/D/VFINX/",
+        "invalid symbol",
+    )
 
 
 def test_get_funds_candles_status_offline(load_json, respx_mock, client):
@@ -237,18 +244,28 @@ def test_get_funds_candles_status_offline(load_json, respx_mock, client):
         json=mock_data,
         status_code=200,
     )
+    load_api_status(client)
 
-    respx_mock.get("https://api.marketdata.app/v1/funds/candles/D/VFINX/").respond(
+    route = respx_mock.get(
+        "https://api.marketdata.app/v1/funds/candles/D/VFINX/"
+    ).respond(
         json={},
         status_code=501,
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.funds.candles(
             symbol="VFINX",
             resolution="D",
             output_format=OutputFormat.INTERNAL,
         )
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value,
+        501,
+        "https://api.marketdata.app/v1/funds/candles/D/VFINX/",
+        "{}",
+    )
 
 
 def test_get_funds_candles_response_200_csv(respx_mock, client):

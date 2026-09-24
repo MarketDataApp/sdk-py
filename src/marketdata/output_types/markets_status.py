@@ -7,11 +7,12 @@ from marketdata.utils import format_timestamp
 
 @dataclass
 class MarketStatus:
-    date: datetime.date
+    date: datetime.date | None
     status: str
 
     def __post_init__(self):
-        self.date = format_timestamp(self.date)
+        """Read the dates; a null date stays ``None``."""
+        self.date = None if self.date is None else format_timestamp(self.date)
 
     def __repr__(self) -> str:
         return f"Market Status: {self.status}, Date: {self.date}"
@@ -27,10 +28,11 @@ class MarketStatusHumanReadable:
     api_model: ClassVar[type] = MarketStatus
 
     Status: str
-    Date: datetime.datetime
+    Date: datetime.datetime | None
 
     def __post_init__(self):
-        self.Date = format_timestamp(self.Date)
+        """Read the dates; a null date stays ``None``."""
+        self.Date = None if self.Date is None else format_timestamp(self.Date)
 
     def __repr__(self) -> str:
         return f"Market Status: {self.Status}, Date: {self.Date}"

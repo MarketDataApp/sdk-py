@@ -1,4 +1,4 @@
-"""Request-scoped response metadata (SDK requirements §8.2, #49).
+"""Request-scoped response metadata (SDK requirements §8.2).
 
 A resource call returns the data the caller asked for. The metadata of the
 HTTP exchange behind it (credits consumed, credits remaining, the request id)
@@ -14,13 +14,15 @@ the call completed, retries included) and one point reads (``get_meta``).
 The thin containers below keep ``isinstance`` checks against ``list``,
 ``dict`` and ``str`` working for the INTERNAL, JSON and CSV output formats;
 pandas frames carry the metadata in ``DataFrame.attrs["marketdata"]``, and
-every other object (polars frames, single-object models) is remembered by
-identity without touching its namespace.
+every other object (polars frames, single-object models, exceptions) keeps it
+in its own ``__dict__``, so a copy, a deep copy or a pickle of it keeps it too.
+An object with no ``__dict__`` is remembered by weak reference instead.
 """
 
 from __future__ import annotations
 
 import contextvars
+import logging
 import weakref
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -28,20 +30,19 @@ from typing import Any, Iterator
 
 from httpx import Response
 
+from marketdata.exceptions import MarketdataHttpError, RateLimitError
 from marketdata.internal_settings import (
     HEADER_DETECTED_IP,
     HEADER_REQUEST_ID,
     VALID_STATUS_CODES,
     read_header,
 )
-from marketdata.logger import get_logger
 from marketdata.types import UserRateLimits
 
-logger = get_logger()
+# By name, not `get_logger()`: importing the package must not attach a handler.
+logger = logging.getLogger("marketdata.logger")
 
 PANDAS_ATTRS_KEY = "marketdata"
-# Where an exception keeps its metadata. Exceptions cannot go through the
-# identity registry below: the built-in ones are not weak-referenceable.
 META_ATTRIBUTE = "_marketdata_meta"
 
 
@@ -73,11 +74,12 @@ class ResponseMeta:
     matters most for ``request_id``: it is the id to quote in a support
     ticket, and it must name a request that produced part of this result.
 
-    On the metadata of a call that raised, the same rule points the other way:
-    there the id has to name the request that failed, not the sibling that
-    came back fine, so the merge behind an exception reads the last response
-    whose status is **not** usable. When every response was usable, or none
-    was, the last one is the honest answer either way.
+    On the metadata of a call that raised a ``MarketdataHttpError`` or
+    ``RateLimitError``, ``status_code`` and ``request_id`` are those of the
+    exception's response (``None`` for a missing or blank ``cf-ray``, where
+    the exception says ``"N/A"``), or ``0`` and ``None`` when it carries no
+    response. Any other exception follows the rule of a successful call.
+    ``responses`` and the credits cover every response the call recorded.
 
     ``detected_ip`` is the address the API saw the call come from, sent as
     ``X-API-Detected-IP`` on any answer it serves, the empty ``no_data`` one
@@ -111,29 +113,17 @@ class ResponseMeta:
         )
 
     @classmethod
-    def merge(cls, metas: list[ResponseMeta], *, failed: bool = False) -> ResponseMeta:
+    def _merge(
+        cls, metas: list[ResponseMeta], *, error: BaseException | None = None
+    ) -> ResponseMeta:
+        """Merge the metadata of every response behind one call.
+
+        ``error`` is the exception the call raised, if any. Raises
+        ``ValueError`` when ``metas`` is empty.
+        """
         if not metas:
             raise ValueError("cannot merge an empty list of ResponseMeta")
-        # `status_code` and `request_id` describe one response, so they come
-        # from the last one that could have contributed to the result: the
-        # same `VALID_STATUS_CODES` the fan-outs use to build their `usable`
-        # list. Otherwise a symbol answering 404 `no_data` -- recorded, then
-        # dropped from the merge -- could label a successful call as a 404 and
-        # hand support the request id of the one response that returned
-        # nothing. With no usable response (every attempt failed) the last one
-        # is the honest answer.
-        # On the failure path the same reasoning points the other way: the
-        # metadata of a call that raised must describe the answer that made it
-        # raise, not a symbol that came back fine. Handing support the request
-        # id of the one request that worked is the worst version of this.
-        if failed:
-            broken = [
-                meta for meta in metas if meta.status_code not in VALID_STATUS_CODES
-            ]
-            speaker = broken[-1] if broken else metas[-1]
-        else:
-            usable = [meta for meta in metas if meta.status_code in VALID_STATUS_CODES]
-            speaker = usable[-1] if usable else metas[-1]
+        speaker = cls._speaker(metas, error)
         known = [meta.rate_limits for meta in metas if meta.rate_limits is not None]
         rate_limits = None
         if known:
@@ -167,6 +157,25 @@ class ResponseMeta:
             detected_ip=detected_ip,
         )
 
+    @classmethod
+    def _speaker(
+        cls, metas: list[ResponseMeta], error: BaseException | None
+    ) -> ResponseMeta:
+        """The response that ``status_code`` and ``request_id`` describe.
+
+        The one an SDK HTTP ``error`` carries (a blank one when it carries
+        none), else the last one in ``metas`` with a usable status, else the
+        last one.
+        """
+        if isinstance(error, (MarketdataHttpError, RateLimitError)):
+            # A non-httpx response falls through: raising here would mask `error`.
+            if error.response is None:
+                return cls(status_code=0, request_id=None, rate_limits=None)
+            if isinstance(error.response, Response):
+                return cls.from_response(error.response, None)
+        usable = [meta for meta in metas if meta.status_code in VALID_STATUS_CODES]
+        return usable[-1] if usable else metas[-1]
+
 
 class ResultList(list):
     """A list result (records) carrying the response metadata on ``meta``."""
@@ -186,43 +195,44 @@ class CsvPath(str):
     meta: ResponseMeta | None = None
 
 
-# Metadata of the objects that are neither wrapped nor pandas frames (polars
-# frames, single-object models), keyed by identity and dropped with the object,
-# so a model's own namespace is never touched (`vars(model)` stays the model).
+# Keyed by id(): each entry is dropped when its object is collected, so an id
+# that Python hands out again never finds a stale entry.
 _registry: dict[int, ResponseMeta] = {}
 
 
-def _remember(obj: Any, meta: ResponseMeta) -> None:
-    key = id(obj)
-    try:
-        weakref.finalize(obj, _registry.pop, key, None)
-    except TypeError:
-        # Nothing safe to hang it on. Exceptions took the attribute path
-        # above, so what reaches this is an exotic result type; say so at
-        # DEBUG rather than dropping the metadata in silence.
-        logger.debug(
-            f"{type(obj).__name__} cannot be weak-referenced, so this result "
-            "carries no response metadata"
-        )
-        return
+def _remember(result: Any, meta: ResponseMeta) -> None:
+    """Keep the metadata of an object with no ``__dict__`` while it lives.
+
+    Args:
+        result: The object.
+        meta: The metadata of the call.
+
+    Raises:
+        TypeError: When ``result`` cannot be weak-referenced.
+    """
+    key = id(result)
+    weakref.finalize(result, _registry.pop, key, None)
     _registry[key] = meta
 
 
 def attach_meta(result: Any, meta: ResponseMeta) -> Any:
-    """Attach ``meta`` to ``result`` and return the object to hand back.
+    """Attach the metadata of a call to what the call returned or raised.
 
-    ``None`` (a single-object endpoint with no data) cannot carry anything and
-    is returned as is. An exception carries the metadata as an attribute:
-    that is how a failed call still reports what it was billed, and the
-    identity path cannot do it, because a built-in exception (the
-    ``FileExistsError`` of an existing CSV path, a decoder ``KeyError``)
-    cannot be weak-referenced.
+    Args:
+        result: The result of the call, or the exception it raised.
+        meta: The metadata of the call.
+
+    Returns:
+        The object to hand back. A pandas frame carries ``meta`` in
+        ``attrs``; a list, a dict or a str comes back as a ``ResultList``,
+        ``ResultDict`` or ``CsvPath`` carrying it; any other object carries
+        it in its ``__dict__``, or, with none, by weak reference until it is
+        collected. ``None``, and an object with neither a ``__dict__`` nor
+        weak references, come back as they are and carry nothing; the latter
+        is logged at DEBUG.
     """
     if result is None:
         return None
-    if isinstance(result, BaseException):
-        result.__dict__[META_ATTRIBUTE] = meta
-        return result
     attrs = getattr(result, "attrs", None)
     if isinstance(attrs, dict):  # pandas
         attrs[PANDAS_ATTRS_KEY] = meta
@@ -233,28 +243,43 @@ def attach_meta(result: Any, meta: ResponseMeta) -> Any:
         wrapped = ResultDict(result)
     elif isinstance(result, str):
         wrapped = CsvPath(result)
-    else:  # polars frames, dataclass models
-        _remember(result, meta)
+    else:  # polars frames, models, exceptions
+        namespace = getattr(result, "__dict__", None)
+        if isinstance(namespace, dict):
+            namespace[META_ATTRIBUTE] = meta
+            return result
+        try:
+            _remember(result, meta)
+        except TypeError:
+            logger.debug(
+                f"{type(result).__name__} has no __dict__ and cannot be "
+                "weak-referenced, so this result carries no response metadata"
+            )
         return result
     wrapped.meta = meta
     return wrapped
 
 
 def get_meta(result: Any) -> ResponseMeta | None:
-    """The :class:`ResponseMeta` behind a resource call, if any.
+    """Read the :class:`ResponseMeta` behind a resource call.
 
-    Takes the result of a successful call or the exception a failed one
-    raised, so the credits a failure consumed are readable too.
+    Args:
+        result: The result of a successful call, or the exception a failed
+            one raised, so the credits a failure consumed are readable too.
+
+    Returns:
+        The metadata, or ``None`` when ``result`` carries none.
     """
     if result is None:
         return None
-    if isinstance(result, BaseException):
-        return result.__dict__.get(META_ATTRIBUTE)
     attrs = getattr(result, "attrs", None)
     if isinstance(attrs, dict):  # pandas
         return attrs.get(PANDAS_ATTRS_KEY)
     if isinstance(result, (ResultList, ResultDict, CsvPath)):
         return result.meta
+    namespace = getattr(result, "__dict__", None)
+    if isinstance(namespace, dict):
+        return namespace.get(META_ATTRIBUTE)
     return _registry.get(id(result))
 
 

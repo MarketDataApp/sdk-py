@@ -15,6 +15,7 @@ from typing import ClassVar, get_origin, get_type_hints
 import pytest
 
 import marketdata.output_types as output_types
+from marketdata.output_types.columns import _column_names
 from marketdata.resources.base import model_columns
 from marketdata.utils import column_key
 
@@ -43,8 +44,8 @@ PAIRS = [
 
 
 def _columns(model: type) -> list[str]:
-    """The columns `model_columns` works with: every field but the status flag."""
-    return [field.name for field in fields(model) if field.name != "s"]
+    """List the columns of a model as the API names them."""
+    return list(_column_names(model).values())
 
 
 @pytest.mark.parametrize("model", HUMAN_MODELS, ids=lambda m: m.__name__)
@@ -143,18 +144,18 @@ POSITIONAL_TRANSLATIONS = {
     },
     "OptionsChainHumanReadable": {
         "optionSymbol": "Symbol",
-        "expiration": "Expiration_Date",
-        "side": "Option_Side",
-        "dte": "Days_To_Expiration",
+        "expiration": "Expiration Date",
+        "side": "Option Side",
+        "dte": "Days To Expiration",
         "updated": "Date",
     },
     "OptionsExpirationsHumanReadable": {"updated": "Date"},
     "OptionsLookupHumanReadable": {"optionSymbol": "Symbol"},
     "OptionsQuotesHumanReadable": {
         "optionSymbol": "Symbol",
-        "expiration": "Expiration_Date",
-        "side": "Option_Side",
-        "dte": "Days_To_Expiration",
+        "expiration": "Expiration Date",
+        "side": "Option Side",
+        "dte": "Days To Expiration",
         "updated": "Date",
     },
     "StockCandlesHumanReadable": {
@@ -165,16 +166,16 @@ POSITIONAL_TRANSLATIONS = {
         "c": "Close",
         "v": "Volume",
     },
-    "StockEarningsHumanReadable": {"surpriseEPSpct": "Surprise_EPS_Percent"},
+    "StockEarningsHumanReadable": {"surpriseEPSpct": "Surprise EPS %"},
     "StockNewsHumanReadable": {"updated": "Date"},
     "StockPricesHumanReadable": {
-        "change": "Change_Price",
-        "changepct": "Change_Percent",
+        "change": "Change $",
+        "changepct": "Change %",
         "updated": "Date",
     },
     "StockQuotesHumanReadable": {
-        "change": "Change_Price",
-        "changepct": "Change_Percent",
+        "change": "Change $",
+        "changepct": "Change %",
         "updated": "Date",
     },
     # `date` and `status` both match a human column by `column_key`, so this
@@ -192,7 +193,9 @@ def test_the_positional_map_translates_the_names_it_is_supposed_to(human, api):
     deliberate edit here rather than a silent change of meaning.
     """
     human_columns = _columns(human)
-    by_key = {column_key(name) for name in human_columns}
+    by_key = {column_key(name) for name in human_columns} | {
+        column_key(field.name) for field in fields(human)
+    }
     expected = POSITIONAL_TRANSLATIONS[human.__name__]
 
     positional = [name for name in _columns(api) if column_key(name) not in by_key]
@@ -229,3 +232,94 @@ def test_market_status_names_translate_by_name_not_by_position():
     ]
     for api_name, human_name in (("date", "Date"), ("status", "Status")):
         assert column_key(api_name) == column_key(human_name)
+
+
+# Every human-readable column name as the API sends it, read off live answers
+# with `human=true`. Written out by hand so the naming rule is checked against
+# the API rather than against itself.
+API_HUMAN_COLUMNS = {
+    "FundsCandlesHumanReadable": ["Date", "Open", "High", "Low", "Close"],
+    "MarketStatusHumanReadable": ["Date", "Status"],
+    "OptionsChainHumanReadable": [
+        "Symbol",
+        "Underlying",
+        "Expiration Date",
+        "Option Side",
+        "Strike",
+        "First Traded",
+        "Days To Expiration",
+        "Date",
+        "Bid",
+        "Bid Size",
+        "Mid",
+        "Ask",
+        "Ask Size",
+        "Last",
+        "Open Interest",
+        "Volume",
+        "In The Money",
+        "Intrinsic Value",
+        "Extrinsic Value",
+        "Underlying Price",
+        "IV",
+        "Delta",
+        "Gamma",
+        "Theta",
+        "Vega",
+    ],
+    "OptionsExpirationsHumanReadable": ["Expirations", "Date"],
+    "OptionsLookupHumanReadable": ["Symbol"],
+    "StockCandlesHumanReadable": ["Date", "Open", "High", "Low", "Close", "Volume"],
+    "StockEarningsHumanReadable": [
+        "Symbol",
+        "Fiscal Year",
+        "Fiscal Quarter",
+        "Date",
+        "Report Date",
+        "Report Time",
+        "Currency",
+        "Reported EPS",
+        "Estimated EPS",
+        "Surprise EPS",
+        "Surprise EPS %",
+        "Updated",
+    ],
+    "StockNewsHumanReadable": [
+        "headline",
+        "content",
+        "source",
+        "publicationDate",
+        "Symbol",
+        "Date",
+    ],
+    "StockPricesHumanReadable": ["Symbol", "Mid", "Change $", "Change %", "Date"],
+    "StockQuotesHumanReadable": [
+        "Symbol",
+        "Ask",
+        "Ask Size",
+        "Bid",
+        "Bid Size",
+        "Mid",
+        "Last",
+        "Change $",
+        "Change %",
+        "Volume",
+        "Date",
+    ],
+}
+API_HUMAN_COLUMNS["OptionsQuotesHumanReadable"] = API_HUMAN_COLUMNS[
+    "OptionsChainHumanReadable"
+]
+
+
+@pytest.mark.parametrize("model", HUMAN_MODELS, ids=lambda m: m.__name__)
+def test_human_readable_columns_are_named_as_the_api_names_them(model):
+    """Each human-readable column carries the name the API gives it."""
+    assert sorted(_columns(model)) == sorted(API_HUMAN_COLUMNS[model.__name__])
+
+
+def test_model_columns_of_a_class_that_is_not_a_dataclass_is_empty():
+    """A class that is not a dataclass has no columns, with or without a
+    filter."""
+    assert model_columns(dict) == []
+    assert model_columns(dict, ["a"]) == []
