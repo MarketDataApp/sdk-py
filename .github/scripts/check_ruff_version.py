@@ -45,6 +45,9 @@ _LOCKED = re.compile(
     r'\[\[package\]\]\s*name\s*=\s*"ruff"\s*version\s*=\s*"([^"]+)"', re.S
 )
 
+# The pre-commit hooks that run ruff, and the command each entry must start with.
+_RUFF_HOOKS = {"ruff-check": "uv run ruff check", "ruff-format": "uv run ruff format"}
+
 
 def _rel(path: Path) -> str:
     return path.relative_to(REPO_ROOT).as_posix()
@@ -152,26 +155,78 @@ def _workflow_problems() -> list[str]:
     return problems
 
 
-def _pre_commit_problems() -> list[str]:
-    """How the pre-commit hooks call ruff, comments excluded.
+def _pre_commit_items() -> list[dict[str, str]]:
+    """The repos and hooks of the pre-commit config, comments excluded.
+
+    Read line by line so the script needs no YAML library: a `- key: value` line
+    starts an item, and each `key: value` line after it fills that item in. An
+    item written as a flow mapping is kept as `unreadable`, never skipped.
 
     Returns:
-        One line per problem, empty when both ruff hooks run through uv and no
-        hook repo pins a ruff version of its own.
+        One mapping of key to unquoted value per repo and per hook, in file order.
     """
-    if not PRE_COMMIT_CONFIG.is_file():
-        return [f"  {_rel(PRE_COMMIT_CONFIG)}: the pre-commit config is missing"]
+    items: list[dict[str, str]] = []
+    text = _without_comments(PRE_COMMIT_CONFIG.read_text(encoding="utf-8"))
+    for line in text.splitlines():
+        if re.match(r"\s*-\s*\{", line):
+            items.append({"unreadable": line.strip()})
+            continue
+        match = re.match(r"\s*(-\s+)?([\w-]+):(.*)", line)
+        if match is None:
+            continue
+        starts_item, key, value = match.groups()
+        value = value.strip()
+        if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        if starts_item:
+            items.append({})
+        if items:
+            items[-1][key] = value
+    return items
 
-    config = _without_comments(PRE_COMMIT_CONFIG.read_text(encoding="utf-8"))
-    problems = []
-    if "ruff-pre-commit" in config:
+
+def _pre_commit_problems() -> list[str]:
+    """How the pre-commit hooks call ruff, read from each hook's own `entry`.
+
+    Returns:
+        One line per problem, empty when every `ruff-check` and `ruff-format`
+        hook runs its command through uv, no other hook runs ruff without uv and
+        no hook repo pins a ruff version of its own.
+    """
+    config = _rel(PRE_COMMIT_CONFIG)
+    if not PRE_COMMIT_CONFIG.is_file():
+        return [f"  {config}: the pre-commit config is missing"]
+
+    items = _pre_commit_items()
+    problems = [
+        f"  {config}: cannot read `{item['unreadable']}`; write it as a block mapping"
+        for item in items
+        if "unreadable" in item
+    ]
+    if any("ruff-pre-commit" in item.get("repo", "") for item in items):
         problems.append(
-            f"  {_rel(PRE_COMMIT_CONFIG)}: uses the ruff-pre-commit repo, whose "
-            "rev is a second ruff version; run the hooks through `uv run ruff`"
+            f"  {config}: uses the ruff-pre-commit repo, whose rev is a second "
+            "ruff version; run the hooks through `uv run ruff`"
         )
-    for command in ("uv run ruff check", "uv run ruff format"):
-        if command not in config:
-            problems.append(f"  {_rel(PRE_COMMIT_CONFIG)}: does not run `{command}`")
+    for hook_id, command in _RUFF_HOOKS.items():
+        entries = [item.get("entry", "") for item in items if item.get("id") == hook_id]
+        expected = command.split()
+        if not entries or any(
+            entry.split()[: len(expected)] != expected for entry in entries
+        ):
+            problems.append(
+                f"  {config}: the `{hook_id}` hook does not run `{command}`"
+            )
+    for item in items:
+        words = item.get("entry", "").split()
+        if (
+            item.get("id") not in _RUFF_HOOKS
+            and words
+            and Path(words[0]).stem == "ruff"
+        ):
+            problems.append(
+                f"  {config}: the `{item.get('id')}` hook runs ruff without uv"
+            )
     return problems
 
 
