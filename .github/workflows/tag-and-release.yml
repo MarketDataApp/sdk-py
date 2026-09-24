@@ -58,7 +58,7 @@ jobs:
           fi
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.1.0
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           version: "latest"
 
@@ -256,7 +256,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.1.0
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           version: "latest"
 
