@@ -12,6 +12,7 @@ from marketdata.output_types.markets_status import (
     MarketStatus,
     MarketStatusHumanReadable,
 )
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 
 def test_markets_status_str():
@@ -185,16 +186,21 @@ def test_get_markets_status_status_offline(load_json, respx_mock, client):
         json=mock_data,
         status_code=200,
     )
+    load_api_status(client)
 
-    respx_mock.get("https://api.marketdata.app/v1/markets/status/").respond(
+    route = respx_mock.get("https://api.marketdata.app/v1/markets/status/").respond(
         json={},
         status_code=501,
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.markets.status(
             output_format=OutputFormat.INTERNAL,
         )
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value, 501, "https://api.marketdata.app/v1/markets/status/", "{}"
+    )
 
 
 def test_get_markets_status_response_200_csv(respx_mock, client):

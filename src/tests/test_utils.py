@@ -25,6 +25,7 @@ from marketdata.utils import (
     split_dates_by_timeframe,
     validate_single_param,
 )
+from src.tests.conftest import assert_failed_answer
 
 
 def test_format_timestamp():
@@ -208,10 +209,19 @@ def test_merge_csv_responses_without_headers_concatenates_rows_of_one_width():
     result = merge_csv_responses(responses, COLUMNS, with_header=False)
 
     assert result == "1,2\r\n3,4\r\n5,6\r\n"
-    with pytest.raises(ParseError):
+    with pytest.raises(ParseError) as exc_info:
         merge_csv_responses(
             responses + [_csv_response("7\n")], COLUMNS, with_header=False
         )
+    assert_failed_answer(
+        exc_info.value,
+        200,
+        "https://api.marketdata.app/v1/x/",
+        (
+            "Response body is not a valid answer of this resource"
+            " (row ['7'] does not have 2 values): '7\\n'"
+        ),
+    )
 
 
 # A field past the reader's limit fails on every Python; a NUL byte only

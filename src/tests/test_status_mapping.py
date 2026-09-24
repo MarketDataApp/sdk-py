@@ -25,6 +25,7 @@ from marketdata.exceptions import (
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.options_expirations import OptionsExpirations
 from marketdata.output_types.stocks_candles import StockCandle
+from src.tests.conftest import assert_failed_answer
 
 PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 EXPIRATIONS_URL = "https://api.marketdata.app/v1/options/expirations/AAPL/"
@@ -51,6 +52,80 @@ def _no_sleep(monkeypatch):
     monkeypatch.setattr("time.sleep", lambda *_: None)
 
 
+# One call per resource, and the URL its request goes to. The fan-outs send a
+# single request here and raise from inside their executor.
+EVERY_RESOURCE = [
+    pytest.param(
+        lambda c, **kw: c.stocks.prices("AAPL", **kw), PRICES_URL, id="stocks.prices"
+    ),
+    pytest.param(
+        lambda c, **kw: c.stocks.quotes("AAPL", **kw),
+        QUOTES_URL_STOCKS,
+        id="stocks.quotes",
+    ),
+    pytest.param(
+        lambda c, **kw: c.stocks.candles("AAPL", resolution="H", **kw),
+        CANDLES_URL,
+        id="stocks.candles",
+    ),
+    pytest.param(
+        lambda c, **kw: c.stocks.earnings("AAPL", **kw),
+        "https://api.marketdata.app/v1/stocks/earnings/AAPL/",
+        id="stocks.earnings",
+    ),
+    pytest.param(
+        lambda c, **kw: c.stocks.news("AAPL", **kw),
+        "https://api.marketdata.app/v1/stocks/news/AAPL/",
+        id="stocks.news",
+    ),
+    pytest.param(
+        lambda c, **kw: c.options.chain("AAPL", **kw),
+        "https://api.marketdata.app/v1/options/chain/AAPL/",
+        id="options.chain",
+    ),
+    pytest.param(
+        lambda c, **kw: c.options.expirations("AAPL", **kw),
+        EXPIRATIONS_URL,
+        id="options.expirations",
+    ),
+    pytest.param(
+        lambda c, **kw: c.options.lookup("AAPL 28-00-2023 200.0 call", **kw),
+        "https://api.marketdata.app/v1/options/lookup/AAPL 28-00-2023 200.0 call/",
+        id="options.lookup",
+    ),
+    pytest.param(
+        lambda c, **kw: c.options.quotes("AAPL271217C00255000", **kw),
+        f"{QUOTES_URL}AAPL271217C00255000/",
+        id="options.quotes",
+    ),
+    pytest.param(
+        lambda c, **kw: c.funds.candles("VFINX", **kw),
+        "https://api.marketdata.app/v1/funds/candles/D/VFINX/",
+        id="funds.candles",
+    ),
+    pytest.param(
+        lambda c, **kw: c.markets.status(**kw),
+        "https://api.marketdata.app/v1/markets/status/",
+        id="markets.status",
+    ),
+    pytest.param(
+        lambda c, **kw: c.utilities.status(**kw),
+        "https://api.marketdata.app/status/",
+        id="utilities.status",
+    ),
+    pytest.param(
+        lambda c, **kw: c.utilities.headers(**kw),
+        "https://api.marketdata.app/headers/",
+        id="utilities.headers",
+    ),
+    pytest.param(
+        lambda c, **kw: c.utilities.user(**kw),
+        "https://api.marketdata.app/user/",
+        id="utilities.user",
+    ),
+]
+
+
 @pytest.mark.parametrize(
     ("status", "exception_class"),
     [
@@ -65,21 +140,22 @@ def _no_sleep(monkeypatch):
     ],
 )
 @pytest.mark.parametrize("envelope", ["json", "csv"])
+@pytest.mark.parametrize(("call", "url"), EVERY_RESOURCE)
 def test_status_maps_to_its_exception(
-    respx_mock, client, status, exception_class, envelope
+    respx_mock, client, status, exception_class, envelope, call, url
 ):
-    """The envelope the API answers with must not change the exception nor its
-    message: the same error arrives as a JSON object or as a two-line CSV
-    table depending on the format asked for, and the SDK reads both (#91)."""
-    respx_mock.get(PRICES_URL).mock(return_value=error_response(status, envelope))
+    """Every resource raises the same exception for the same status, carrying
+    the status, the API's message and the URL of its request. The envelope
+    the API answers with must not change the exception nor its message: the
+    same error arrives as a JSON object or as a two-line CSV table depending
+    on the format asked for, and the SDK reads both (#91)."""
+    respx_mock.get(url).mock(return_value=error_response(status, envelope))
 
     with pytest.raises(exception_class) as exc_info:
-        client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+        call(client, output_format=OutputFormat.JSON)
 
     error = exc_info.value
-    assert error.status_code == status
-    assert error.message == ERROR_BODY["errmsg"]
-    assert error.request_url.startswith(PRICES_URL)
+    assert_failed_answer(error, status, url, ERROR_BODY["errmsg"])
     assert error.exception_type == exception_class.__name__
 
 
@@ -87,10 +163,14 @@ def test_status_maps_to_its_exception(
 def test_terminal_statuses_are_not_retried(respx_mock, client, status):
     route = respx_mock.get(PRICES_URL).respond(json=ERROR_BODY, status_code=status)
 
-    with pytest.raises(MarketdataHttpError if status != 429 else RateLimitError):
+    with pytest.raises(
+        MarketdataHttpError if status != 429 else RateLimitError
+    ) as exc_info:
         client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
 
     assert route.call_count == 1
+    assert exc_info.value.status_code == status
+    assert exc_info.value.message == ERROR_BODY["errmsg"]
 
 
 def test_server_errors_above_500_are_retried(respx_mock, client, monkeypatch):

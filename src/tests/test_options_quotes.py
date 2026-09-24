@@ -22,6 +22,7 @@ from marketdata.output_types.options_quotes import (
     OptionsQuotes,
     OptionsQuotesHumanReadable,
 )
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 
 def test_options_quotes_str():
@@ -363,10 +364,16 @@ def test_options_quotes_empty_symbol_body_is_a_parse_error(respx_mock, client):
         status_code=200,
     )
 
-    with pytest.raises(ParseError):
+    with pytest.raises(ParseError) as exc_info:
         client.options.quotes(
             symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
         )
+    assert_failed_answer(
+        exc_info.value,
+        200,
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/",
+        "Response body is not valid JSON: ''",
+    )
 
 
 def test_options_quotes_no_one_good_status_code(respx_mock, client):
@@ -712,10 +719,16 @@ def test_get_options_quotes_response_400(respx_mock, client):
         status_code=400,
     )
 
-    with pytest.raises(BadRequestError):
+    with pytest.raises(BadRequestError) as exc_info:
         client.options.quotes(
             symbols=["AAPL271217C00255000"], output_format=OutputFormat.INTERNAL
         )
+    assert_failed_answer(
+        exc_info.value,
+        400,
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/",
+        "{}",
+    )
 
 
 def test_get_options_quotes_status_offline(respx_mock, client):
@@ -732,18 +745,26 @@ def test_get_options_quotes_status_offline(respx_mock, client):
         json=mock_data,
         status_code=200,
     )
+    load_api_status(client)
 
-    respx_mock.get(
+    route = respx_mock.get(
         "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/"
     ).respond(
         json={},
         status_code=501,
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.options.quotes(
             symbols="AAPL271217C00255000", output_format=OutputFormat.INTERNAL
         )
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value,
+        501,
+        "https://api.marketdata.app/v1/options/quotes/AAPL271217C00255000/",
+        "{}",
+    )
 
 
 # ------------------------------------------------------------------- CSV
@@ -974,7 +995,7 @@ def test_options_quotes_one_unknown_symbol_fails_the_call_on_every_format(
     respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n")
     respx_mock.get(PUT_URL).respond(status_code=404, **answer)
 
-    with pytest.raises(NotFoundError):
+    with pytest.raises(NotFoundError) as exc_info:
         client.options.quotes(
             symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
             output_format=output_format,
@@ -982,6 +1003,7 @@ def test_options_quotes_one_unknown_symbol_fails_the_call_on_every_format(
         )
 
     assert not (tmp_path / "test.csv").exists()
+    assert_failed_answer(exc_info.value, 404, PUT_URL, "No option found.")
 
 
 def test_options_quotes_csv_without_headers_and_every_symbol_empty_is_an_empty_file(

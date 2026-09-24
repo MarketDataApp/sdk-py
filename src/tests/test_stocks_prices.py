@@ -9,6 +9,7 @@ import pytz
 from marketdata.exceptions import ServerError
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.stocks_prices import StockPrice, StockPricesHumanReadable
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 
 def test_stock_price_str():
@@ -200,14 +201,19 @@ def test_get_stocks_prices_status_offline(respx_mock, client):
         json=mock_data,
         status_code=200,
     )
+    load_api_status(client)
 
-    respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
+    route = respx_mock.get("https://api.marketdata.app/v1/stocks/prices/").respond(
         json={},
         status_code=501,
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.stocks.prices(symbols="TSLA", output_format=OutputFormat.INTERNAL)
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value, 501, "https://api.marketdata.app/v1/stocks/prices/", "{}"
+    )
 
 
 def test_get_stocks_prices_response_200_csv(respx_mock, client):

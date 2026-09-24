@@ -12,6 +12,7 @@ from marketdata.output_types.stocks_earnings import (
     StockEarnings,
     StockEarningsHumanReadable,
 )
+from src.tests.conftest import assert_failed_answer, load_api_status
 
 
 def test_stock_earnings_str():
@@ -239,12 +240,19 @@ def test_get_stocks_earnings_status_offline(respx_mock, client):
         json=mock_data,
         status_code=200,
     )
-    respx_mock.get("https://api.marketdata.app/v1/stocks/earnings/AAPL/").respond(
+    load_api_status(client)
+    route = respx_mock.get(
+        "https://api.marketdata.app/v1/stocks/earnings/AAPL/"
+    ).respond(
         json={},
         status_code=501,
     )
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         client.stocks.earnings(symbol="AAPL")
+    assert route.call_count == 1
+    assert_failed_answer(
+        exc_info.value, 501, "https://api.marketdata.app/v1/stocks/earnings/AAPL/", "{}"
+    )
 
 
 def test_get_stocks_earnings_response_200_csv(respx_mock, client):

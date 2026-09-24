@@ -2,6 +2,7 @@ import json
 import pathlib
 import time
 
+import httpx
 import pytest
 
 from marketdata.api_status import API_STATUS_DATA
@@ -40,6 +41,29 @@ def use_real_header_extraction(client):
     test reads the credit headers its mocked answers really carry."""
     client.__dict__.pop("_extract_rate_limits", None)
     return client
+
+
+def load_api_status(client) -> None:
+    """Load the ``/status/`` answer the test mocked into the status cache.
+
+    An empty cache answers "unknown" to the first failure of a call, so a
+    mocked outage is only seen once it is loaded.
+    """
+    API_STATUS_DATA.refresh(client)
+
+
+def assert_failed_answer(error, status_code: int, url: str, message: str) -> None:
+    """Check that an SDK exception names the answer that failed.
+
+    Args:
+        error: The exception the call raised.
+        status_code: The status of the failed answer, ``0`` when there was none.
+        url: The URL of the failed request, without its query.
+        message: The API's ``errmsg``, or the body when it carries none.
+    """
+    assert error.status_code == status_code
+    assert error.request_url.partition("?")[0] == str(httpx.URL(url))
+    assert error.message == message
 
 
 @pytest.fixture
