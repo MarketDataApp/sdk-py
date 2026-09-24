@@ -1,19 +1,19 @@
-"""Assert that every place this repo names a ruff version agrees on one build.
+"""Assert that every place this repo runs ruff uses the one build uv.lock pins.
 
 The lint job installs ruff from `uv.lock`, so the locked version is the one that
-judges every pull request. Three declarations have to agree with it:
+judges every pull request, and `uv.lock` is the only file that names it:
 
-  - `pyproject.toml` declares the floor, in the `dev` dependency group;
-  - `uv.lock` pins the exact version, which must satisfy that floor;
-  - `.pre-commit-config.yaml` pins the hook `rev`, which must be exactly the
-    locked version, otherwise a commit is formatted locally by one ruff and
-    judged in CI by another;
+  - `pyproject.toml` declares the floor, in the `dev` dependency group, and the
+    locked version must satisfy it;
+  - `.pre-commit-config.yaml` must run both ruff hooks through uv
+    (`uv run ruff`) and must not use the `ruff-pre-commit` repo, whose `rev`
+    would be a second version to keep in step with the lock;
   - `.github/workflows/lint.yml` must run ruff through uv (`uv run ruff`) and
     must not `pip install` it, which would take whatever release is newest that
     day and turn open pull requests red on untouched code.
 
-Drifting one of them is the failure mode this repo adopted ruff to avoid (#85).
-Run it before changing any ruff declaration, and after `uv lock --upgrade`:
+A ruff bump is therefore `uv lock --upgrade-package ruff` alone. Run this after
+it, and before changing any ruff declaration:
 
     uv run python .github/scripts/check_ruff_version.py
 """
@@ -39,9 +39,6 @@ LINT_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "lint.yml"
 # A ruff requirement such as `ruff>=0.16.0`, capturing operator and version
 # separately so the floor can be extracted.
 _REQUIREMENT = re.compile(r"ruff\s*(==|>=|~=)\s*([0-9][0-9A-Za-z.\-+]*)")
-
-# `rev: v0.16.6`, with or without quotes, under the ruff-pre-commit repo entry.
-_REV = re.compile(r"""^\s*rev:\s*['"]?v?([0-9][^\s'"#]*)""")
 
 # The `[[package]]` block of uv.lock that pins ruff.
 _LOCKED = re.compile(
@@ -105,31 +102,6 @@ def _locked_version() -> str | None:
     return match.group(1) if match else None
 
 
-def _pre_commit_rev() -> str | None:
-    """The `rev:` pinned on the ruff-pre-commit hook repo.
-
-    Parsed line by line rather than with a multi-line regex so that comments
-    between the `- repo:` line and its `rev:` do not hide the pin. PyYAML is not
-    a dependency of this repo, so this stays dependency-free on purpose.
-    """
-    if not PRE_COMMIT_CONFIG.is_file():
-        return None
-
-    inside_ruff_repo = False
-    for line in PRE_COMMIT_CONFIG.read_text(encoding="utf-8").splitlines():
-        if "astral-sh/ruff-pre-commit" in line:
-            inside_ruff_repo = True
-            continue
-        if not inside_ruff_repo:
-            continue
-        if re.match(r"^\s*-\s*repo:", line):  # next repo entry: rev was missing
-            return None
-        match = _REV.match(line)
-        if match:
-            return match.group(1)
-    return None
-
-
 def _installed_ruff_version() -> str | None:
     """Version of the ruff belonging to this interpreter, or None if absent.
 
@@ -180,7 +152,35 @@ def _workflow_problems() -> list[str]:
     return problems
 
 
+def _pre_commit_problems() -> list[str]:
+    """How the pre-commit hooks call ruff, comments excluded.
+
+    Returns:
+        One line per problem, empty when both ruff hooks run through uv and no
+        hook repo pins a ruff version of its own.
+    """
+    if not PRE_COMMIT_CONFIG.is_file():
+        return [f"  {_rel(PRE_COMMIT_CONFIG)}: the pre-commit config is missing"]
+
+    config = _without_comments(PRE_COMMIT_CONFIG.read_text(encoding="utf-8"))
+    problems = []
+    if "ruff-pre-commit" in config:
+        problems.append(
+            f"  {_rel(PRE_COMMIT_CONFIG)}: uses the ruff-pre-commit repo, whose "
+            "rev is a second ruff version; run the hooks through `uv run ruff`"
+        )
+    for command in ("uv run ruff check", "uv run ruff format"):
+        if command not in config:
+            problems.append(f"  {_rel(PRE_COMMIT_CONFIG)}: does not run `{command}`")
+    return problems
+
+
 def main() -> int:
+    """Check every ruff declaration against the version uv.lock pins.
+
+    Returns:
+        0 when they agree, or 1 after printing each disagreement to stderr.
+    """
     floor_requirement = _declared_floor()
     if floor_requirement is None:
         print(
@@ -199,14 +199,7 @@ def main() -> int:
     elif _version_key(locked) < _version_key(floor):
         problems.append(f"  {_rel(LOCKFILE)}: pins {locked}, below the {floor} floor")
 
-    rev = _pre_commit_rev()
-    if rev is None:
-        problems.append(f"  {_rel(PRE_COMMIT_CONFIG)}: no ruff-pre-commit rev found")
-    elif locked is not None and rev != locked:
-        problems.append(
-            f"  {_rel(PRE_COMMIT_CONFIG)}: rev v{rev} is not the locked {locked}; "
-            "the hook would format with a different ruff than the one CI judges with"
-        )
+    problems.extend(_pre_commit_problems())
 
     installed = _installed_ruff_version()
     # No ruff installed is fine: the declarations are still checkable.
@@ -226,7 +219,7 @@ def main() -> int:
 
     print(
         f"ruff {locked} everywhere: {_rel(PYPROJECT)} floor {floor_requirement}, "
-        f"{_rel(LOCKFILE)} pin, pre-commit rev v{rev}, lint workflow through uv."
+        f"{_rel(LOCKFILE)} pin, pre-commit hooks and lint workflow through uv."
     )
     return 0
 
