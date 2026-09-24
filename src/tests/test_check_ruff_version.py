@@ -74,6 +74,20 @@ def test_the_committed_pre_commit_config_passes(checker):
     assert problems_for(checker, CONFIG) == []
 
 
+def test_a_hook_whose_words_only_contain_ruff_passes(checker):
+    """A hook such as `trufflehog` does not name ruff, so it is not reported."""
+    old, new = with_hook(
+        "id: trufflehog",
+        "name: TruffleHog",
+        "entry: trufflehog git file://. --since-commit HEAD --fail",
+        "language: system",
+        "pass_filenames: false",
+    )
+    assert old in CONFIG
+
+    assert problems_for(checker, CONFIG.replace(old, new, 1)) == []
+
+
 def test_a_missing_pre_commit_config_is_reported(checker):
     """No config at all is a problem, not a config with nothing to check."""
     assert checker._pre_commit_problems() == [

@@ -52,6 +52,9 @@ _RUFF_HOOKS = {"ruff-check": "uv run ruff check", "ruff-format": "uv run ruff fo
 # A `key: value` line of the pre-commit config, possibly the first of a list item.
 _CONFIG_LINE = re.compile(r"\s*(-\s+)?([\w-]+):(.*)")
 
+# ruff as a word of its own, so a hook such as `trufflehog` is not read as ruff.
+_RUFF_WORD = re.compile(r"\bruff\b", re.IGNORECASE)
+
 
 def _rel(path: Path) -> str:
     return path.relative_to(REPO_ROOT).as_posix()
@@ -224,7 +227,7 @@ def _pre_commit_problems() -> list[str]:
     lines = text.splitlines()
     problems = []
     for line in lines:
-        if "ruff" not in line.lower():
+        if not _RUFF_WORD.search(line):
             continue
         _, key, value = _config_line(line) or (False, None, "")
         if key in ("id", "name"):
