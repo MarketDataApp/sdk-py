@@ -6,7 +6,7 @@ import pytest
 import pytz
 
 from marketdata.exceptions import ServerError
-from marketdata.input_types.base import OutputFormat
+from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.output_types.stocks_news import StockNews, StockNewsHumanReadable
 from src.tests.conftest import assert_failed_answer, load_api_status
 
@@ -211,3 +211,114 @@ def test_get_stocks_news_response_200_csv(respx_mock, client):
         symbol="AAPL", output_format=OutputFormat.CSV, filename="test.csv"
     )
     assert pathlib.Path(output).read_text() == "AS RECEIVED FROM API"
+
+
+def _timestamp_news(load_json) -> tuple[dict, datetime.datetime]:
+    """Build a news answer the way the API writes it under `dateformat=timestamp`.
+
+    Returns:
+        The answer, with a datetime with its offset in `publicationDate` and a
+        date in `updated`, and the US/Eastern datetime both come from.
+    """
+    body = load_json("stocks_news_response_200")
+    moment = datetime.datetime.fromtimestamp(
+        body["publicationDate"][0], tz=pytz.timezone("US/Eastern")
+    )
+    text = moment.strftime("%Y-%m-%d %H:%M:%S %z")
+    body = {
+        "s": "ok",
+        "symbol": body["symbol"][:2],
+        "headline": body["headline"][:2],
+        "content": body["content"][:2],
+        "source": body["source"][:2],
+        "publicationDate": [f"{text[:-2]}:{text[-2:]}"] * 2,
+        "updated": moment.strftime("%Y-%m-%d"),
+    }
+    return body, moment
+
+
+@pytest.mark.parametrize("handler", ["pandas", "polars"])
+def test_news_dataframe_reads_timestamp_dates_as_us_eastern(
+    load_json, respx_mock, client, handler
+):
+    """Under `dateformat=timestamp` a datetime and a date read back as the
+    US/Eastern datetimes the default format gives, a date as its midnight."""
+    body, moment = _timestamp_news(load_json)
+    respx_mock.get("https://api.marketdata.app/v1/stocks/news/AAPL/").respond(
+        json=body, status_code=200
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [handler]):
+        news = client.stocks.news(
+            symbol="AAPL",
+            output_format=OutputFormat.DATAFRAME,
+            date_format=DateFormat.TIMESTAMP,
+        )
+
+    midnight = pytz.timezone("US/Eastern").localize(
+        datetime.datetime.combine(moment.date(), datetime.time())
+    )
+    assert list(news["publicationDate"]) == [moment, moment]
+    assert list(news["updated"]) == [midnight, midnight]
+
+
+def test_news_internal_reads_timestamp_dates(load_json, respx_mock, client):
+    """The models read the same answer to the same moment, and a date to the
+    midnight of that day."""
+    body, moment = _timestamp_news(load_json)
+    respx_mock.get("https://api.marketdata.app/v1/stocks/news/AAPL/").respond(
+        json=body, status_code=200
+    )
+
+    news = client.stocks.news(
+        symbol="AAPL",
+        output_format=OutputFormat.INTERNAL,
+        date_format=DateFormat.TIMESTAMP,
+    )
+
+    assert [item.publicationDate for item in news] == [moment, moment]
+    for item in news:
+        assert (item.updated.date(), item.updated.time()) == (
+            moment.date(),
+            datetime.time(),
+        )
+
+
+def test_news_json_keeps_timestamp_dates_as_sent(load_json, respx_mock, client):
+    """JSON output is the API's answer: the dates stay the strings it sent."""
+    body, _ = _timestamp_news(load_json)
+    respx_mock.get("https://api.marketdata.app/v1/stocks/news/AAPL/").respond(
+        json=body, status_code=200
+    )
+
+    news = client.stocks.news(
+        symbol="AAPL",
+        output_format=OutputFormat.JSON,
+        date_format=DateFormat.TIMESTAMP,
+    )
+
+    assert news["publicationDate"] == body["publicationDate"]
+    assert news["updated"] == body["updated"]
+
+
+def test_news_csv_keeps_timestamp_dates_as_sent(
+    load_json, respx_mock, client, tmp_path
+):
+    """CSV output is the API's body: the dates stay the text it sent."""
+    body, _ = _timestamp_news(load_json)
+    csv_body = (
+        "symbol,publicationDate,updated\r\n"
+        f"AAPL,{body['publicationDate'][0]},{body['updated']}\r\n"
+    )
+    respx_mock.get("https://api.marketdata.app/v1/stocks/news/AAPL/").respond(
+        text=csv_body, status_code=200
+    )
+
+    path = client.stocks.news(
+        symbol="AAPL",
+        output_format=OutputFormat.CSV,
+        date_format=DateFormat.TIMESTAMP,
+        filename=tmp_path / "news.csv",
+    )
+
+    assert pathlib.Path(path).read_bytes() == csv_body.encode()

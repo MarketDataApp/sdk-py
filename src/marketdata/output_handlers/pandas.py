@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytz
 
@@ -59,13 +60,9 @@ class PandasOutputHandler(BaseOutputHandler):
                 continue
             try:
                 if format_to_use == DateFormat.TIMESTAMP:
-                    df[col] = pd.to_datetime(df[col], utc=True).dt.tz_convert(
-                        default_tz
-                    )
+                    df[col] = _from_timestamp_text(df[col], default_tz)
                 elif format_to_use == DateFormat.SPREADSHEET:
-                    df[col] = pd.to_datetime(
-                        df[col], unit="D", origin="1899-12-30", utc=True
-                    ).dt.tz_convert(default_tz)
+                    df[col] = _from_serial(df[col], default_tz)
                 else:
                     df[col] = pd.to_datetime(df[col], unit="s", utc=True).dt.tz_convert(
                         default_tz
@@ -95,3 +92,59 @@ class PandasOutputHandler(BaseOutputHandler):
         df = self._initialize_dataframe()
         df = self._validate_dataframe(df)
         return df
+
+
+def _localize(wall: pd.Series, tz) -> pd.Series:
+    """Read naive wall-clock datetimes as times in ``tz``.
+
+    Args:
+        wall: Naive datetimes.
+        tz: The zone they are wall-clock times of.
+
+    Returns:
+        The datetimes in ``tz``. A time the clocks go through twice is the
+        first one, a time they skip is ``NaT``.
+    """
+    return wall.dt.tz_localize(
+        tz, ambiguous=np.ones(len(wall), dtype=bool), nonexistent="NaT"
+    )
+
+
+def _from_timestamp_text(values: pd.Series, tz) -> pd.Series:
+    """Read the API's ``dateformat=timestamp`` strings.
+
+    Args:
+        values: Datetimes with their UTC offset (``2026-09-21 14:02:10 -04:00``)
+            or dates (``2026-09-21``).
+        tz: The zone to express them in, and the one a date is a day of.
+
+    Returns:
+        The datetimes in ``tz``; a date is its midnight there.
+
+    Raises:
+        ValueError: If a value is not a date or a datetime.
+    """
+    text = values.astype("string")
+    is_date = text.str.fullmatch(r"\d{4}-\d{2}-\d{2}").fillna(False).astype(bool)
+    moments = pd.to_datetime(text.where(~is_date), utc=True).dt.tz_convert(tz)
+    dates = _localize(pd.to_datetime(text.where(is_date), format="%Y-%m-%d"), tz)
+    return moments.where(~is_date, dates)
+
+
+def _from_serial(values: pd.Series, tz) -> pd.Series:
+    """Read the API's ``dateformat=spreadsheet`` serials.
+
+    Args:
+        values: Days since 1899-12-30 of a wall-clock time in ``tz``.
+        tz: The zone of that wall clock.
+
+    Returns:
+        The datetimes in ``tz``, to the second.
+
+    Raises:
+        ValueError: If a value is not a number.
+    """
+    seconds = (pd.to_numeric(values) * 86400).round()
+    return _localize(
+        pd.to_datetime(seconds, unit="s", origin=pd.Timestamp("1899-12-30")), tz
+    )

@@ -362,9 +362,11 @@ The format of the returned data. Defaults to `OutputFormat.DATAFRAME`.
 
 ### `date_format` (DateFormat, optional)
 The date format to use in the response. Defaults to `DateFormat.UNIX`. Available options:
-- `DateFormat.TIMESTAMP`: ISO timestamp format
+- `DateFormat.TIMESTAMP`: US/Eastern text, `2026-09-21 14:02:10 -04:00`, or `2026-09-21` for a date
 - `DateFormat.UNIX`: Unix timestamp (seconds since epoch)
-- `DateFormat.SPREADSHEET`: Spreadsheet-compatible format
+- `DateFormat.SPREADSHEET`: days since 1899-12-30 of the US/Eastern wall-clock time, as a spreadsheet serial
+
+On `OutputFormat.DATAFRAME`, date columns hold the same US/Eastern datetimes under every format (a date is its midnight), except under an explicit `DateFormat.UNIX`, which keeps the numbers.
 
 ### `columns` (list[str], optional)
 Specify which columns to include in the response. If not provided, all available columns are returned.

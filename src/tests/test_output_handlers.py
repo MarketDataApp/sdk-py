@@ -551,3 +551,70 @@ def test_polars_output_handler_unix_date_format_no_conversion():
     assert df["updated"][0] == 1765552906
     # price should still be numeric
     assert df["price"].dtype in [pl.Float64, pl.Float32]
+
+
+def _isoformats(values) -> list[str | None]:
+    """Render datetimes with their offsets, and a missing one as ``None``."""
+    return [
+        None if value is None or value != value else value.isoformat()
+        for value in values
+    ]
+
+
+@pytest.mark.parametrize("handler_class", [PandasOutputHandler, PolarsOutputHandler])
+@pytest.mark.parametrize(
+    ("date_format", "values", "expected"),
+    [
+        (
+            DateFormat.TIMESTAMP,
+            ["2026-09-21 14:02:10 -04:00", "2026-01-15 09:30:00 -05:00", None],
+            ["2026-09-21T14:02:10-04:00", "2026-01-15T09:30:00-05:00", None],
+        ),
+        (
+            DateFormat.TIMESTAMP,
+            ["2026-09-21", "2026-01-15"],
+            ["2026-09-21T00:00:00-04:00", "2026-01-15T00:00:00-05:00"],
+        ),
+        (
+            DateFormat.SPREADSHEET,
+            [46286.58472, 46037.39583, 46286.0, None],
+            [
+                "2026-09-21T14:02:00-04:00",
+                "2026-01-15T09:30:00-05:00",
+                "2026-09-21T00:00:00-04:00",
+                None,
+            ],
+        ),
+    ],
+    ids=["timestamp-datetimes", "timestamp-dates", "spreadsheet"],
+)
+def test_dateformat_values_are_read_as_us_eastern(
+    handler_class, date_format, values, expected
+):
+    """The API writes `timestamp` datetimes with their offset and dates as the
+    day, and `spreadsheet` serials as US/Eastern wall-clock time; each reads
+    back as the US/Eastern datetime the default format gives."""
+    handler = handler_class(
+        data={"updated": values},
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(date_format=date_format),
+    )
+
+    df = handler.get_result()
+
+    assert _isoformats(df["updated"].to_list()) == expected
+
+
+@pytest.mark.parametrize("handler_class", [PandasOutputHandler, PolarsOutputHandler])
+def test_an_unreadable_timestamp_leaves_the_column_as_it_came(handler_class):
+    """A value that is neither of the API's two `timestamp` shapes leaves the
+    column unconverted rather than turning it into nulls."""
+    handler = handler_class(
+        data={"updated": ["2026-09-21 14:02:10 -04:00", "not a date"]},
+        output_schema=DummySchemaUpdated,
+        user_universal_params=_make_params(date_format=DateFormat.TIMESTAMP),
+    )
+
+    df = handler.get_result()
+
+    assert df["updated"].to_list() == ["2026-09-21 14:02:10 -04:00", "not a date"]

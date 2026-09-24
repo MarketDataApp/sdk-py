@@ -326,6 +326,13 @@ def test_get_stocks_quotes_response_200_dataframe_polars(load_json, respx_mock, 
         assert quotes["updated"].to_list() == expected_updated
 
 
+def _timestamp_text(timestamp: int) -> str:
+    """Write a Unix time the way the API's ``dateformat=timestamp`` does."""
+    moment = datetime.datetime.fromtimestamp(timestamp, tz=pytz.timezone("US/Eastern"))
+    text = moment.strftime("%Y-%m-%d %H:%M:%S %z")
+    return f"{text[:-2]}:{text[-2:]}"
+
+
 def test_get_stocks_quotes_response_200_dataframe_pandas_timestamp_dateformat(
     load_json, respx_mock, client
 ):
@@ -335,9 +342,7 @@ def test_get_stocks_quotes_response_200_dataframe_pandas_timestamp_dateformat(
     ):
         mock_data = copy.deepcopy(load_json("stocks_quotes_response_200"))
         updated_ts = mock_data["updated"][0]
-        updated_iso = datetime.datetime.fromtimestamp(
-            updated_ts, tz=datetime.timezone.utc
-        ).isoformat()
+        updated_iso = _timestamp_text(updated_ts)
         mock_data["updated"] = [updated_iso, updated_iso]
         respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
             json=mock_data,
@@ -365,9 +370,7 @@ def test_get_stocks_quotes_response_200_dataframe_polars_timestamp_dateformat(
     ):
         mock_data = copy.deepcopy(load_json("stocks_quotes_response_200"))
         updated_ts = mock_data["updated"][0]
-        updated_iso = datetime.datetime.fromtimestamp(
-            updated_ts, tz=datetime.timezone.utc
-        ).isoformat()
+        updated_iso = _timestamp_text(updated_ts)
         mock_data["updated"] = [updated_iso, updated_iso]
         respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
             json=mock_data,
