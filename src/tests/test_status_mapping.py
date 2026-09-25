@@ -807,6 +807,98 @@ def test_every_resource_no_data_dataframe_has_the_shape_of_a_populated_one(
         assert pl.concat([populated, empty]).shape == populated.shape
 
 
+@pytest.mark.parametrize("asked", [False, True], ids=["without-52week", "52week"])
+@pytest.mark.parametrize("human", [False, True], ids=["plain", "human"])
+@pytest.mark.parametrize("handler", ["pandas", "polars"])
+def test_the_empty_quotes_frame_has_the_52_week_columns_only_when_asked_for(
+    load_json, respx_mock, client, handler, human, asked
+):
+    """The API adds the 52-week columns only under ``52week=true``, so the
+    empty frame has them only then and keeps the shape of a populated one
+    either way, a whole-number price typed as a float on both sides."""
+    body = load_json("stocks_quotes_response_200")
+    if asked:
+        body = {**body, "52weekHigh": [288.62, 555.45], "52weekLow": [169, 344]}
+    if human:
+        keys = {
+            **HUMAN_KEYS["stocks_quotes"],
+            "52weekHigh": "52 Week High",
+            "52weekLow": "52 Week Low",
+        }
+        body = {keys[key]: value for key, value in body.items() if key in keys}
+    respx_mock.get(url__regex=r".*/stocks/quotes/.*").mock(
+        side_effect=[
+            httpx.Response(200, json=body),
+            httpx.Response(404, json=NO_DATA),
+        ]
+    )
+
+    def call():
+        return client.stocks.quotes(
+            "AAPL",
+            use_52_week=asked,
+            use_human_readable=human,
+            output_format=OutputFormat.DATAFRAME,
+        )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [handler]):
+        populated = call()
+        empty = call()
+
+    low = "52 Week Low" if human else "52weekLow"
+    assert len(empty) == 0
+    assert _frame_shape(empty) == _frame_shape(populated)
+    assert (low in list(empty.columns)) == asked
+
+
+@pytest.mark.parametrize(
+    ("asked", "human", "header"),
+    [
+        (
+            False,
+            False,
+            "symbol,ask,askSize,bid,bidSize,mid,last,change,changepct,volume,updated",
+        ),
+        (
+            True,
+            False,
+            "symbol,ask,askSize,bid,bidSize,mid,last,change,changepct,volume,updated,"
+            "52weekHigh,52weekLow",
+        ),
+        (
+            False,
+            True,
+            "Symbol,Ask,Ask Size,Bid,Bid Size,Mid,Last,Change $,Change %,Volume,Date",
+        ),
+        (
+            True,
+            True,
+            "Symbol,Ask,Ask Size,Bid,Bid Size,Mid,Last,Change $,Change %,Volume,Date,"
+            "52 Week High,52 Week Low",
+        ),
+    ],
+    ids=["plain", "plain-52week", "human", "human-52week"],
+)
+def test_the_empty_quotes_csv_has_the_52_week_columns_only_when_asked_for(
+    respx_mock, client, tmp_path, asked, human, header
+):
+    """The empty CSV header is the one the API sends for the same request,
+    read off live answers."""
+    respx_mock.get(url__regex=r".*/stocks/quotes/.*").respond(
+        json=NO_DATA, status_code=404
+    )
+
+    path = client.stocks.quotes(
+        "AAPL",
+        use_52_week=asked,
+        use_human_readable=human,
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "empty.csv",
+    )
+
+    assert pathlib.Path(path).read_bytes() == f"{header}\r\n".encode()
+
+
 @pytest.mark.parametrize(("call", "url_pattern", "fixture"), RESOURCES)
 def test_every_resource_no_data_dataframe_honours_the_column_filter(
     load_json, respx_mock, client, call, url_pattern, fixture

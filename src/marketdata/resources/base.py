@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
@@ -13,7 +13,7 @@ from marketdata.input_types.base import (
 )
 from marketdata.internal_settings import GLOBAL_EXCLUDED_PARAMS
 from marketdata.output_handlers import get_dataframe_output_handler
-from marketdata.output_types.columns import _model_columns
+from marketdata.output_types.columns import _column_names, _model_columns
 from marketdata.settings import settings
 from marketdata.utils import (
     csv_header,
@@ -117,18 +117,34 @@ def no_data_result(
     as_records: bool,
     index_columns: list[str] | None = None,
     response: Response | None = None,
+    omit_fields: Collection[str] = (),
 ):
-    """The empty result for a 404 ``no_data`` answer (SDK requirements §9.1).
+    """Build the empty result of a 404 ``no_data`` answer in the output format.
 
-    An empty answer to a valid question is not an error, so every output
-    format gets its natural empty value: a DataFrame with the model's columns
-    and no rows, ``[]`` for list-shaped models and ``None`` for single-object
-    models, the API's ``{"s": "no_data"}`` body as JSON, and a header-only CSV.
-    The DataFrame and the CSV header carry the requested columns under a
-    ``columns=`` filter, as a populated answer does (#87).
+    Args:
+        user_universal_params: The call's parameters: the output format, the
+            ``columns=`` filter and the CSV options.
+        output_model: The model of the resource.
+        as_records: Whether the INTERNAL result is a list of models.
+        index_columns: The columns a DataFrame is indexed by, when present.
+        response: The answer, whose body the JSON result echoes.
+        omit_fields: Fields of the model the answer would not carry, because
+            the API sends them only on request and the call did not ask.
+
+    Returns:
+        A DataFrame with the model's columns and no rows, ``[]`` or ``None``
+        on INTERNAL, the API's ``{"s": "no_data"}`` body as JSON, or the path
+        of a header-only CSV. The DataFrame and the CSV header carry only the
+        requested columns under a ``columns=`` filter, as a populated answer
+        does.
     """
     output_format = user_universal_params.output_format
-    columns = model_columns(output_model, user_universal_params.columns)
+    omitted = {_column_names(output_model)[name] for name in omit_fields}
+    columns = [
+        column
+        for column in model_columns(output_model, user_universal_params.columns)
+        if column not in omitted
+    ]
 
     if output_format == OutputFormat.DATAFRAME:
         empty = {column: [] for column in columns}
@@ -141,25 +157,15 @@ def no_data_result(
         return [] if as_records else None
 
     if output_format == OutputFormat.JSON:
-        # Only the JSON output echoes the API's body; a CSV placeholder body
-        # (#89) is not JSON, so nothing is decoded on the other formats.
-        #
-        # A body that does not decode falls back to the canonical one rather
-        # than raising: the status already classified this answer as empty, and
-        # the other three output formats return their empty value for it. A
-        # `ParseError` only here would make the output format decide whether a
-        # call raises, which is exactly what #91 forbids. Reached when
-        # something between the client and the API answers the 404 (a CDN, a
-        # proxy, a gateway with no body).
+        # A body that does not decode is still the empty answer: the output
+        # format must not decide whether a call raises.
         if response is None:
             return dict(NO_DATA_BODY)
         try:
             body = parse_json(response)
         except ParseError:
             return dict(NO_DATA_BODY)
-        # The CSV placeholder `""` (#89) is also a JSON document, the empty
-        # string, and reaches here whatever format was asked for: only an
-        # object is the API's body to echo.
+        # The CSV placeholder `""` decodes too: only an object is the API's body.
         return body if isinstance(body, dict) else dict(NO_DATA_BODY)
 
     if output_format == OutputFormat.CSV:
