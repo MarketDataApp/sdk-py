@@ -28,8 +28,8 @@ class Updated:
 
 @pytest.fixture
 def tokyo(monkeypatch):
-    """Point every module that renders a timestamp at Asia/Tokyo, a zone with
-    no daylight saving time and 13 or 14 hours away from US/Eastern.
+    """Point the exception module and both DataFrame handlers at Asia/Tokyo, a
+    zone with no daylight saving time and 13 or 14 hours away from US/Eastern.
 
     Returns:
         The Asia/Tokyo zone.
