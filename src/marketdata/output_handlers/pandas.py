@@ -50,7 +50,17 @@ class PandasOutputHandler(BaseOutputHandler):
         date_columns: list[str],
         date_format: DateFormat | None,
     ) -> pd.DataFrame:
-        """Convert date/time columns to timezone-aware datetime objects."""
+        """Convert the date columns to US/Eastern datetimes.
+
+        Args:
+            df: The result, with its columns cast.
+            date_columns: The columns to convert.
+            date_format: The request's date format. ``None`` reads the values
+                as Unix seconds, and ``DateFormat.UNIX`` leaves them as numbers.
+
+        Returns:
+            The same frame. A column that cannot be converted keeps its values.
+        """
         if date_format == DateFormat.UNIX:
             return df
 
@@ -66,9 +76,7 @@ class PandasOutputHandler(BaseOutputHandler):
                 elif format_to_use == DateFormat.SPREADSHEET:
                     df[col] = _from_serial(df[col], default_tz)
                 else:
-                    df[col] = pd.to_datetime(df[col], unit="s", utc=True).dt.tz_convert(
-                        default_tz
-                    )
+                    df[col] = _from_seconds(df[col], utc=True).dt.tz_convert(default_tz)
             except (ValueError, TypeError, AttributeError):
                 pass
 
@@ -172,6 +180,30 @@ def _from_timestamp_text(values: pd.Series, tz) -> pd.Series:
     return moments.where(~is_date, dates)
 
 
+def _from_seconds(
+    seconds: pd.Series, origin: str | pd.Timestamp = "unix", utc: bool = False
+) -> pd.Series:
+    """Read numbers of seconds as datetimes, and a null as ``NaT``.
+
+    Args:
+        seconds: Seconds since ``origin``.
+        origin: What the seconds count from, as ``pd.to_datetime`` reads it.
+        utc: Whether the datetimes are UTC rather than naive.
+
+    Returns:
+        The datetimes, ``NaT`` where ``seconds`` is null.
+
+    Raises:
+        ValueError: If a value is not a number, or is out of the datetime range.
+    """
+    missing = seconds.isna()
+    # Nulls go in as 0 and come back as NaT: pandas 2.x can overflow on a null.
+    converted = pd.to_datetime(
+        seconds.mask(missing, 0), unit="s", origin=origin, utc=utc
+    )
+    return converted.mask(missing)
+
+
 def _from_serial(values: pd.Series, tz) -> pd.Series:
     """Read the API's ``dateformat=spreadsheet`` serials.
 
@@ -183,9 +215,7 @@ def _from_serial(values: pd.Series, tz) -> pd.Series:
         The datetimes in ``tz``, to the second.
 
     Raises:
-        ValueError: If a value is not a number.
+        ValueError: If a value is not a number, or is out of the datetime range.
     """
     seconds = (pd.to_numeric(values) * 86400).round()
-    return _localize(
-        pd.to_datetime(seconds, unit="s", origin=pd.Timestamp("1899-12-30")), tz
-    )
+    return _localize(_from_seconds(seconds, origin=pd.Timestamp("1899-12-30")), tz)
