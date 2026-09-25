@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from pytz.exceptions import InvalidTimeError
 
-from marketdata.utils import DEFAULT_TIMEZONE
+from marketdata.internal_settings import DEFAULT_TIMEZONE
 
 
 @dataclass

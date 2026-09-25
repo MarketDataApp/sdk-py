@@ -1,6 +1,7 @@
 import datetime
 
 import httpx
+import pytz
 from httpx import Response
 
 
@@ -32,6 +33,9 @@ VALID_STATUS_CODES = [200, 203]
 # than that is a value the SDK could not read rather than a window that closed
 # (#42).
 MAX_CREDIT_WINDOW_SECONDS = 24 * 60 * 60
+# The zone of every timestamp the SDK renders. It is kept here, not in utils,
+# because utils imports exceptions, which needs it too.
+DEFAULT_TIMEZONE = pytz.timezone("US/Eastern")
 
 # The API's IP headers (#44). httpx matches header names case-insensitively,
 # so the lowercase spelling reads them whatever case the API sends. The legacy
