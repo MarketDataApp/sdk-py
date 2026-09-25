@@ -2,6 +2,8 @@ import datetime
 import pathlib
 from unittest.mock import patch
 
+import numpy as np
+import pandas as pd
 import pytest
 import pytz
 
@@ -260,6 +262,66 @@ def test_news_dataframe_reads_timestamp_dates_as_us_eastern(
     )
     assert list(news["publicationDate"]) == [moment, moment]
     assert list(news["updated"]) == [midnight, midnight]
+
+
+_EMPTY = np.empty
+
+
+def _dirty_empty(*args, **kwargs):
+    """Build an ``np.empty`` array the way memory left dirty can hold it.
+
+    Args:
+        *args: Passed on to ``np.empty``.
+        **kwargs: Passed on to ``np.empty``.
+
+    Returns:
+        The array, with ``1e300`` in every slot when its dtype is float64.
+    """
+    array = _EMPTY(*args, **kwargs)
+    if array.dtype == np.float64:
+        array.fill(1e300)
+    return array
+
+
+@pytest.mark.parametrize("handler", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("options", "date"),
+    [({}, 1766120400), ({"date_format": DateFormat.SPREADSHEET}, 46010.0)],
+    ids=["default", "spreadsheet"],
+)
+def test_news_dataframe_reads_null_dates_on_dirty_memory(
+    load_json, respx_mock, client, handler, options, date
+):
+    """A null date reads as a null in its own row whatever the memory the
+    conversion works in holds: one null `publicationDate`, and `updated`
+    null in every row."""
+    body = load_json("stocks_news_response_200")
+    body = {
+        "s": "ok",
+        "symbol": body["symbol"][:2],
+        "headline": body["headline"][:2],
+        "content": body["content"][:2],
+        "source": body["source"][:2],
+        "publicationDate": [None, date],
+        "updated": None,
+    }
+    respx_mock.get("https://api.marketdata.app/v1/stocks/news/AAPL/").respond(
+        json=body, status_code=200
+    )
+
+    with (
+        patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [handler]),
+        patch.object(np, "empty", _dirty_empty),
+    ):
+        news = client.stocks.news(
+            symbol="AAPL", output_format=OutputFormat.DATAFRAME, **options
+        )
+
+    moment = pytz.timezone("US/Eastern").localize(datetime.datetime(2025, 12, 19))
+    published = list(news["publicationDate"])
+    assert pd.isna(published[0])
+    assert published[1] == moment
+    assert all(pd.isna(value) for value in news["updated"])
 
 
 def test_news_internal_reads_timestamp_dates(load_json, respx_mock, client):
