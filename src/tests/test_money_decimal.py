@@ -667,27 +667,15 @@ def test_a_value_the_model_cannot_hold_is_a_parse_error_not_a_builtin(
     assert body["mid"] == [decoded]
 
 
-@pytest.mark.parametrize(
-    "name, change, refusal",
-    [
-        ("options.lookup", "extra", "got an unexpected keyword argument 'extra'"),
-        ("markets.status", "extra", "got an unexpected keyword argument 'extra'"),
-        ("utilities.user", "missing", "missing 1 required positional argument"),
-    ],
-)
-def test_a_body_whose_keys_the_model_does_not_take_is_a_parse_error(
-    respx_mock, client, name, change, refusal
+@pytest.mark.parametrize("name", ["options.lookup", "markets.status", "utilities.user"])
+def test_a_body_missing_a_column_the_model_needs_is_a_parse_error(
+    respx_mock, client, name
 ):
-    """A key the model does not have, or one it lacks, used to escape as a
-    bare `TypeError` from the model's constructor (#50 review). What the SDK
-    should do with a column the API adds is #111; this pins only that the
-    refusal is an SDK exception."""
+    """A column the model needs and the body lacks is refused with an SDK
+    exception, not a bare `TypeError` from the model's constructor."""
     case = OTHER_CASES[name]
     data = _load_fixture(case.fixture)
-    if change == "extra":
-        data["extra"] = data[next(key for key in data if key != "s")]
-    else:
-        del data[next(key for key in data if key != "s")]
+    del data[next(key for key in data if key != "s")]
     _respond(respx_mock, case, json.dumps(data).encode())
 
     with pytest.raises(ParseError) as failure:
@@ -695,7 +683,108 @@ def test_a_body_whose_keys_the_model_does_not_take_is_a_parse_error(
 
     message = failure.value.message
     assert message.startswith("Response body is not a valid answer of this resource (")
-    assert refusal in message
+    assert "missing 1 required positional argument" in message
+
+
+# Every INTERNAL resource whose answer is built into a model through its
+# columns: `utilities.headers` keeps every key as a header, and
+# `utilities.user` reads only the keys it knows.
+MODEL_CASES = {
+    name: case
+    for name, case in {**MONEY_CASES, **OTHER_CASES}.items()
+    if name not in ("utilities.headers", "utilities.user")
+}
+# They merge only the columns their model declares, before any model is built.
+FAN_OUTS = (
+    "stocks.candles",
+    "stocks.candles human",
+    "options.quotes",
+    "options.quotes human",
+)
+
+
+def _undeclared_columns_logged(caplog) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if "does not declare" in record.getMessage()
+    ]
+
+
+@pytest.mark.parametrize("name", MODEL_CASES)
+def test_a_column_no_model_declares_is_left_out_of_the_internal_result(
+    respx_mock, client, caplog, name
+):
+    """A column the API adds before the model declares it does not break the
+    call: the result is the one the answer builds without it, and the column
+    is named once at DEBUG, however many rows the answer has."""
+    case = MODEL_CASES[name]
+    data = _load_fixture(case.fixture)
+    _respond(respx_mock, case, json.dumps(data).encode())
+    with caplog.at_level("DEBUG", logger="marketdata.logger"):
+        expected = case.call(client, output_format=OutputFormat.INTERNAL)
+    assert _undeclared_columns_logged(caplog) == []
+
+    data["brandNew"] = data[next(key for key in data if key != "s")]
+    _respond(respx_mock, case, json.dumps(data).encode())
+    caplog.clear()
+    with caplog.at_level("DEBUG", logger="marketdata.logger"):
+        result = case.call(client, output_format=OutputFormat.INTERNAL)
+
+    assert result == expected
+    model = type(result[0] if isinstance(result, list) else result).__name__
+    logged = [
+        f"The API sent the columns ['brandNew'], which {model} does not declare;"
+        " they are left out"
+    ]
+    assert _undeclared_columns_logged(caplog) == ([] if name in FAN_OUTS else logged)
+
+
+@pytest.mark.parametrize("name", MODEL_CASES)
+def test_an_object_with_none_of_the_model_columns_is_a_parse_error(
+    respx_mock, client, name
+):
+    """An object that carries none of the model's columns, like a proxy's JSON
+    error page, is not an answer of this resource, so no row is built from
+    what is left of it."""
+    case = MODEL_CASES[name]
+    _respond(respx_mock, case, json.dumps({"error": "upstream timeout"}).encode())
+
+    with pytest.raises(ParseError) as failure:
+        case.call(client, output_format=OutputFormat.INTERNAL)
+
+    assert failure.value.message.startswith(
+        "Response body is not a valid answer of this resource ("
+    )
+
+
+@pytest.mark.parametrize("body", [b"[1]", b"null"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "options.chain",
+        "options.chain human",
+        "options.expirations",
+        "options.expirations human",
+        "options.lookup",
+        "stocks.earnings",
+        "stocks.earnings human",
+    ],
+)
+def test_a_body_that_is_not_an_object_is_a_parse_error_on_single_object_models(
+    respx_mock, client, name, body
+):
+    """A single-object model refuses a body that is not a JSON object with an
+    SDK exception, under the API's names and the human-readable ones."""
+    case = MODEL_CASES[name]
+    _respond(respx_mock, case, body)
+
+    with pytest.raises(ParseError) as failure:
+        case.call(client, output_format=OutputFormat.INTERNAL)
+
+    assert failure.value.message.startswith(
+        "Response body is not a valid answer of this resource ("
+    )
 
 
 @pytest.mark.parametrize("name", OTHER_DATE_KEYS.keys())

@@ -47,7 +47,20 @@ class StockQuote:
 
     @classmethod
     def from_dict(cls, data: dict) -> "StockQuote":
-        return cls(**data)
+        """Build the model from an API answer keyed by column name.
+
+        Args:
+            data: One quote, keyed as the API names its columns.
+
+        Returns:
+            The quote. A column the model does not declare is left out.
+
+        Raises:
+            TypeError: If a field is missing or a number field holds something
+                that is not a number.
+            ValueError: If a value cannot be read as its field's type.
+        """
+        return cls(**_to_fields(cls, data))
 
 
 @dataclass

@@ -362,10 +362,11 @@ def merge_csv_responses(
 
     Args:
         responses: The answers, in the order their rows go in the file.
-        known_columns: The resource's column names. A header name must match
-            one of them through ``column_key``, which also compares the
-            headers of two answers, so a different spelling of the same
-            column still merges.
+        known_columns: The resource's column names. A header must carry at
+            least one of them, matched through ``column_key``, which also
+            compares the headers of two answers, so a different spelling of
+            the same column still merges. A column of the header that matches
+            none of them is kept.
         with_header: Whether the bodies start with a header row. Without one,
             only the row width is checked, against the first row seen.
 
@@ -376,10 +377,10 @@ def merge_csv_responses(
 
     Raises:
         ParseError: Naming the offending response, for a body the ``csv``
-            module cannot read, a body with no header row, a header with a
-            column the resource does not have or with other columns, or in
-            another order, than the first answer's, or a row not as wide as
-            the header.
+            module cannot read, a body with no header row, a header with none
+            of the resource's columns or with other columns, or in another
+            order, than the first answer's, or a row not as wide as the
+            header.
     """
     known = {column_key(name) for name in known_columns}
     header: list[str] | None = None
@@ -395,9 +396,8 @@ def merge_csv_responses(
                 incoming = next(rows, None)
                 if incoming is None:
                     raise parse_error(response, "no header row")
-                unknown = [name for name in incoming if column_key(name) not in known]
-                if unknown:
-                    raise parse_error(response, f"unknown columns {unknown!r}")
+                if not any(column_key(name) in known for name in incoming):
+                    raise parse_error(response, f"unknown columns {incoming!r}")
                 incoming_key = [column_key(name) for name in incoming]
                 if header is None:
                     header, header_key, width = incoming, incoming_key, len(incoming)

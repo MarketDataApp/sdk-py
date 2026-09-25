@@ -1,7 +1,11 @@
+import logging
 from dataclasses import fields, is_dataclass
 from typing import Any
 
 from marketdata.utils import column_key
+
+# By name, not `get_logger()`: importing the package must not attach a handler.
+logger = logging.getLogger("marketdata.logger")
 
 
 def _column_names(output_model: type) -> dict[str, str]:
@@ -52,19 +56,32 @@ def _column_types(output_model: type) -> dict[str, Any]:
     }
 
 
-def _to_fields(output_model: type, data: dict) -> dict:
-    """Rename the keys of an API answer from column names to field names.
+def _to_fields(output_model: type, data: Any) -> Any:
+    """Key an API answer by the fields of the output model it is built into.
 
     Args:
-        output_model: The output model the answer is built into.
+        output_model: The output model dataclass the answer is built into.
         data: The answer, keyed by column name.
 
     Returns:
-        The same values keyed by field name. A key that names no column is
-        kept as it is.
+        The values of the keys that name a column or a field of the model,
+        keyed by field name. Any other key is left out and logged at DEBUG,
+        except the status flag ``s``. An answer that is not an object, or that
+        carries none of the model's columns, comes back as it is, for the
+        model to refuse.
     """
-    by_column = {column: name for name, column in _column_names(output_model).items()}
-    return {by_column.get(key, key): value for key, value in data.items()}
+    columns = _column_names(output_model)
+    if not isinstance(data, dict) or not any(key in data for key in columns.values()):
+        return data
+    by_key = {field.name: field.name for field in fields(output_model)}
+    by_key.update({column: name for name, column in columns.items()})
+    undeclared = [key for key in data if key not in by_key and key != "s"]
+    if undeclared:
+        logger.debug(
+            f"The API sent the columns {undeclared!r}, which"
+            f" {output_model.__name__} does not declare; they are left out"
+        )
+    return {by_key[key]: value for key, value in data.items() if key in by_key}
 
 
 def _model_columns(output_model: type, requested: list[str] | None = None) -> list[str]:

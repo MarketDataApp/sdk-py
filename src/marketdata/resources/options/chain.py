@@ -69,10 +69,8 @@ def chain(
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         data = parse_json(response, exact=True)
-        if user_universal_params.use_human_readable:
-            data = _to_fields(output_model, data)
         with model_errors(response):
-            return output_model(**data)
+            return output_model(**_to_fields(output_model, data))
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         return parse_json(response)
