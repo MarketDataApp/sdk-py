@@ -7,16 +7,10 @@ from io import StringIO
 from typing import Any, Iterator, NoReturn
 from urllib.parse import quote
 
-import pytz
 from httpx import Response
 
 from marketdata.exceptions import ParseError
-from marketdata.internal_settings import VALID_STATUS_CODES
-
-# Every timestamp the SDK renders is US/Eastern. One constant, so the zone a
-# naive value is read in and the zone it is rendered in agree by construction
-# rather than because two literals happen to match.
-DEFAULT_TIMEZONE = pytz.timezone("US/Eastern")
+from marketdata.internal_settings import DEFAULT_TIMEZONE, VALID_STATUS_CODES
 
 
 def _exact_number(text: str) -> Decimal:
