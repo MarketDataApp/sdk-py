@@ -1,67 +1,147 @@
 name: Publish to PyPI
 
+# A release published by hand: resolve its tag to a commit, run the checks and
+# the suite on it, build it once and upload that build to TestPyPI and PyPI.
+# No `workflow_dispatch`: it would upload to TestPyPI, where versions are
+# permanent, with no gate.
 on:
   release:
     types: [published]
-  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
+  resolve:
+    name: Resolve the tag and check what it names
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+      version: ${{ steps.commit.outputs.version }}
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "latest"
+
+      - name: Resolve it, and refuse what a release must not be
+        id: commit
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          # Later jobs use this SHA, not the tag, which can be moved.
+          sha=$(git rev-parse HEAD)
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "${TAG} is ${sha}"
+
+          # The checks below mirror `validate` in tag-and-release.yml; keep them in sync.
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "::error::${sha} is not on main. A release is cut from a commit that was merged."
+            exit 1
+          fi
+
+          # The tag is `v` plus the version, spelled the way pip serves it.
+          case "$TAG" in
+            v*) version="${TAG#v}" ;;
+            *)
+              echo "::error::The tag ${TAG} does not start with v. A release of X.Y.Z is tagged vX.Y.Z."
+              exit 1
+              ;;
+          esac
+          uv run --no-project --quiet --with packaging --python 3.12 python - "$version" <<'PYEOF'
+          import sys
+
+          from packaging.version import InvalidVersion, Version
+
+          asked = sys.argv[1]
+          try:
+              parsed = Version(asked)
+          except InvalidVersion:
+              sys.exit(f"::error::{asked} is not a version Python packaging can read.")
+          if str(parsed) != asked:
+              sys.exit(f"::error::{asked} is spelled differently from the version it means: pip would serve {parsed}.")
+          if parsed.local:
+              sys.exit(f"::error::{asked} carries a local version, and PyPI refuses those.")
+          PYEOF
+
+          awk -v prefix="## [${version}] - " '
+            index($0, prefix) == 1 && substr($0, length(prefix) + 1) ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q '^- [^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md has no section headed ## [${version}] - YYYY-MM-DD with at least one '- ' entry."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+  gate:
+    name: The suite, on the commit being published
+    needs: resolve
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+      run_integration: true
+    secrets: inherit
+
+  build:
+    name: Build the commit being published
+    needs: [resolve, gate]
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+      version: ${{ needs.resolve.outputs.version }}
+
+  # Top-level on purpose: PyPI refuses Trusted Publishing from a called workflow.
   publish-testpypi:
     name: Publish to TestPyPI
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: testpypi
       url: https://test.pypi.org/p/marketdata-sdk-py/
     permissions:
       id-token: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.2.0
+      - name: Download the build
+        uses: actions/download-artifact@v8
         with:
-          version: "latest"
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Build package
-        run: uv build
+          name: dist
+          path: dist/
 
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@v1.14.2
         with:
           repository-url: https://test.pypi.org/legacy/
+          # TestPyPI only: a re-run skips what it already has, while a duplicate on PyPI still fails.
+          skip-existing: true
 
   publish-pypi:
     name: Publish to PyPI
+    # TestPyPI first: a build it rejects never reaches PyPI.
+    needs: publish-testpypi
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: pypi
       url: https://pypi.org/project/marketdata-sdk-py/
     permissions:
       id-token: write
-    needs: publish-testpypi
-    if: github.event_name == 'release'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.2.0
+      - name: Download the build
+        uses: actions/download-artifact@v8
         with:
-          version: "latest"
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Build package
-        run: uv build
+          name: dist
+          path: dist/
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.14.2
