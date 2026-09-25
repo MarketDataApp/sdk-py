@@ -10,6 +10,16 @@ from marketdata.utils import format_timestamp
 
 @dataclass
 class StockQuote:
+    api_names: ClassVar[dict[str, str]] = {
+        "fiftyTwoWeekHigh": "52weekHigh",
+        "fiftyTwoWeekLow": "52weekLow",
+    }
+    # The fields the API sends only when the request sets ``use_52_week``.
+    fifty_two_week_fields: ClassVar[tuple[str, ...]] = (
+        "fiftyTwoWeekHigh",
+        "fiftyTwoWeekLow",
+    )
+
     symbol: str
     ask: Decimal
     askSize: int
@@ -21,6 +31,8 @@ class StockQuote:
     changepct: float
     volume: int
     updated: datetime.datetime | None
+    fiftyTwoWeekHigh: Decimal | None = None
+    fiftyTwoWeekLow: Decimal | None = None
 
     def __post_init__(self):
         """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
@@ -47,7 +59,20 @@ class StockQuote:
 
     @classmethod
     def from_dict(cls, data: dict) -> "StockQuote":
-        return cls(**data)
+        """Build the model from an API answer keyed by column name.
+
+        Args:
+            data: One quote, keyed as the API names its columns.
+
+        Returns:
+            The quote.
+
+        Raises:
+            TypeError: If a key names no field, a field is missing or a number
+                field holds something that is not a number.
+            ValueError: If a value cannot be read as its field's type.
+        """
+        return cls(**_to_fields(cls, data))
 
 
 @dataclass
@@ -56,7 +81,14 @@ class StockQuotesHumanReadable:
     api_names: ClassVar[dict[str, str]] = {
         "Change_Price": "Change $",
         "Change_Percent": "Change %",
+        "Fifty_Two_Week_High": "52 Week High",
+        "Fifty_Two_Week_Low": "52 Week Low",
     }
+    # The fields the API sends only when the request sets ``use_52_week``.
+    fifty_two_week_fields: ClassVar[tuple[str, ...]] = (
+        "Fifty_Two_Week_High",
+        "Fifty_Two_Week_Low",
+    )
 
     Symbol: str
     Ask: Decimal
@@ -69,6 +101,8 @@ class StockQuotesHumanReadable:
     Change_Percent: float
     Volume: int
     Date: datetime.datetime | None
+    Fifty_Two_Week_High: Decimal | None = None
+    Fifty_Two_Week_Low: Decimal | None = None
 
     def __post_init__(self):
         """Give the numbers their annotated types and read the dates; a null date stays ``None``."""
