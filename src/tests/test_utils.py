@@ -163,6 +163,17 @@ def test_merge_csv_responses_accepts_human_readable_names_for_the_model_fields()
     assert result == "Expiration Date,Strike\r\n1,2\r\n"
 
 
+def test_merge_csv_responses_keeps_a_column_the_resource_does_not_have():
+    responses = [
+        _csv_response("t,c,brandNew\n1,2,x\n"),
+        _csv_response("t,c,brandNew\n3,4,y\n"),
+    ]
+
+    result = merge_csv_responses(responses, COLUMNS)
+
+    assert result == "t,c,brandNew\r\n1,2,x\r\n3,4,y\r\n"
+
+
 @pytest.mark.parametrize(
     ("bodies", "reason"),
     [

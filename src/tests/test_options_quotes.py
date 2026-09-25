@@ -879,6 +879,23 @@ def test_options_quotes_csv_merges_every_symbol_under_the_api_header(
     )
 
 
+def test_options_quotes_csv_keeps_a_column_the_api_adds(respx_mock, client, tmp_path):
+    """A column the model does not declare is written with the others for
+    every symbol, as the CSV of a single-request resource carries it."""
+    respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER},brandNew\n{CALL_ROW},x\n")
+    respx_mock.get(PUT_URL).respond(text=f"{CSV_HEADER},brandNew\n{PUT_ROW},y\n")
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+    )
+
+    assert pathlib.Path(output).read_bytes() == (
+        f"{CSV_HEADER},brandNew\r\n{CALL_ROW},x\r\n{PUT_ROW},y\r\n".encode()
+    )
+
+
 def test_options_quotes_csv_keeps_the_requested_columns(respx_mock, client, tmp_path):
     """Issue #86: under `columns=` the API answers with the requested columns
     only; the merge used to drop every row because the header did not match
