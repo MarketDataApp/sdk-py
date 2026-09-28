@@ -353,6 +353,27 @@ Mixing `Decimal` and `float` in arithmetic raises `TypeError`, and comparing the
 
 The other formats keep the plain parse. A DataFrame never holds a `Decimal`: it keeps the plain parse, so every column has the dtype it always had on both pandas and polars (`float64` for prices with a fraction). A DataFrame is for vectorized analysis, pandas has no decimal dtype, and the same call returning a different dtype depending on which library is installed would be a trap. `OutputFormat.JSON` returns the decoded JSON with standard `float` numbers, and `OutputFormat.CSV` writes the API's text as it came (`client.utilities` builds its CSV from the decoded body). A `NaN` or an `Infinity` in a JSON body is not JSON and fails the call on every format that decodes the body; a number past what a float holds (`1e400`) is `inf` on `JSON` and `DATAFRAME` and exact on `INTERNAL`.
 
+### Columns a model does not declare
+
+The API adds columns without an SDK release. A model is built from the columns it declares, and `marketdata.get_extra()` returns the others, named as the API sent them, until a release declares them:
+
+```python
+import marketdata
+from marketdata import MarketDataClient, OutputFormat
+
+client = MarketDataClient()
+chain = client.options.chain("AAPL", output_format=OutputFormat.INTERNAL)
+marketdata.get_extra(chain)          # {} while the model declares every column
+
+quotes = client.stocks.quotes("AAPL", output_format=OutputFormat.INTERNAL)
+marketdata.get_extra(quotes[0])      # the row's value of each column StockQuote lacks
+```
+
+- **Which results:** every `OutputFormat.INTERNAL` result built from an answer's columns, the merged answers of `stocks.candles()` and `options.quotes()` included, and a model built with `from_dict()` on `StockEarnings`, `StockPrice`, `StockQuote` and their human-readable twins. A single-object result (`options.chain()`, `options.expirations()`, `options.lookup()`, `options.quotes()`, `stocks.earnings()`) holds each column whole; a list result (`stocks.quotes()`, `stocks.prices()`, `stocks.candles()`, `stocks.news()`, `funds.candles()`, `markets.status()`, `utilities.status()`) gives each row its own value. `utilities.user()` and `utilities.headers()` keep nothing there: the first reads only its own keys, the second keeps every key as a header.
+- **The values:** decoded as the rest of the answer, so a number with a fraction is a `Decimal` on the resources whose money is. Each answer that brings such a column names it once at DEBUG on `marketdata.logger`.
+- **How long they last:** as long as the object, which holds them itself, like the response metadata: they survive `copy.copy()`, `copy.deepcopy()` and `pickle`. They are not fields, so `==`, the repr and `dataclasses.fields()` ignore them, and a model built by hand, or from an answer without such a column, returns `{}`.
+- **The other formats:** `JSON` and `DATAFRAME` carry the column by the API's name and `CSV` writes it in the file. On `stocks.candles()` and `options.quotes()` every chunk or symbol must carry it, as it must carry a declared column: an answer without it fails the call with `ParseError`, on every format.
+
 ## Universal Parameters
 
 All resource methods support universal parameters that can be used to customize the API request and response:
