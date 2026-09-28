@@ -771,20 +771,34 @@ def test_an_object_with_none_of_the_model_columns_is_a_parse_error(
         "stocks.earnings human",
     ],
 )
-def test_a_body_that_is_not_an_object_is_a_parse_error_on_single_object_models(
-    respx_mock, client, name, body
+def test_a_body_that_is_not_an_object_is_one_parse_error_on_every_decoded_format(
+    respx_mock, client, tmp_path, name, body
 ):
-    """A single-object model refuses a body that is not a JSON object with an
-    SDK exception, under the API's names and the human-readable ones."""
+    """A single-object resource refuses a body that is not a JSON object with
+    the same ``ParseError`` on every format that decodes it, under the API's
+    names and the human-readable ones. The CSV file is the API's text as it
+    came, since that format decodes nothing."""
     case = MODEL_CASES[name]
     _respond(respx_mock, case, body)
 
-    with pytest.raises(ParseError) as failure:
-        case.call(client, output_format=OutputFormat.INTERNAL)
-
-    assert failure.value.message.startswith(
-        "Response body is not a valid answer of this resource ("
+    messages = set()
+    for output_format in (
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.DATAFRAME,
+    ):
+        with pytest.raises(ParseError) as failure:
+            case.call(client, output_format=output_format)
+        messages.add(failure.value.message)
+    path = case.call(
+        client, output_format=OutputFormat.CSV, filename=tmp_path / "answer.csv"
     )
+
+    assert messages == {
+        "Response body is not a valid answer of this resource (not a JSON object):"
+        f" {body.decode()!r}"
+    }
+    assert pathlib.Path(path).read_bytes() == body
 
 
 @pytest.mark.parametrize("name", OTHER_DATE_KEYS.keys())
