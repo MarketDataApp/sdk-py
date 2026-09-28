@@ -45,10 +45,25 @@ def render(
     as_records: bool,
     index_columns: list[str] | None = None,
 ):
-    """Turn the response into the requested output format.
+    """Turn a utilities answer into the requested output format.
 
-    ``as_records`` distinguishes column-oriented payloads (one row per entry,
-    like ``/status/``) from flat objects (``/headers/``, ``/user/``).
+    Args:
+        user_universal_params: The call's universal parameters.
+        response: The API's answer.
+        output_model: The output model of the resource.
+        as_records: Whether the answer is column-oriented, one row per entry
+            (``/status/``), rather than a flat object (``/headers/``,
+            ``/user/``).
+        index_columns: The index columns of the DataFrame.
+
+    Returns:
+        The rows or the model on INTERNAL, each row keeping the columns its
+        model does not declare for ``get_extra``; the decoded answer on JSON;
+        a DataFrame; or the path of the CSV file, written from the decoded
+        answer. The empty result for a ``no_data`` answer.
+
+    Raises:
+        ParseError: If the body is not valid JSON or the model refuses it.
     """
     output_format = user_universal_params.output_format
 

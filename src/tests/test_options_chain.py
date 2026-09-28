@@ -324,6 +324,8 @@ def test_get_options_chain_status_offline(load_json, respx_mock, client):
 
 
 def test_get_options_chain_response_200_csv(respx_mock, client):
+    """A CSV answer whose header names the resource's columns is written to
+    the file as it came."""
     respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
         text="optionSymbol,underlying,strike\nAAPL260116C00200000,AAPL,200\n",
         status_code=200,

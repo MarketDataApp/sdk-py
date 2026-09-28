@@ -167,6 +167,8 @@ def test_get_options_lookup_status_offline(respx_mock, client):
 
 
 def test_get_options_lookup_response_200_csv(respx_mock, client):
+    """A CSV answer whose header names the resource's columns is written to
+    the file as it came."""
     respx_mock.get(
         "https://api.marketdata.app/v1/options/lookup/AAPL 28-00-2023 200.0 call/"
     ).respond(
