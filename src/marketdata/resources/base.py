@@ -57,11 +57,15 @@ def model_columns(output_model: type, requested: list[str] | None = None) -> lis
     return _model_columns(output_model, requested)
 
 
-def _parse_json_object(response: Response, *, exact: bool = False) -> dict[str, Any]:
-    """Decode a response body that must be a JSON object.
+def _parse_json_object(
+    response: Response, output_model: type, *, exact: bool = False
+) -> dict[str, Any]:
+    """Decode a response body that must be a JSON object carrying at least one
+    of the output model's columns.
 
     Args:
         response: The answer to decode.
+        output_model: The output model of the resource.
         exact: Decode each number with a fraction as a ``Decimal``, as
             ``parse_json`` does.
 
@@ -70,11 +74,14 @@ def _parse_json_object(response: Response, *, exact: bool = False) -> dict[str, 
 
     Raises:
         ParseError: If the body is not valid JSON, holds a number that is not
-            finite, or is not a JSON object.
+            finite, is not a JSON object, or carries none of the model's
+            columns.
     """
     data = parse_json(response, exact=exact)
     if not isinstance(data, dict):
         raise parse_error(response, "not a JSON object")
+    if not any(column in data for column in model_columns(output_model)):
+        raise parse_error(response, "none of this resource's fields")
     return data
 
 

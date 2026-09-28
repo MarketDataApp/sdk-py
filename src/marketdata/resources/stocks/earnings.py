@@ -66,19 +66,19 @@ def earnings(
         )
 
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
-        data = _parse_json_object(response)
+        data = _parse_json_object(response, output_model)
         handler = get_dataframe_output_handler()
         return handler(data, output_model, user_universal_params).get_result(
             index_columns=["symbol", "Symbol"]
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = _parse_json_object(response, exact=True)
+        data = _parse_json_object(response, output_model, exact=True)
         with model_errors(response):
             return output_model.from_dict(data)
 
     elif user_universal_params.output_format == OutputFormat.JSON:
-        return _parse_json_object(response)
+        return _parse_json_object(response, output_model)
 
     elif user_universal_params.output_format == OutputFormat.CSV:
         _check_csv_header(

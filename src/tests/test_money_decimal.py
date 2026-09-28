@@ -669,7 +669,9 @@ def test_a_value_the_model_cannot_hold_is_a_parse_error_not_a_builtin(
     assert body["mid"] == [decoded]
 
 
-@pytest.mark.parametrize("name", ["options.lookup", "markets.status", "utilities.user"])
+@pytest.mark.parametrize(
+    "name", ["options.expirations", "markets.status", "utilities.user"]
+)
 def test_a_body_missing_a_column_the_model_needs_is_a_parse_error(
     respx_mock, client, name
 ):
@@ -837,19 +839,65 @@ def test_an_object_with_none_of_the_model_columns_is_a_parse_error(
     )
 
 
+SINGLE_OBJECT_MODEL_CASES = [
+    "options.chain",
+    "options.chain human",
+    "options.expirations",
+    "options.expirations human",
+    "options.lookup",
+    "stocks.earnings",
+    "stocks.earnings human",
+]
+
+
+@pytest.mark.parametrize("name", SINGLE_OBJECT_MODEL_CASES)
+def test_a_foreign_object_is_a_parse_error_on_every_format(
+    respx_mock, client, tmp_path, name
+):
+    """A single-object resource refuses a JSON object that carries none of its
+    columns, like a proxy's JSON error page, on every format: the same
+    ``ParseError`` on the three that decode it, and on CSV the one a header
+    with none of the resource's columns gets or, without a header row, the one
+    a body that reads as JSON gets."""
+    case = MODEL_CASES[name]
+    text = json.dumps({"error": "upstream timeout"})
+    _respond(respx_mock, case, text.encode())
+
+    messages = set()
+    for output_format in (
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.DATAFRAME,
+    ):
+        with pytest.raises(ParseError) as failure:
+            case.call(client, output_format=output_format)
+        messages.add(failure.value.message)
+    with pytest.raises(ParseError) as refused:
+        case.call(
+            client, output_format=OutputFormat.CSV, filename=tmp_path / "answer.csv"
+        )
+    with pytest.raises(ParseError) as headerless:
+        case.call(
+            client,
+            output_format=OutputFormat.CSV,
+            add_headers=False,
+            filename=tmp_path / "answer.csv",
+        )
+
+    assert messages == {
+        "Response body is not a valid answer of this resource (none of this"
+        f" resource's fields): {text!r}"
+    }
+    assert refused.value.message == (
+        "Response body is not a valid answer of this resource (unknown columns"
+        f" [{text!r}]): {text!r}"
+    )
+    assert "(JSON or HTML, not CSV)" in headerless.value.message
+    assert not (tmp_path / "answer.csv").exists()
+
+
 @pytest.mark.parametrize("body", [b"[1]", b"null"])
-@pytest.mark.parametrize(
-    "name",
-    [
-        "options.chain",
-        "options.chain human",
-        "options.expirations",
-        "options.expirations human",
-        "options.lookup",
-        "stocks.earnings",
-        "stocks.earnings human",
-    ],
-)
+@pytest.mark.parametrize("name", SINGLE_OBJECT_MODEL_CASES)
 def test_a_body_that_is_not_an_object_is_a_parse_error_on_every_format(
     respx_mock, client, tmp_path, name, body
 ):
