@@ -7,6 +7,7 @@ everywhere else. The DataFrame and JSON outputs keep the plain float parse.
 """
 
 import array
+import copy
 import csv
 import dataclasses
 import datetime
@@ -15,6 +16,7 @@ import inspect
 import json
 import math
 import pathlib
+import pickle
 import pkgutil
 import typing
 from decimal import Decimal, InvalidOperation, localcontext
@@ -694,13 +696,6 @@ MODEL_CASES = {
     for name, case in {**MONEY_CASES, **OTHER_CASES}.items()
     if name not in ("utilities.headers", "utilities.user")
 }
-# They merge only the columns their model declares, before any model is built.
-FAN_OUTS = (
-    "stocks.candles",
-    "stocks.candles human",
-    "options.quotes",
-    "options.quotes human",
-)
 
 
 def _undeclared_columns_logged(caplog) -> list[str]:
@@ -709,9 +704,6 @@ def _undeclared_columns_logged(caplog) -> list[str]:
         for record in caplog.records
         if "does not declare" in record.getMessage()
     ]
-
-
-SINGLE_REQUEST_CASES = [name for name in MODEL_CASES if name not in FAN_OUTS]
 
 
 def _add_new_column(data: dict) -> list[str] | str:
@@ -740,8 +732,8 @@ def test_a_column_no_model_declares_is_kept_for_get_extra(
     """A column the API adds before the model declares it does not break the
     call: the fields are the ones the answer builds without it, ``get_extra``
     holds the column, a row its own value, and the column is named once at
-    DEBUG however many rows the answer has. The fan-outs merge only the
-    columns their model declares, so there it is gone and nothing is logged."""
+    DEBUG however many rows the answer has, the fan-outs' merged answer
+    included."""
     case = MODEL_CASES[name]
     data = _load_fixture(case.fixture)
     _respond(respx_mock, case, json.dumps(data).encode())
@@ -758,10 +750,6 @@ def test_a_column_no_model_declares_is_kept_for_get_extra(
     assert result == expected
     models = result if isinstance(result, list) else [result]
     extras = [marketdata.get_extra(model) for model in models]
-    if name in FAN_OUTS:
-        assert extras == [{}] * len(models)
-        assert _undeclared_columns_logged(caplog) == []
-        return
     if isinstance(result, list) and isinstance(column, list):
         assert extras == [{"brandNew": value} for value in column]
     else:
@@ -772,14 +760,14 @@ def test_a_column_no_model_declares_is_kept_for_get_extra(
     ]
 
 
-@pytest.mark.parametrize("name", SINGLE_REQUEST_CASES)
+@pytest.mark.parametrize("name", MODEL_CASES)
 def test_a_column_no_model_declares_reaches_every_format(
     respx_mock, client, tmp_path, name
 ):
     """An answer with a column the model does not declare carries it on every
-    format: INTERNAL through ``get_extra``, JSON and DataFrame as a column,
-    and CSV in the file, which is the API's text or, on the utilities, the
-    file written from the decoded answer."""
+    format, the fan-outs' merge included: INTERNAL through ``get_extra``, JSON
+    and DataFrame as a column, and CSV in the file, which is the API's text
+    or, on the utilities, the file written from the decoded answer."""
     case = MODEL_CASES[name]
     data = _load_fixture(case.fixture)
     _add_new_column(data)
@@ -868,7 +856,8 @@ def test_a_body_that_is_not_an_object_is_a_parse_error_on_every_format(
     """A single-object resource refuses a body that is not a JSON object on
     every format, under the API's names and the human-readable ones: the same
     ``ParseError`` on the three that decode it, and on CSV the one a header
-    with none of the resource's columns gets."""
+    with none of the resource's columns gets or, without a header row, the one
+    a body that reads as JSON gets."""
     case = MODEL_CASES[name]
     _respond(respx_mock, case, body)
 
@@ -885,6 +874,13 @@ def test_a_body_that_is_not_an_object_is_a_parse_error_on_every_format(
         case.call(
             client, output_format=OutputFormat.CSV, filename=tmp_path / "answer.csv"
         )
+    with pytest.raises(ParseError) as headerless:
+        case.call(
+            client,
+            output_format=OutputFormat.CSV,
+            add_headers=False,
+            filename=tmp_path / "answer.csv",
+        )
 
     text = body.decode()
     assert messages == {
@@ -894,6 +890,10 @@ def test_a_body_that_is_not_an_object_is_a_parse_error_on_every_format(
     assert refused.value.message == (
         "Response body is not a valid answer of this resource (unknown columns"
         f" [{text!r}]): {text!r}"
+    )
+    assert headerless.value.message == (
+        "Response body is not a valid answer of this resource (JSON or HTML, not"
+        f" CSV): {text!r}"
     )
     assert not (tmp_path / "answer.csv").exists()
 
@@ -924,6 +924,73 @@ def test_a_csv_without_a_header_row_is_written_as_it_came(
     )
 
     assert pathlib.Path(path).read_bytes() == body
+
+
+@pytest.mark.parametrize(
+    "body",
+    [b'{"error": "upstream timeout"}', b"<html><body>502 Bad Gateway</body></html>"],
+    ids=["a JSON object", "an HTML page"],
+)
+def test_a_headerless_csv_that_reads_as_json_or_html_is_a_parse_error(
+    respx_mock, client, tmp_path, body
+):
+    """Under ``add_headers=False`` a body that reads as JSON or HTML is not a
+    CSV answer, so it is refused and no file is written."""
+    case = MODEL_CASES["options.chain"]
+    _respond(respx_mock, case, body)
+
+    with pytest.raises(ParseError) as refused:
+        case.call(
+            client,
+            output_format=OutputFormat.CSV,
+            add_headers=False,
+            filename=tmp_path / "answer.csv",
+        )
+
+    assert "(JSON or HTML, not CSV)" in refused.value.message
+    assert not (tmp_path / "answer.csv").exists()
+
+
+@pytest.mark.parametrize("name", ["stocks.candles", "options.quotes"])
+def test_a_fan_out_headerless_csv_that_reads_as_json_is_a_parse_error(
+    respx_mock, client, tmp_path, name
+):
+    """The fan-outs' merge refuses a headerless body that reads as JSON, as
+    their JSON output refuses a body that is not an object."""
+    case = MODEL_CASES[name]
+    _respond(respx_mock, case, b"[1]")
+
+    with pytest.raises(ParseError) as refused:
+        case.call(
+            client,
+            output_format=OutputFormat.CSV,
+            add_headers=False,
+            filename=tmp_path / "answer.csv",
+        )
+    with pytest.raises(ParseError) as decoded:
+        case.call(client, output_format=OutputFormat.JSON)
+
+    assert "(JSON or HTML, not CSV)" in refused.value.message
+    assert "(not a JSON object)" in decoded.value.message
+    assert not (tmp_path / "answer.csv").exists()
+
+
+def test_get_extra_survives_copy_and_pickle(respx_mock, client):
+    """The columns a model does not declare live on the model itself, so a
+    copy, a deep copy and a pickled model keep them."""
+    case = MODEL_CASES["stocks.quotes"]
+    data = _load_fixture(case.fixture)
+    _add_new_column(data)
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    quote = case.call(client, output_format=OutputFormat.INTERNAL)[0]
+
+    for twin in (
+        copy.copy(quote),
+        copy.deepcopy(quote),
+        pickle.loads(pickle.dumps(quote)),
+    ):
+        assert marketdata.get_extra(twin) == {"brandNew": "new 0"}
 
 
 def test_a_csv_header_the_csv_module_cannot_read_is_a_parse_error(

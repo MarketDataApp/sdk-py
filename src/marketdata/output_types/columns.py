@@ -153,20 +153,6 @@ def _split_fields(output_model: type, data: Any) -> tuple[Any, dict[str, Any]]:
     return {by_key[key]: value for key, value in data.items() if key in by_key}, extra
 
 
-def _to_fields(output_model: type, data: Any) -> Any:
-    """Key an API answer that carries only declared columns by the fields of
-    the output model it is built into.
-
-    Args:
-        output_model: The output model dataclass the answer is built into.
-        data: The answer, keyed by column name.
-
-    Returns:
-        The fields ``_split_fields`` returns.
-    """
-    return _split_fields(output_model, data)[0]
-
-
 def _model_columns(output_model: type, requested: list[str] | None = None) -> list[str]:
     """List the columns a result of an output model carries.
 

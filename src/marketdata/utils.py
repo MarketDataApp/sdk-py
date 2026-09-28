@@ -368,7 +368,8 @@ def merge_csv_responses(
             the same column still merges. A column of the header that matches
             none of them is kept.
         with_header: Whether the bodies start with a header row. Without one,
-            only the row width is checked, against the first row seen.
+            only the row width is checked, against the first row seen, and a
+            body that reads as JSON or HTML is refused.
 
     Returns:
         The first answer's header, if any, then every row of every answer,
@@ -379,8 +380,8 @@ def merge_csv_responses(
         ParseError: Naming the offending response, for a body the ``csv``
             module cannot read, a body with no header row, a header with none
             of the resource's columns or with other columns, or in another
-            order, than the first answer's, or a row not as wide as the
-            header.
+            order, than the first answer's, a body without a header row that
+            reads as JSON or HTML, or a row not as wide as the header.
     """
     known = {column_key(name) for name in known_columns}
     header: list[str] | None = None
@@ -390,6 +391,8 @@ def merge_csv_responses(
     writer = csv.writer(output)
 
     for response in responses:
+        if not with_header and _reads_as_json_or_html(response.text):
+            raise parse_error(response, "JSON or HTML, not CSV")
         rows = _csv_records(response.text)
         try:
             if with_header:
@@ -441,26 +444,44 @@ def _unreadable_csv(response: Response, error: csv.Error) -> ParseError:
     return parse_error(response, f"unreadable CSV: {error}")
 
 
+def _reads_as_json_or_html(text: str) -> bool:
+    """Tell whether a CSV answer is a JSON value or an HTML page instead.
+
+    Args:
+        text: The body.
+
+    Returns:
+        Whether, past a BOM and white space, it starts with ``[``, ``{`` or
+        ``<``, or is ``null``.
+    """
+    body = text.lstrip(BOM).strip()
+    return body[:1] in ("[", "{", "<") or body == "null"
+
+
 def json_answer_columns(
     responses: list[Response], answers: list[Any], keys: list[str]
 ) -> list[str]:
-    """The columns a fan-out merges from its decoded JSON answers (#90).
+    """List the columns a fan-out merges from its decoded JSON answers.
 
-    They are the ``keys`` (the model's columns) that any answer carries, keys
-    the model does not know being left out. Since every answer must carry
-    them all, a successful merge has the first answer's columns in the first
-    answer's order: under ``columns=`` the API sends the requested columns
-    only, in the order they were requested, which is also the order of the
-    empty result and of every single-request resource. Every answer must be a
-    JSON object
-    carrying all of them as lists of one length, since the merge concatenates
-    column by column and a missing or short column would shift every later
-    row into the wrong symbol or chunk. Anything else raises ``ParseError``
-    naming the offending response: a body that is not an object (``null``, a
-    list), answers with none of the keys (a proxy's JSON error page), an
-    answer missing a column another one carries, whichever it is, or a column
-    that is not a list of the same length as the others. A merge with no
-    columns would read as "no data" (#82).
+    Every answer must carry every column as a list, all of one length, since
+    the merge concatenates column by column and a missing or short column
+    would shift every later row into the wrong symbol or chunk.
+
+    Args:
+        responses: The answers, in merge order.
+        answers: Their decoded bodies.
+        keys: The model's columns.
+
+    Returns:
+        The ``keys`` any answer carries, and every other key but the status
+        flag ``s`` that holds a list, in the order the answers first carry
+        them: under ``columns=``, the order the columns were requested in.
+
+    Raises:
+        ParseError: Naming the offending response, for a body that is not a
+            JSON object, answers with none of ``keys`` (a proxy's JSON error
+            page), an answer missing a column another one carries, or a
+            column that is not a list as long as the others.
     """
     for response, answer in zip(responses, answers, strict=True):
         if not isinstance(answer, dict):
@@ -468,10 +489,12 @@ def json_answer_columns(
     known = set(keys)
     columns: list[str] = []
     for answer in answers:
-        for key in answer:
-            if key in known and key not in columns:
+        for key, value in answer.items():
+            if key not in columns and (
+                key in known or (key != "s" and isinstance(value, list))
+            ):
                 columns.append(key)
-    if not columns:
+    if not any(key in known for key in columns):
         raise parse_error(responses[0], "none of this resource's fields")
     for response, answer in zip(responses, answers):
         missing = [key for key in columns if key not in answer]

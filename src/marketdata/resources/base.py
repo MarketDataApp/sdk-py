@@ -18,6 +18,7 @@ from marketdata.output_types.columns import _model_columns
 from marketdata.settings import settings
 from marketdata.utils import (
     _csv_records,
+    _reads_as_json_or_html,
     _unreadable_csv,
     column_key,
     csv_header,
@@ -89,9 +90,12 @@ def _check_csv_header(
 
     Raises:
         ParseError: If the answer starts with a header row that names none of
-            the model's columns, or with one the ``csv`` module cannot read.
+            the model's columns, or with one the ``csv`` module cannot read,
+            or, without a header row, if it reads as JSON or HTML.
     """
     if not with_header:
+        if _reads_as_json_or_html(response.text):
+            raise parse_error(response, "JSON or HTML, not CSV")
         return
     try:
         incoming = next(_csv_records(response.text), None)

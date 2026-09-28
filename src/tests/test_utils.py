@@ -332,14 +332,16 @@ def test_merge_csv_responses_reports_an_unreadable_body_before_a_misaligned_row(
 
 def test_json_answer_columns_follow_the_order_the_answers_send():
     """Under `columns=` the API sends the requested keys only, in request
-    order (checked live: `columns=v,c` answers `{"v": [...], "c": [...]}`).
-    The merge keeps that order, which is the order of the empty result and of
-    every single-request resource, not the model's; the status flag and keys
-    the model does not know are not columns."""
+    order, and the merge keeps that order, not the model's. A key the model
+    does not declare is a column too when it holds a list; the status flag and
+    a key that holds one value are not."""
     responses = [_csv_response(""), _csv_response("")]
-    answers = [{"c": [1], "t": [2], "x": [0]}, {"c": [4], "t": [3], "s": "ok"}]
+    answers = [
+        {"c": [1], "t": [2], "x": [0], "note": "one value"},
+        {"c": [4], "t": [3], "x": [5], "s": "ok"},
+    ]
 
-    assert json_answer_columns(responses, answers, COLUMNS) == ["c", "t"]
+    assert json_answer_columns(responses, answers, COLUMNS) == ["c", "t", "x"]
 
 
 @pytest.mark.parametrize(
@@ -358,6 +360,7 @@ def test_json_answer_columns_follow_the_order_the_answers_send():
         ([{"t": [1], "c": [2]}, {"t": [3], "c": []}], "different lengths", 1),
         ([{"t": [1], "c": [2]}, {"t": [3], "c": "4.5"}], "are not lists", 1),
         ([{"t": [1], "c": [2]}, {"t": [3], "c": None}], "are not lists", 1),
+        ([{"t": [1], "x": [0]}, {"t": [3]}], "missing columns ['x']", 1),
     ],
     ids=[
         "null",
@@ -369,6 +372,7 @@ def test_json_answer_columns_follow_the_order_the_answers_send():
         "an-empty-column",
         "a-column-that-is-a-string",
         "a-null-column",
+        "an-undeclared-column-one-answer-lacks",
     ],
 )
 def test_json_answer_columns_name_the_answer_that_breaks_the_merge(
