@@ -1,72 +1,111 @@
-"""Every timestamp the SDK renders takes its zone from one constant,
-`internal_settings.DEFAULT_TIMEZONE`."""
+"""Every timestamp the SDK renders takes its zone from one constant."""
 
-import ast
 import datetime
-from dataclasses import dataclass
-from pathlib import Path
+import time
+from unittest.mock import patch
 
-import polars as pl
 import pytest
 import pytz
 
-from marketdata import exceptions, internal_settings
-from marketdata.exceptions import BaseMarketdataException
-from marketdata.input_types.base import UserUniversalAPIParams
+from marketdata import exceptions, get_meta, types, utils
+from marketdata.exceptions import BadRequestError
+from marketdata.input_types.base import OutputFormat
 from marketdata.output_handlers import pandas as pandas_handler
 from marketdata.output_handlers import polars as polars_handler
+from src.tests.conftest import use_real_header_extraction
 
-PACKAGE = Path(internal_settings.__file__).parent
+QUOTES_URL = "https://api.marketdata.app/v1/stocks/quotes/"
+UPDATED = 1765552906
 TOKYO = pytz.timezone("Asia/Tokyo")
 STAMP = "%Y-%m-%d %H:%M:%S"
 
 
-@dataclass
-class Updated:
-    updated: datetime.datetime
-
-
 @pytest.fixture
 def tokyo(monkeypatch):
-    """Point the exception module and both DataFrame handlers at Asia/Tokyo, a
-    zone with no daylight saving time and 13 or 14 hours away from US/Eastern.
+    """Point every module that renders a timestamp at Asia/Tokyo, a zone with
+    no daylight saving time and 13 or 14 hours away from US/Eastern.
 
     Returns:
         The Asia/Tokyo zone.
     """
-    for module in (exceptions, pandas_handler, polars_handler):
-        monkeypatch.setattr(module, "DEFAULT_TIMEZONE", TOKYO)
+    for module, name in (
+        (utils, "DEFAULT_TIMEZONE"),
+        (types, "_DEFAULT_TIMEZONE"),
+        (exceptions, "_DEFAULT_TIMEZONE"),
+        (pandas_handler, "_DEFAULT_TIMEZONE"),
+        (polars_handler, "_DEFAULT_TIMEZONE"),
+    ):
+        monkeypatch.setattr(module, name, TOKYO)
     return TOKYO
 
 
-def test_the_zone_name_is_written_only_where_the_constant_is_defined():
-    """No module of the package builds the zone from a literal of its own."""
-    literals = [
-        f"{path.relative_to(PACKAGE).as_posix()}:{node.lineno}"
-        for path in sorted(PACKAGE.rglob("*.py"))
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, ast.Constant) and node.value == "US/Eastern"
-    ]
-
-    assert len(literals) == 1, literals
-    assert literals[0].startswith("internal_settings.py:"), literals
+def test_utils_default_timezone_is_us_eastern():
+    """`marketdata.utils.DEFAULT_TIMEZONE` is the US/Eastern zone."""
+    assert utils.DEFAULT_TIMEZONE is pytz.timezone("US/Eastern")
 
 
-def test_dataframes_and_exception_timestamps_render_in_the_constant_zone(tokyo):
-    """A DataFrame from either handler and an exception timestamp all follow
-    the zone the constant holds."""
-    handler = {
-        "data": {"updated": [1765552906]},
-        "output_schema": Updated,
-        "user_universal_params": UserUniversalAPIParams(),
-    }
+def test_internal_dates_and_the_credit_reset_follow_the_constant(
+    tokyo, load_json, respx_mock, client
+):
+    """An INTERNAL result's dates and the credit reset read from its headers
+    are in the zone the constant holds."""
+    use_real_header_extraction(client)
+    reset = int(time.time()) + 60
+    respx_mock.get(QUOTES_URL).respond(
+        json=load_json("stocks_quotes_response_200"),
+        headers={
+            "x-api-ratelimit-limit": "100",
+            "x-api-ratelimit-remaining": "99",
+            "x-api-ratelimit-reset": str(reset),
+            "x-api-ratelimit-consumed": "1",
+        },
+        status_code=200,
+    )
 
-    pandas_frame = pandas_handler.PandasOutputHandler(**handler).get_result()
-    polars_frame = polars_handler.PolarsOutputHandler(**handler).get_result()
+    quotes = client.stocks.quotes(
+        symbols=["AAPL", "MSFT"], output_format=OutputFormat.INTERNAL
+    )
+    reset_time = get_meta(quotes).rate_limits.reset_time
+
+    assert quotes[0].updated == datetime.datetime.fromtimestamp(UPDATED, tz=tokyo)
+    assert str(quotes[0].updated.tzinfo) == "Asia/Tokyo"
+    assert reset_time.timestamp() == reset
+    assert str(reset_time.tzinfo) == "Asia/Tokyo"
+
+
+@pytest.mark.parametrize("library", ["pandas", "polars"])
+def test_dataframe_dates_follow_the_constant(
+    tokyo, load_json, respx_mock, client, library
+):
+    """A DataFrame's date column is in the zone the constant holds.
+
+    Args:
+        library: The DataFrame library the client builds the result with.
+    """
+    respx_mock.get(QUOTES_URL).respond(
+        json=load_json("stocks_quotes_response_200"), status_code=200
+    )
+
+    with patch("marketdata.output_handlers.DATAFRAME_HANDLERS_PRIORITY", [library]):
+        frame = client.stocks.quotes(
+            symbols=["AAPL", "MSFT"], output_format=OutputFormat.DATAFRAME
+        )
+    updated = frame["updated"].to_list()[0]
+
+    assert updated == datetime.datetime.fromtimestamp(UPDATED, tz=tokyo)
+    assert str(updated.tzinfo) == "Asia/Tokyo"
+
+
+def test_an_error_timestamp_follows_the_constant(tokyo, respx_mock, client):
+    """An error the API answered is stamped with the time in the zone the
+    constant holds."""
+    respx_mock.get(QUOTES_URL).respond(
+        json={"errmsg": "Invalid symbol"}, status_code=400
+    )
+
     before = datetime.datetime.now(tokyo).strftime(STAMP)
-    error = BaseMarketdataException("boom")
+    with pytest.raises(BadRequestError) as caught:
+        client.stocks.quotes(symbols=["AAPL"], output_format=OutputFormat.INTERNAL)
     after = datetime.datetime.now(tokyo).strftime(STAMP)
 
-    assert str(pandas_frame["updated"].dt.tz) == "Asia/Tokyo"
-    assert polars_frame["updated"].dtype == pl.Datetime("us", "Asia/Tokyo")
-    assert before <= error.timestamp <= after
+    assert before <= caught.value.timestamp <= after

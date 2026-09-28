@@ -30,7 +30,7 @@ from datetime import datetime
 from httpx import Request, Response
 
 from marketdata.internal_settings import (
-    DEFAULT_TIMEZONE,
+    _DEFAULT_TIMEZONE,
     HEADER_AUTHORIZED_IP,
     HEADER_REQUEST_ID,
     read_header,
@@ -82,14 +82,13 @@ class BaseMarketdataException(Exception):
 
         Args:
             timestamp: A datetime, rendered by ``format_timestamp``; text, kept
-                as it is; or ``None`` for the current time in
-                ``DEFAULT_TIMEZONE``.
+                as it is; or ``None`` for the current time in US/Eastern.
 
         Returns:
             The timestamp as ``YYYY-MM-DD HH:MM:SS``, or the text given.
         """
         if timestamp is None:
-            return cls.format_timestamp(datetime.now(DEFAULT_TIMEZONE))
+            return cls.format_timestamp(datetime.now(_DEFAULT_TIMEZONE))
         if isinstance(timestamp, datetime):
             return cls.format_timestamp(timestamp)
         return timestamp

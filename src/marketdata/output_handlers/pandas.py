@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from marketdata.input_types.base import DateFormat
-from marketdata.internal_settings import DEFAULT_TIMEZONE
+from marketdata.internal_settings import _DEFAULT_TIMEZONE
 from marketdata.output_handlers.base import BaseOutputHandler
 
 _DTYPES = {float: "float64", int: "int64", bool: "bool", str: "object"}
@@ -50,24 +50,22 @@ class PandasOutputHandler(BaseOutputHandler):
         date_columns: list[str],
         date_format: DateFormat | None,
     ) -> pd.DataFrame:
-        """Turn the date columns into datetimes in ``DEFAULT_TIMEZONE``.
+        """Convert the date columns to US/Eastern datetimes.
 
         Args:
-            df: The result, with its dates as the API sent them.
-            date_columns: The columns that hold dates.
-            date_format: The ``dateformat`` of the request. ``UNIX`` keeps the
-                columns as numbers, and ``None`` reads them as Unix seconds,
-                the API's default.
+            df: The result, with its columns cast.
+            date_columns: The columns to convert.
+            date_format: The request's date format. ``None`` reads the values
+                as Unix seconds, and ``DateFormat.UNIX`` leaves them as numbers.
 
         Returns:
-            ``df`` with its date columns converted. A column that does not
-            read in that format is left as it is.
+            The same frame. A column that cannot be converted keeps its values.
         """
         if date_format == DateFormat.UNIX:
             return df
 
         format_to_use = date_format or DateFormat.UNIX
-        default_tz = DEFAULT_TIMEZONE
+        default_tz = _DEFAULT_TIMEZONE
 
         for col in df.columns:
             if col not in date_columns:

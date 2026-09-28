@@ -10,7 +10,10 @@ from urllib.parse import quote
 from httpx import Response
 
 from marketdata.exceptions import ParseError
-from marketdata.internal_settings import DEFAULT_TIMEZONE, VALID_STATUS_CODES
+from marketdata.internal_settings import _DEFAULT_TIMEZONE, VALID_STATUS_CODES
+
+# Assigned, not imported: an imported name is not part of the public surface.
+DEFAULT_TIMEZONE = _DEFAULT_TIMEZONE
 
 
 def _exact_number(text: str) -> Decimal:

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from pytz.exceptions import InvalidTimeError
 
-from marketdata.internal_settings import DEFAULT_TIMEZONE
+from marketdata.internal_settings import _DEFAULT_TIMEZONE
 
 
 @dataclass
@@ -36,7 +36,7 @@ class UserRateLimits:
                 raise refused
             try:
                 reset_time = datetime.datetime.fromtimestamp(
-                    float(reset_time), tz=DEFAULT_TIMEZONE
+                    float(reset_time), tz=_DEFAULT_TIMEZONE
                 )
             except (TypeError, ValueError, OverflowError, OSError):
                 raise refused from None
@@ -44,7 +44,7 @@ class UserRateLimits:
             try:
                 # `is_dst=None`: a repeated or skipped wall time names no single
                 # instant, and picking one would move the reset by an hour.
-                reset_time = DEFAULT_TIMEZONE.localize(reset_time, is_dst=None)
+                reset_time = _DEFAULT_TIMEZONE.localize(reset_time, is_dst=None)
             except InvalidTimeError as exc:
                 raise ValueError(
                     f"{reset_time.isoformat()} is not one US/Eastern time: a "
