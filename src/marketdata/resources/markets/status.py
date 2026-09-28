@@ -5,7 +5,7 @@ from marketdata.docs import docs
 from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.input_types.markets import MarketStatusInput
 from marketdata.output_handlers import get_dataframe_output_handler
-from marketdata.output_types.columns import _to_fields
+from marketdata.output_types.columns import _split_fields, _with_row_extra
 from marketdata.output_types.markets_status import (
     MarketStatus,
     MarketStatusHumanReadable,
@@ -67,9 +67,10 @@ def status(
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         data = parse_json(response)
-        data = get_data_records(_to_fields(output_model, data), exclude_keys=["s"])
+        fields, extra = _split_fields(output_model, data)
+        data = get_data_records(fields, exclude_keys=["s"])
         with model_errors(response):
-            return [output_model(**row) for row in data]
+            return _with_row_extra([output_model(**row) for row in data], extra)
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         return parse_json(response)

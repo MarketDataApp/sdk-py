@@ -1,3 +1,4 @@
+import csv
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
@@ -16,6 +17,9 @@ from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.columns import _model_columns
 from marketdata.settings import settings
 from marketdata.utils import (
+    _csv_records,
+    _unreadable_csv,
+    column_key,
     csv_header,
     parse_error,
     parse_json,
@@ -71,6 +75,31 @@ def _parse_json_object(response: Response, *, exact: bool = False) -> dict[str, 
     if not isinstance(data, dict):
         raise parse_error(response, "not a JSON object")
     return data
+
+
+def _check_csv_header(
+    response: Response, output_model: type, *, with_header: bool
+) -> None:
+    """Refuse a CSV answer whose header names none of the resource's columns.
+
+    Args:
+        response: The CSV answer.
+        output_model: The output model of the resource.
+        with_header: Whether the answer starts with a header row.
+
+    Raises:
+        ParseError: If the answer starts with a header row that names none of
+            the model's columns, or with one the ``csv`` module cannot read.
+    """
+    if not with_header:
+        return
+    try:
+        incoming = next(_csv_records(response.text), None)
+    except csv.Error as exc:
+        raise _unreadable_csv(response, exc) from exc
+    known = {column_key(name) for name in model_columns(output_model)}
+    if incoming is not None and not any(column_key(name) in known for name in incoming):
+        raise parse_error(response, f"unknown columns {incoming!r}")
 
 
 @contextmanager

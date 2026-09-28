@@ -12,6 +12,7 @@ from marketdata.output_types.stocks_earnings import (
 from marketdata.params import universal_params
 from marketdata.resources.base import (
     BaseResource,
+    _check_csv_header,
     _parse_json_object,
     model_errors,
     no_data_result,
@@ -80,6 +81,11 @@ def earnings(
         return _parse_json_object(response)
 
     elif user_universal_params.output_format == OutputFormat.CSV:
+        _check_csv_header(
+            response,
+            output_model,
+            with_header=user_universal_params.add_headers is not False,
+        )
         return user_universal_params.write_file(response.text)
 
     # This line should never be reached due to the universal_params decorator validating the output format

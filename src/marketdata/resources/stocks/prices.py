@@ -8,7 +8,7 @@ from marketdata.input_types.base import (
 )
 from marketdata.input_types.stocks import StocksPricesInput
 from marketdata.output_handlers import get_dataframe_output_handler
-from marketdata.output_types.columns import _to_fields
+from marketdata.output_types.columns import _split_fields, _with_row_extra
 from marketdata.output_types.stocks_prices import StockPrice, StockPricesHumanReadable
 from marketdata.params import universal_params
 from marketdata.resources.base import model_errors, no_data_result
@@ -68,11 +68,10 @@ def prices(
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = get_data_records(
-            _to_fields(output_model, parse_json(response, exact=True))
-        )
+        fields, extra = _split_fields(output_model, parse_json(response, exact=True))
+        data = get_data_records(fields)
         with model_errors(response):
-            return [output_model(**row) for row in data]
+            return _with_row_extra([output_model(**row) for row in data], extra)
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         return parse_json(response)

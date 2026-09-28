@@ -325,13 +325,16 @@ def test_get_options_chain_status_offline(load_json, respx_mock, client):
 
 def test_get_options_chain_response_200_csv(respx_mock, client):
     respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
-        text="AS RECEIVED FROM API",
+        text="optionSymbol,underlying,strike\nAAPL260116C00200000,AAPL,200\n",
         status_code=200,
     )
     output = client.options.chain(
         "AAPL", output_format=OutputFormat.CSV, filename="test.csv"
     )
-    assert pathlib.Path(output).read_text() == "AS RECEIVED FROM API"
+    assert (
+        pathlib.Path(output).read_text()
+        == "optionSymbol,underlying,strike\nAAPL260116C00200000,AAPL,200\n"
+    )
 
 
 def test_options_chain_input_date_range_aliases_on_wire(load_json, respx_mock, client):

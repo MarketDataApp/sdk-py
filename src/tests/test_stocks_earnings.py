@@ -257,13 +257,16 @@ def test_get_stocks_earnings_status_offline(respx_mock, client):
 
 def test_get_stocks_earnings_response_200_csv(respx_mock, client):
     respx_mock.get("https://api.marketdata.app/v1/stocks/earnings/AAPL/").respond(
-        text="AS RECEIVED FROM API",
+        text="symbol,fiscalYear,fiscalQuarter\nAAPL,2026,1\n",
         status_code=200,
     )
     output = client.stocks.earnings(
         symbol="AAPL", output_format=OutputFormat.CSV, filename="test.csv"
     )
-    assert pathlib.Path(output).read_text() == "AS RECEIVED FROM API"
+    assert (
+        pathlib.Path(output).read_text()
+        == "symbol,fiscalYear,fiscalQuarter\nAAPL,2026,1\n"
+    )
 
 
 def test_earnings_internal_reads_timestamp_dates_as_us_eastern_midnight(

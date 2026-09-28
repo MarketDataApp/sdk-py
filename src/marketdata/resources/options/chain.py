@@ -5,7 +5,7 @@ from marketdata.docs import docs
 from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.input_types.options import OptionsChainInput
 from marketdata.output_handlers import get_dataframe_output_handler
-from marketdata.output_types.columns import _to_fields
+from marketdata.output_types.columns import _split_fields, _with_extra
 from marketdata.output_types.options_chain import (
     OptionsChain,
     OptionsChainHumanReadable,
@@ -13,6 +13,7 @@ from marketdata.output_types.options_chain import (
 from marketdata.params import universal_params
 from marketdata.resources.base import (
     BaseResource,
+    _check_csv_header,
     _parse_json_object,
     model_errors,
     no_data_result,
@@ -74,13 +75,19 @@ def chain(
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
         data = _parse_json_object(response, exact=True)
+        fields, extra = _split_fields(output_model, data)
         with model_errors(response):
-            return output_model(**_to_fields(output_model, data))
+            return _with_extra(output_model(**fields), extra)
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         return _parse_json_object(response)
 
     elif user_universal_params.output_format == OutputFormat.CSV:
+        _check_csv_header(
+            response,
+            output_model,
+            with_header=user_universal_params.add_headers is not False,
+        )
         return user_universal_params.write_file(response.text)
 
     # This line should never be reached due to the universal_params decorator validating the output format
