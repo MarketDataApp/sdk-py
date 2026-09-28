@@ -49,6 +49,54 @@ def test_stock_prices_human_readable_str():
     assert isinstance(str(instance), str)
 
 
+def test_stock_price_from_dict_leaves_out_an_undeclared_column():
+    """StockPrice.from_dict builds the price from one row keyed by the API's
+    names and leaves out a column the model does not declare."""
+    instance = StockPrice.from_dict(
+        {
+            "s": "ok",
+            "symbol": "AAPL",
+            "mid": 280.02,
+            "change": -0.68,
+            "changepct": -0.0024,
+            "updated": 1765478200,
+            "brandNew": 1,
+        }
+    )
+
+    assert instance == StockPrice(
+        s="ok",
+        symbol="AAPL",
+        mid=280.02,
+        change=-0.68,
+        changepct=-0.0024,
+        updated=1765478200,
+    )
+
+
+def test_stock_prices_human_readable_from_dict_leaves_out_an_undeclared_column():
+    """StockPricesHumanReadable.from_dict builds the price from one row keyed by
+    the human-readable names and leaves out a column the model does not declare."""
+    instance = StockPricesHumanReadable.from_dict(
+        {
+            "Symbol": "AAPL",
+            "Mid": 280.02,
+            "Change $": -0.68,
+            "Change %": -0.0024,
+            "Date": 1765478200,
+            "brandNew": 1,
+        }
+    )
+
+    assert instance == StockPricesHumanReadable(
+        Symbol="AAPL",
+        Mid=280.02,
+        Change_Price=-0.68,
+        Change_Percent=-0.0024,
+        Date=1765478200,
+    )
+
+
 def test_get_stocks_prices_response_200_internal(load_json, respx_mock, client):
     mock_data = load_json("stocks_prices_response_200")
 
