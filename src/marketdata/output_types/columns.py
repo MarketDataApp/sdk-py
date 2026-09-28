@@ -5,7 +5,7 @@ from typing import Any
 from marketdata.utils import column_key
 
 # By name, not `get_logger()`: importing the package must not attach a handler.
-logger = logging.getLogger("marketdata.logger")
+_logger = logging.getLogger("marketdata.logger")
 
 
 def _column_names(output_model: type) -> dict[str, str]:
@@ -77,7 +77,7 @@ def _to_fields(output_model: type, data: Any) -> Any:
     by_key.update({column: name for name, column in columns.items()})
     undeclared = [key for key in data if key not in by_key and key != "s"]
     if undeclared:
-        logger.debug(
+        _logger.debug(
             f"The API sent the columns {undeclared!r}, which"
             f" {output_model.__name__} does not declare; they are left out"
         )
