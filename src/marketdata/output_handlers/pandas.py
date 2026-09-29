@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
-import pytz
 
 from marketdata.input_types.base import DateFormat
+from marketdata.internal_settings import _DEFAULT_TIMEZONE
 from marketdata.output_handlers.base import BaseOutputHandler
 
 _DTYPES = {float: "float64", int: "int64", bool: "bool", str: "object"}
@@ -50,12 +50,22 @@ class PandasOutputHandler(BaseOutputHandler):
         date_columns: list[str],
         date_format: DateFormat | None,
     ) -> pd.DataFrame:
-        """Convert date/time columns to timezone-aware datetime objects."""
+        """Convert the date columns to US/Eastern datetimes.
+
+        Args:
+            df: The result, with its columns cast.
+            date_columns: The columns to convert.
+            date_format: The request's date format. ``None`` reads the values
+                as Unix seconds, and ``DateFormat.UNIX`` leaves them as numbers.
+
+        Returns:
+            The same frame. A column that cannot be converted keeps its values.
+        """
         if date_format == DateFormat.UNIX:
             return df
 
         format_to_use = date_format or DateFormat.UNIX
-        default_tz = pytz.timezone("US/Eastern")
+        default_tz = _DEFAULT_TIMEZONE
 
         for col in df.columns:
             if col not in date_columns:

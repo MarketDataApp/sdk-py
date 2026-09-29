@@ -1,7 +1,7 @@
 import polars as pl
-import pytz
 
 from marketdata.input_types.base import DateFormat
+from marketdata.internal_settings import _DEFAULT_TIMEZONE
 from marketdata.output_handlers.base import BaseOutputHandler
 
 _DTYPES = {float: pl.Float64, int: pl.Int64, bool: pl.Boolean, str: pl.String}
@@ -40,12 +40,23 @@ class PolarsOutputHandler(BaseOutputHandler):
         date_columns: list[str],
         date_format: DateFormat | None,
     ) -> pl.DataFrame:
-        """Convert date/time columns to timezone-aware datetime objects."""
+        """Convert the date columns to US/Eastern datetimes.
+
+        Args:
+            df: The result, with its columns cast.
+            date_columns: The columns to convert.
+            date_format: The request's date format. ``None`` reads the values
+                as Unix seconds, and ``DateFormat.UNIX`` leaves them as numbers.
+
+        Returns:
+            The frame with its date columns converted. A column that cannot be
+            converted keeps its values.
+        """
         if date_format == DateFormat.UNIX:
             return df
 
         format_to_use = date_format or DateFormat.UNIX
-        default_tz = pytz.timezone("US/Eastern").zone
+        default_tz = _DEFAULT_TIMEZONE.zone
 
         for col in df.columns:
             if col not in date_columns:
