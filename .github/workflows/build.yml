@@ -33,6 +33,7 @@ jobs:
         uses: astral-sh/setup-uv@v10.2.0
         with:
           version: "latest"
+          python-version: "3.12"
 
       - name: Set up Python
         uses: actions/setup-python@v7
