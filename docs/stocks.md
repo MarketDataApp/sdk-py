@@ -316,7 +316,7 @@ print(df)
 
 ### `candles()`
 
-Fetches stock candles (OHLCV data) for a symbol with support for various timeframes and date ranges. This method includes API status checking and automatic retry logic. For intraday resolutions (minutely/hourly), large date ranges are automatically split into year-long chunks and fetched concurrently using up to 50 concurrent requests. Each chunk's request retries on its own, so a failed chunk never re-sends the others.
+Fetches stock candles (OHLCV data) for a symbol with support for various timeframes and date ranges. This method includes API status checking and automatic retry logic. For intraday resolutions (minutely/hourly), large date ranges are automatically split into year-long chunks and fetched concurrently, within the client's 50 request slots (see the [README](../README.md#concurrent-requests)). Each chunk's request retries on its own, so a failed chunk never re-sends the others.
 
 > **Note:** The `symbol` parameter can be passed as the first positional argument or as a keyword argument. All other parameters must be keyword-only.
 
@@ -327,8 +327,8 @@ Fetches stock candles (OHLCV data) for a symbol with support for various timefra
   - Numeric with unit: `"1"`, `"15M"`, `"1H"`, `"1D"`, `"1W"`, `"1M"`, `"1Y"`
   - Unit only: `"M"`, `"H"`, `"D"`, `"W"`, `"M"`, `"Y"`
   - Descriptive: `"minutely"`, `"hourly"`, `"daily"`, `"weekly"`, `"monthly"`, `"yearly"`
-- `from_date` (datetime.date, optional): The start date to fetch candles for. When both `from_date` and `to_date` are provided, the date range is automatically split into year-long chunks and fetched concurrently for intraday resolutions (minutely/hourly) using up to 50 concurrent requests. For non-intraday resolutions (daily/weekly/monthly/yearly), the entire date range is fetched in a single request without splitting.
-- `to_date` (datetime.date, optional): The end date to fetch candles for. When both `from_date` and `to_date` are provided, the date range is automatically split into year-long chunks and fetched concurrently for intraday resolutions (minutely/hourly) using up to 50 concurrent requests. For non-intraday resolutions (daily/weekly/monthly/yearly), the entire date range is fetched in a single request without splitting.
+- `from_date` (datetime.date, optional): The start date to fetch candles for. When both `from_date` and `to_date` are provided, the date range is automatically split into year-long chunks and fetched concurrently for intraday resolutions (minutely/hourly), within the client's 50 request slots. For non-intraday resolutions (daily/weekly/monthly/yearly), the entire date range is fetched in a single request without splitting.
+- `to_date` (datetime.date, optional): The end date to fetch candles for. When both `from_date` and `to_date` are provided, the date range is automatically split into year-long chunks and fetched concurrently for intraday resolutions (minutely/hourly), within the client's 50 request slots. For non-intraday resolutions (daily/weekly/monthly/yearly), the entire date range is fetched in a single request without splitting.
 - `countback` (int, optional): The number of candles to fetch (alternative to date range)
 - `extended` (bool, optional): Whether to fetch extended candles (pre-market and after-hours data)
 - `adjust_splits` (bool, optional): Whether to adjust for stock splits. Uses API alias `adjustsplits`.
@@ -364,7 +364,7 @@ Fetches stock candles (OHLCV data) for a symbol with support for various timefra
 
 When both `from_date` and `to_date` are provided, the method behavior depends on the resolution:
 
-- **For intraday resolutions (minutely/hourly)**: The date range is automatically split into year-long chunks, fetched concurrently using a thread pool executor (up to 50 concurrent requests), and merged into a single response. Chunks never share a calendar day, so no candle is requested twice. This allows efficient fetching of large historical date ranges without manual pagination.
+- **For intraday resolutions (minutely/hourly)**: The date range is automatically split into year-long chunks, fetched concurrently using a thread pool executor within the client's 50 request slots, and merged into a single response. Chunks never share a calendar day, so no candle is requested twice. This allows efficient fetching of large historical date ranges without manual pagination.
 
 - **For non-intraday resolutions (daily/weekly/monthly/yearly)**: The entire date range is fetched in a single request without splitting.
 

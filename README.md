@@ -883,8 +883,10 @@ The SDK uses Pydantic for input validation:
 
 The SDK uses concurrent requests for efficient data fetching in specific scenarios:
 
-- **`stocks.candles()`**: For intraday resolutions (minutely/hourly), large date ranges are automatically split into year-long, non-overlapping chunks and fetched concurrently (up to 50 concurrent requests by default)
-- **`options.quotes()`**: Multiple option symbols are fetched concurrently (up to 50 concurrent requests by default)
+- **`stocks.candles()`**: For intraday resolutions (minutely/hourly), large date ranges are automatically split into year-long, non-overlapping chunks and fetched concurrently
+- **`options.quotes()`**: Multiple option symbols are fetched concurrently
+
+A client sends at most 50 requests at a time, the limit the API enforces with a `429`. Every request takes one of the client's 50 slots for as long as its HTTP exchange lasts, whichever endpoint, fan-out or thread sends it, and a request that finds none waits for a slot to free instead of being sent and refused. A retry waiting out its backoff holds no slot. The cap is fixed and has no constructor parameter. It belongs to the client: two clients on the same account have 50 slots each, so share one client between threads rather than building one per thread.
 
 When concurrent requests are used, responses are automatically merged into a single result. A chunk or symbol with no data is left out of the merge; if every part has no data the call returns an empty result, and if the API answered with nothing usable at all a `MarketdataHttpError` is raised.
 
