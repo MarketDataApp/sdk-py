@@ -27,6 +27,13 @@ gate: true
 # review should paper over.
 require_ci_green: true
 
+# Codecov reports these two after every other check has finished, and nothing
+# starts a review when they do. The review waits for them (300 s at most, the
+# default) so require_ci_green reads coverage too; a red one skips the review.
+# A pull request the suite skips (documentation only) never gets them, so its
+# review waits the full 300 s first.
+wait_for_checks: ["codecov/patch", "codecov/project"]
+
 proof:
   required: true
   # The gate fires only when a changed path matches. src/marketdata/** is the

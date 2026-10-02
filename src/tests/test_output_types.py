@@ -305,6 +305,8 @@ API_HUMAN_COLUMNS = {
         "Change %",
         "Volume",
         "Date",
+        "52 Week High",
+        "52 Week Low",
     ],
 }
 API_HUMAN_COLUMNS["OptionsQuotesHumanReadable"] = API_HUMAN_COLUMNS[
