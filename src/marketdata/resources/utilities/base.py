@@ -16,7 +16,13 @@ from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.columns import _split_fields, _with_row_extra
 from marketdata.resources.base import BaseResource, model_errors, no_data_result
-from marketdata.utils import dict_to_csv, get_data_records, is_no_data, parse_json
+from marketdata.utils import (
+    _check_column_lengths,
+    dict_to_csv,
+    get_data_records,
+    is_no_data,
+    parse_json,
+)
 
 
 def resolve_output_params(
@@ -63,7 +69,8 @@ def render(
         answer. The empty result for a ``no_data`` answer.
 
     Raises:
-        ParseError: If the body is not valid JSON or the model refuses it.
+        ParseError: If the body is not valid JSON, a column-oriented answer
+            holds lists of different lengths, or the model refuses it.
     """
     output_format = user_universal_params.output_format
 
@@ -76,6 +83,8 @@ def render(
             response=response,
         )
     data = parse_json(response)
+    if as_records:
+        _check_column_lengths(response, data)
 
     if output_format == OutputFormat.DATAFRAME:
         handler = get_dataframe_output_handler()

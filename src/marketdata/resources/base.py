@@ -17,6 +17,7 @@ from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.columns import _column_names, _model_columns
 from marketdata.settings import settings
 from marketdata.utils import (
+    _check_column_lengths,
     _csv_records,
     _reads_as_json_or_html,
     _unreadable_csv,
@@ -61,7 +62,7 @@ def _parse_json_object(
     response: Response, output_model: type, *, exact: bool = False
 ) -> dict[str, Any]:
     """Decode a response body that must be a JSON object carrying at least one
-    of the output model's columns.
+    of the output model's columns, with every column one length.
 
     Args:
         response: The answer to decode.
@@ -74,14 +75,37 @@ def _parse_json_object(
 
     Raises:
         ParseError: If the body is not valid JSON, holds a number that is not
-            finite, is not a JSON object, or carries none of the model's
-            columns.
+            finite, is not a JSON object, carries none of the model's columns,
+            or holds lists of different lengths under two of its keys but the
+            status flag ``s``.
     """
     data = parse_json(response, exact=exact)
     if not isinstance(data, dict):
         raise parse_error(response, "not a JSON object")
     if not any(column in data for column in model_columns(output_model)):
         raise parse_error(response, "none of this resource's fields")
+    _check_column_lengths(response, data)
+    return data
+
+
+def _parse_json_columns(response: Response, *, exact: bool = False) -> Any:
+    """Decode a column-oriented answer whose columns must all be one length.
+
+    Args:
+        response: The answer to decode.
+        exact: Decode each number with a fraction as a ``Decimal``, as
+            ``parse_json`` does.
+
+    Returns:
+        The decoded body.
+
+    Raises:
+        ParseError: If the body is not valid JSON, holds a number that is not
+            finite, or holds lists of different lengths under two of its keys
+            but the status flag ``s``.
+    """
+    data = parse_json(response, exact=exact)
+    _check_column_lengths(response, data)
     return data
 
 

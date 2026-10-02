@@ -821,25 +821,111 @@ def test_a_column_no_model_declares_reaches_every_format(
     assert "brandNew" in header.split(",")
 
 
-@pytest.mark.parametrize(
-    "value",
-    ["new", ["one", "two", "three"]],
-    ids=["one value", "a list of another length"],
-)
-def test_an_undeclared_column_without_one_value_per_row_goes_to_every_row(
-    respx_mock, client, value
-):
-    """A column the model does not declare that does not hold one value per
-    row is given to every row as the API sent it."""
+def test_an_undeclared_value_that_is_not_a_list_goes_to_every_row(respx_mock, client):
+    """A column the model does not declare that holds one value instead of a
+    list gives that value to every row, on every format that decodes it."""
     case = MODEL_CASES["funds.candles"]
     data = _load_fixture(case.fixture)
-    data["brandNew"] = value
+    data["brandNew"] = "new"
     _respond(respx_mock, case, json.dumps(data).encode())
 
     rows = case.call(client, output_format=OutputFormat.INTERNAL)
+    as_json = case.call(client, output_format=OutputFormat.JSON)
+    frame = case.call(client, output_format=OutputFormat.DATAFRAME)
 
-    assert len(rows) == 7
-    assert [marketdata.get_extra(row) for row in rows] == [{"brandNew": value}] * 7
+    assert [marketdata.get_extra(row) for row in rows] == [{"brandNew": "new"}] * 7
+    assert as_json["brandNew"] == "new"
+    assert list(frame["brandNew"]) == ["new"] * 7
+
+
+def _list_columns(data: dict) -> list[str]:
+    """Name the keys of a decoded answer that hold a list, but ``s``.
+
+    Args:
+        data: The decoded answer.
+
+    Returns:
+        The keys, in the answer's order.
+    """
+    return [
+        key for key, value in data.items() if key != "s" and isinstance(value, list)
+    ]
+
+
+def _parse_errors_on_decoded_formats(
+    client, case: Case, path: pathlib.Path
+) -> set[str]:
+    """Call a resource on every format that decodes its answer.
+
+    Args:
+        client: The client.
+        case: The resource.
+        path: The file ``utilities.status`` writes its CSV to, from the decoded
+            answer.
+
+    Returns:
+        The messages of the ``ParseError`` each call raised.
+    """
+    calls = [
+        {"output_format": OutputFormat.INTERNAL},
+        {"output_format": OutputFormat.JSON},
+        {"output_format": OutputFormat.DATAFRAME},
+    ]
+    if case is MODEL_CASES["utilities.status"]:
+        calls.append({"output_format": OutputFormat.CSV, "filename": path})
+    messages = set()
+    for kwargs in calls:
+        with pytest.raises(ParseError) as failure:
+            case.call(client, **kwargs)
+        messages.add(failure.value.message)
+    return messages
+
+
+UNEVEN_CASES = [name for name in MODEL_CASES if name != "options.lookup"]
+SHORT_CASES = [name for name in UNEVEN_CASES if "expirations" not in name]
+
+
+@pytest.mark.parametrize("name", UNEVEN_CASES)
+def test_an_undeclared_list_of_another_length_is_a_parse_error_on_every_format(
+    respx_mock, client, tmp_path, name
+):
+    """A column the model does not declare whose list has one value more than
+    the rows raises one ``ParseError`` on INTERNAL, JSON and DataFrame, and on
+    the CSV ``utilities.status`` writes from the decoded answer."""
+    case = MODEL_CASES[name]
+    data = _load_fixture(case.fixture)
+    rows = len(data[_list_columns(data)[0]])
+    data["brandNew"] = list(range(rows + 1))
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    messages = _parse_errors_on_decoded_formats(client, case, tmp_path / "a.csv")
+
+    assert len(messages) == 1
+    message = messages.pop()
+    assert "(columns of different lengths {" in message
+    assert f"'brandNew': {rows + 1}}})" in message
+
+
+@pytest.mark.parametrize("name", SHORT_CASES)
+def test_a_declared_column_of_another_length_is_a_parse_error_on_every_format(
+    respx_mock, client, tmp_path, name
+):
+    """A column the model declares that is one value short of the others
+    raises one ``ParseError`` on INTERNAL, JSON and DataFrame, and on the CSV
+    ``utilities.status`` writes from the decoded answer."""
+    case = MODEL_CASES[name]
+    data = _load_fixture(case.fixture)
+    first = _list_columns(data)[0]
+    rows = len(data[first])
+    data[first] = data[first][:-1]
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    messages = _parse_errors_on_decoded_formats(client, case, tmp_path / "a.csv")
+
+    assert len(messages) == 1
+    message = messages.pop()
+    assert "(columns of different lengths {" in message
+    assert f"{first!r}: {rows - 1}" in message
 
 
 def test_get_extra_is_empty_for_an_object_with_no_dict():

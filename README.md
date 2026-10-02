@@ -373,6 +373,7 @@ marketdata.get_extra(quotes[0])      # the row's value of each column StockQuote
 - **The values:** decoded as the rest of the answer, so a number with a fraction is a `Decimal` on the resources whose money is. Each answer that brings such a column names it once at DEBUG on `marketdata.logger`.
 - **How long they last:** as long as the object, which holds them itself, like the response metadata: they survive `copy.copy()`, `copy.deepcopy()` and `pickle`. They are not fields, so `==`, the repr and `dataclasses.fields()` ignore them, and a model built by hand, or from an answer without such a column, returns `{}`.
 - **The other formats:** `JSON` and `DATAFRAME` carry the column by the API's name and `CSV` writes it in the file. On `stocks.candles()` and `options.quotes()` every chunk or symbol must carry it, as it must carry a declared column: an answer without it fails the call with `ParseError`, on every format.
+- **One value per row:** like a declared column, an added one that is a list must be as long as the others. A list longer or shorter than the rest fails the call with `ParseError` on `INTERNAL`, `JSON` and `DATAFRAME`, whatever the resource, and on the CSV of `utilities.status()`, which is written from the decoded answer. A single value instead of a list is kept as sent, on every row of a list result; the merges of `stocks.candles()` and `options.quotes()` carry only lists.
 
 ## Universal Parameters
 

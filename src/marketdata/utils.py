@@ -511,10 +511,35 @@ def json_answer_columns(
         not_lists = [key for key in columns if not isinstance(answer[key], list)]
         if not_lists:
             raise parse_error(response, f"columns {not_lists!r} are not lists")
-        lengths = {key: len(answer[key]) for key in columns}
-        if len(set(lengths.values())) > 1:
-            raise parse_error(response, f"columns of different lengths {lengths!r}")
+        _check_column_lengths(response, answer, columns)
     return columns
+
+
+def _check_column_lengths(
+    response: Response, answer: Any, columns: list[str] | None = None
+) -> None:
+    """Refuse a column-oriented answer whose columns differ in length.
+
+    Args:
+        response: The answer, named in the error.
+        answer: Its decoded body. A body that is not an object passes.
+        columns: The keys to compare, in the order the error lists them; by
+            default every key but the status flag ``s`` that holds a list.
+
+    Raises:
+        ParseError: If two of those keys hold lists of different lengths.
+    """
+    if not isinstance(answer, dict):
+        return
+    if columns is None:
+        columns = [
+            key
+            for key, value in answer.items()
+            if key != "s" and isinstance(value, list)
+        ]
+    lengths = {key: len(answer[key]) for key in columns}
+    if len(set(lengths.values())) > 1:
+        raise parse_error(response, f"columns of different lengths {lengths!r}")
 
 
 _ONE_DAY = datetime.timedelta(days=1)
