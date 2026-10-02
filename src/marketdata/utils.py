@@ -368,8 +368,8 @@ def merge_csv_responses(
             the same column still merges. A column of the header that matches
             none of them is kept.
         with_header: Whether the bodies start with a header row. Without one,
-            only the row width is checked, against the first row seen, and a
-            body that reads as JSON or HTML is refused.
+            only the row width is checked, against the first row seen, and an
+            answer labeled or shaped as JSON or HTML is refused.
 
     Returns:
         The first answer's header, if any, then every row of every answer,
@@ -380,8 +380,9 @@ def merge_csv_responses(
         ParseError: Naming the offending response, for a body the ``csv``
             module cannot read, a body with no header row, a header with none
             of the resource's columns or with other columns, or in another
-            order, than the first answer's, a body without a header row that
-            reads as JSON or HTML, or a row not as wide as the header.
+            order, than the first answer's, an answer without a header row
+            labeled or shaped as JSON or HTML, or a row not as wide as the
+            header.
     """
     known = {column_key(name) for name in known_columns}
     header: list[str] | None = None
@@ -391,7 +392,7 @@ def merge_csv_responses(
     writer = csv.writer(output)
 
     for response in responses:
-        if not with_header and _reads_as_json_or_html(response.text):
+        if not with_header and _reads_as_json_or_html(response):
             raise parse_error(response, "JSON or HTML, not CSV")
         rows = _csv_records(response.text)
         try:
@@ -444,17 +445,27 @@ def _unreadable_csv(response: Response, error: csv.Error) -> ParseError:
     return parse_error(response, f"unreadable CSV: {error}")
 
 
-def _reads_as_json_or_html(text: str) -> bool:
+def _reads_as_json_or_html(response: Response) -> bool:
     """Tell whether a CSV answer is a JSON value or an HTML page instead.
 
     Args:
-        text: The body.
+        response: The answer.
 
     Returns:
-        Whether, past a BOM and white space, it starts with ``[``, ``{`` or
-        ``<``, or is ``null``.
+        Whether its ``Content-Type`` names JSON or HTML or, under any other
+        type or none, its body, past a BOM and white space, starts with
+        ``[``, ``{`` or ``<``, or is ``null``.
     """
-    body = text.lstrip(BOM).strip()
+    # A one-cell CSV can be valid JSON (1790740800), so only the label tells a
+    # JSON scalar apart.
+    media_type = response.headers.get("content-type", "").partition(";")[0]
+    media_type = media_type.strip().lower()
+    if media_type.endswith(("/json", "+json")) or media_type in (
+        "text/html",
+        "application/xhtml+xml",
+    ):
+        return True
+    body = response.text.lstrip(BOM).strip()
     return body[:1] in ("[", "{", "<") or body == "null"
 
 

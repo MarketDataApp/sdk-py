@@ -333,12 +333,24 @@ def _load_fixture(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _respond(respx_mock, case: Case, body: bytes | None = None) -> None:
+def _respond(
+    respx_mock,
+    case: Case,
+    body: bytes | None = None,
+    content_type: str | None = "application/json",
+) -> None:
+    """Answer every request to a case's URL with one body.
+
+    Args:
+        respx_mock: The router.
+        case: The resource.
+        body: The body; the case's fixture as JSON when omitted.
+        content_type: The ``Content-Type`` header, or ``None`` for none.
+    """
     if body is None:
         body = json.dumps(_load_fixture(case.fixture)).encode()
-    respx_mock.get(case.url).respond(
-        content=body, headers={"content-type": "application/json"}
-    )
+    headers = {"content-type": content_type} if content_type else {}
+    respx_mock.get(case.url).respond(content=body, headers=headers)
 
 
 def _holds_decimal(value) -> bool:
@@ -896,16 +908,16 @@ def test_a_foreign_object_is_a_parse_error_on_every_format(
     assert not (tmp_path / "answer.csv").exists()
 
 
-@pytest.mark.parametrize("body", [b"[1]", b"null"])
+@pytest.mark.parametrize("body", [b"[1]", b"null", b'"x"', b"5", b"true"])
 @pytest.mark.parametrize("name", SINGLE_OBJECT_MODEL_CASES)
 def test_a_body_that_is_not_an_object_is_a_parse_error_on_every_format(
     respx_mock, client, tmp_path, name, body
 ):
-    """A single-object resource refuses a body that is not a JSON object on
+    """A single-object resource refuses a JSON answer that is not an object on
     every format, under the API's names and the human-readable ones: the same
     ``ParseError`` on the three that decode it, and on CSV the one a header
     with none of the resource's columns gets or, without a header row, the one
-    a body that reads as JSON gets."""
+    a JSON answer gets."""
     case = MODEL_CASES[name]
     _respond(respx_mock, case, body)
 
@@ -931,13 +943,14 @@ def test_a_body_that_is_not_an_object_is_a_parse_error_on_every_format(
         )
 
     text = body.decode()
+    header = next(csv.reader([text]))
     assert messages == {
         "Response body is not a valid answer of this resource (not a JSON object):"
         f" {text!r}"
     }
     assert refused.value.message == (
         "Response body is not a valid answer of this resource (unknown columns"
-        f" [{text!r}]): {text!r}"
+        f" {header!r}): {text!r}"
     )
     assert headerless.value.message == (
         "Response body is not a valid answer of this resource (JSON or HTML, not"
@@ -952,17 +965,21 @@ SINGLE_OBJECT_CASES = [
     "options.lookup",
     "stocks.earnings",
 ]
+FAN_OUT_CASES = ["stocks.candles", "options.quotes"]
 
 
-@pytest.mark.parametrize("name", SINGLE_OBJECT_CASES)
+@pytest.mark.parametrize(
+    "body", [b"AAPL,200\r\n", b"1790740800\r\n"], ids=["a row", "one cell"]
+)
+@pytest.mark.parametrize("name", SINGLE_OBJECT_CASES + FAN_OUT_CASES)
 def test_a_csv_without_a_header_row_is_written_as_it_came(
-    respx_mock, client, tmp_path, name
+    respx_mock, client, tmp_path, name, body
 ):
-    """Under ``add_headers=False`` the answer has no header row to check, so
-    the file is the API's text as it came."""
+    """Under ``add_headers=False`` an answer labeled CSV has no header row to
+    check, so the file is the API's text as it came, a lone number that also
+    reads as JSON included."""
     case = MODEL_CASES[name]
-    body = b"AAPL,200\r\n"
-    _respond(respx_mock, case, body)
+    _respond(respx_mock, case, body, "text/csv; charset=utf-8")
 
     path = case.call(
         client,
@@ -975,17 +992,28 @@ def test_a_csv_without_a_header_row_is_written_as_it_came(
 
 
 @pytest.mark.parametrize(
-    "body",
-    [b'{"error": "upstream timeout"}', b"<html><body>502 Bad Gateway</body></html>"],
-    ids=["a JSON object", "an HTML page"],
+    ("body", "content_type"),
+    [
+        (b'{"error": "upstream timeout"}', None),
+        (b"<html><body>502 Bad Gateway</body></html>", "text/plain; charset=utf-8"),
+        (b"502 Bad Gateway", "text/html; charset=utf-8"),
+        (b'"x"', "application/problem+json"),
+    ],
+    ids=[
+        "a JSON object, unlabeled",
+        "an HTML page labeled text",
+        "text labeled HTML",
+        "a string labeled problem+json",
+    ],
 )
 def test_a_headerless_csv_that_reads_as_json_or_html_is_a_parse_error(
-    respx_mock, client, tmp_path, body
+    respx_mock, client, tmp_path, body, content_type
 ):
-    """Under ``add_headers=False`` a body that reads as JSON or HTML is not a
-    CSV answer, so it is refused and no file is written."""
+    """Under ``add_headers=False`` an answer labeled JSON or HTML, or whose
+    body reads as either under another label or none, is not a CSV answer, so
+    it is refused and no file is written."""
     case = MODEL_CASES["options.chain"]
-    _respond(respx_mock, case, body)
+    _respond(respx_mock, case, body, content_type)
 
     with pytest.raises(ParseError) as refused:
         case.call(
@@ -999,14 +1027,25 @@ def test_a_headerless_csv_that_reads_as_json_or_html_is_a_parse_error(
     assert not (tmp_path / "answer.csv").exists()
 
 
-@pytest.mark.parametrize("name", ["stocks.candles", "options.quotes"])
+@pytest.mark.parametrize(
+    ("body", "content_type"),
+    [
+        (b"[1]", None),
+        (b'"x"', "application/json"),
+        (b"5", "application/json"),
+        (b"true", "application/json"),
+    ],
+    ids=["a list, unlabeled", "a string", "a number", "a boolean"],
+)
+@pytest.mark.parametrize("name", FAN_OUT_CASES)
 def test_a_fan_out_headerless_csv_that_reads_as_json_is_a_parse_error(
-    respx_mock, client, tmp_path, name
+    respx_mock, client, tmp_path, name, body, content_type
 ):
-    """The fan-outs' merge refuses a headerless body that reads as JSON, as
-    their JSON output refuses a body that is not an object."""
+    """The fan-outs' merge refuses a headerless answer labeled JSON, or whose
+    body reads as JSON under no label, as their JSON output refuses a body
+    that is not an object."""
     case = MODEL_CASES[name]
-    _respond(respx_mock, case, b"[1]")
+    _respond(respx_mock, case, body, content_type)
 
     with pytest.raises(ParseError) as refused:
         case.call(

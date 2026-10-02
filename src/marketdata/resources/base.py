@@ -98,10 +98,11 @@ def _check_csv_header(
     Raises:
         ParseError: If the answer starts with a header row that names none of
             the model's columns, or with one the ``csv`` module cannot read,
-            or, without a header row, if it reads as JSON or HTML.
+            or, without a header row, if it is labeled or shaped as JSON or
+            HTML.
     """
     if not with_header:
-        if _reads_as_json_or_html(response.text):
+        if _reads_as_json_or_html(response):
             raise parse_error(response, "JSON or HTML, not CSV")
         return
     try:
