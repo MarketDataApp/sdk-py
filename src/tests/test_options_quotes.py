@@ -879,6 +879,59 @@ def test_options_quotes_csv_merges_every_symbol_under_the_api_header(
     )
 
 
+def test_options_quotes_csv_keeps_a_column_the_api_adds(respx_mock, client, tmp_path):
+    """A column the model does not declare is written with the others for
+    every symbol, as the CSV of a single-request resource carries it."""
+    respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER},brandNew\n{CALL_ROW},x\n")
+    respx_mock.get(PUT_URL).respond(text=f"{CSV_HEADER},brandNew\n{PUT_ROW},y\n")
+
+    output = client.options.quotes(
+        symbols=["AAPL271217C00255000", "AAPL271217P00255000"],
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+    )
+
+    assert pathlib.Path(output).read_bytes() == (
+        f"{CSV_HEADER},brandNew\r\n{CALL_ROW},x\r\n{PUT_ROW},y\r\n".encode()
+    )
+
+
+def test_options_quotes_an_added_column_one_symbol_lacks_is_a_parse_error(
+    load_json, respx_mock, client, tmp_path
+):
+    """A column the model does not declare must come in every symbol's
+    answer, as a declared one must: a symbol without it fails the call on
+    every format, naming that symbol's answer."""
+    call = load_json("options_quotes_response_200")
+    call["brandNew"] = ["x"] * len(call["optionSymbol"])
+    respx_mock.get(CALL_URL).respond(json=call, status_code=200)
+    respx_mock.get(PUT_URL).respond(
+        json=load_json("options_quotes_response_200"), status_code=200
+    )
+
+    for output_format in (
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.DATAFRAME,
+    ):
+        with pytest.raises(ParseError) as failure:
+            client.options.quotes(
+                symbols=THREE_SYMBOLS[:2], output_format=output_format
+            )
+        assert failure.value.request_url.startswith(PUT_URL)
+        assert "missing columns ['brandNew']" in failure.value.message
+    respx_mock.get(CALL_URL).respond(text=f"{CSV_HEADER},brandNew\n{CALL_ROW},x\n")
+    respx_mock.get(PUT_URL).respond(text=f"{CSV_HEADER}\n{PUT_ROW}\n")
+    with pytest.raises(ParseError) as failure:
+        client.options.quotes(
+            symbols=THREE_SYMBOLS[:2],
+            output_format=OutputFormat.CSV,
+            filename=tmp_path / "test.csv",
+        )
+    assert failure.value.request_url.startswith(PUT_URL)
+    assert "differs from" in failure.value.message
+
+
 def test_options_quotes_csv_keeps_the_requested_columns(respx_mock, client, tmp_path):
     """Issue #86: under `columns=` the API answers with the requested columns
     only; the merge used to drop every row because the header did not match

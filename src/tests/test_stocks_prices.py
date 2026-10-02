@@ -7,6 +7,7 @@ import httpx
 import pytest
 import pytz
 
+import marketdata
 from marketdata.exceptions import ParseError, ServerError
 from marketdata.input_types.base import OutputFormat
 from marketdata.output_types.stocks_prices import StockPrice, StockPricesHumanReadable
@@ -47,6 +48,57 @@ def test_stock_prices_human_readable_str():
     }
     instance = StockPricesHumanReadable(**data)
     assert isinstance(str(instance), str)
+
+
+def test_stock_price_from_dict_keeps_an_undeclared_column_for_get_extra():
+    """StockPrice.from_dict builds the price from one row keyed by the API's
+    names and keeps a column the model does not declare for get_extra."""
+    instance = StockPrice.from_dict(
+        {
+            "s": "ok",
+            "symbol": "AAPL",
+            "mid": 280.02,
+            "change": -0.68,
+            "changepct": -0.0024,
+            "updated": 1765478200,
+            "brandNew": 1,
+        }
+    )
+
+    assert instance == StockPrice(
+        s="ok",
+        symbol="AAPL",
+        mid=280.02,
+        change=-0.68,
+        changepct=-0.0024,
+        updated=1765478200,
+    )
+    assert marketdata.get_extra(instance) == {"brandNew": 1}
+
+
+def test_stock_prices_human_readable_from_dict_keeps_an_undeclared_column():
+    """StockPricesHumanReadable.from_dict builds the price from one row keyed by
+    the human-readable names and keeps a column the model does not declare for
+    get_extra."""
+    instance = StockPricesHumanReadable.from_dict(
+        {
+            "Symbol": "AAPL",
+            "Mid": 280.02,
+            "Change $": -0.68,
+            "Change %": -0.0024,
+            "Date": 1765478200,
+            "brandNew": 1,
+        }
+    )
+
+    assert instance == StockPricesHumanReadable(
+        Symbol="AAPL",
+        Mid=280.02,
+        Change_Price=-0.68,
+        Change_Percent=-0.0024,
+        Date=1765478200,
+    )
+    assert marketdata.get_extra(instance) == {"brandNew": 1}
 
 
 def test_get_stocks_prices_response_200_internal(load_json, respx_mock, client):

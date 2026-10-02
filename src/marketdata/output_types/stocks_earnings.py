@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import ClassVar
 
-from marketdata.output_types.columns import _to_fields
+from marketdata.output_types.columns import _split_fields, _with_extra
 from marketdata.output_types.money import coerce_numbers
 from marketdata.utils import format_timestamp
 
@@ -69,7 +69,21 @@ class StockEarnings:
 
     @classmethod
     def from_dict(cls, data: dict) -> "StockEarnings":
-        return cls(**data)
+        """Build the model from an API answer keyed by column name.
+
+        Args:
+            data: The answer, keyed as the API names its columns.
+
+        Returns:
+            The earnings. A column the model does not declare is kept for ``get_extra``.
+
+        Raises:
+            TypeError: If a field is missing or a number field holds something
+                that is not a number.
+            ValueError: If a value cannot be read as its field's type.
+        """
+        fields, extra = _split_fields(cls, data)
+        return _with_extra(cls(**fields), extra)
 
 
 @dataclass
@@ -130,5 +144,20 @@ class StockEarningsHumanReadable:
 
     @classmethod
     def from_dict(cls, data: dict) -> "StockEarningsHumanReadable":
-        """Build the model from an API answer keyed by column name."""
-        return cls(**_to_fields(cls, data))
+        """Build the model from an API answer keyed by column name.
+
+        Args:
+            data: The earnings, keyed as the API names its
+                human-readable columns.
+
+        Returns:
+            The earnings. A column the model does not declare is
+            kept for ``get_extra``.
+
+        Raises:
+            TypeError: If a field is missing or a number field holds something
+                that is not a number.
+            ValueError: If a value cannot be read as its field's type.
+        """
+        fields, extra = _split_fields(cls, data)
+        return _with_extra(cls(**fields), extra)

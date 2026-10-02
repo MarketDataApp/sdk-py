@@ -516,6 +516,27 @@ def test_stocks_candles_csv_merges_every_chunk_under_the_api_header(
     assert pathlib.Path(output).read_bytes() == b"t,c\r\n1,2\r\n3,4\r\n"
 
 
+def test_stocks_candles_csv_keeps_a_column_the_api_adds(respx_mock, client, tmp_path):
+    """A column the model does not declare is written with the others from
+    every chunk, as the CSV of a single-request resource carries it."""
+    respx_mock.get(HOURLY_URL).mock(
+        side_effect=by_chunk(
+            dict(text="t,c,brandNew\r\n1,2,x\r\n"),
+            dict(text="t,c,brandNew\r\n3,4,y\r\n"),
+        )
+    )
+
+    output = client.stocks.candles(
+        symbol="AAPL",
+        resolution="H",
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "test.csv",
+        **TWO_CHUNKS,
+    )
+
+    assert pathlib.Path(output).read_bytes() == b"t,c,brandNew\r\n1,2,x\r\n3,4,y\r\n"
+
+
 def test_stocks_candles_csv_undecodable_chunk_body_is_a_parse_error(
     respx_mock, client, tmp_path
 ):

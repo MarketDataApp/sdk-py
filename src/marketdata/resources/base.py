@@ -1,3 +1,4 @@
+import csv
 from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
@@ -16,6 +17,11 @@ from marketdata.output_handlers import get_dataframe_output_handler
 from marketdata.output_types.columns import _column_names, _model_columns
 from marketdata.settings import settings
 from marketdata.utils import (
+    _check_column_lengths,
+    _csv_records,
+    _reads_as_json_or_html,
+    _unreadable_csv,
+    column_key,
     csv_header,
     parse_error,
     parse_json,
@@ -50,6 +56,86 @@ def model_columns(output_model: type, requested: list[str] | None = None) -> lis
             different column counts.
     """
     return _model_columns(output_model, requested)
+
+
+def _parse_json_object(
+    response: Response, output_model: type, *, exact: bool = False
+) -> dict[str, Any]:
+    """Decode a response body that must be a JSON object carrying at least one
+    of the output model's columns, with every column one length.
+
+    Args:
+        response: The answer to decode.
+        output_model: The output model of the resource.
+        exact: Decode each number with a fraction as a ``Decimal``, as
+            ``parse_json`` does.
+
+    Returns:
+        The decoded object.
+
+    Raises:
+        ParseError: If the body is not valid JSON, holds a number that is not
+            finite, is not a JSON object, carries none of the model's columns,
+            or holds lists of different lengths under two of its keys but the
+            status flag ``s``.
+    """
+    data = parse_json(response, exact=exact)
+    if not isinstance(data, dict):
+        raise parse_error(response, "not a JSON object")
+    if not any(column in data for column in model_columns(output_model)):
+        raise parse_error(response, "none of this resource's fields")
+    _check_column_lengths(response, data)
+    return data
+
+
+def _parse_json_columns(response: Response, *, exact: bool = False) -> Any:
+    """Decode a column-oriented answer whose columns must all be one length.
+
+    Args:
+        response: The answer to decode.
+        exact: Decode each number with a fraction as a ``Decimal``, as
+            ``parse_json`` does.
+
+    Returns:
+        The decoded body.
+
+    Raises:
+        ParseError: If the body is not valid JSON, holds a number that is not
+            finite, or holds lists of different lengths under two of its keys
+            but the status flag ``s``.
+    """
+    data = parse_json(response, exact=exact)
+    _check_column_lengths(response, data)
+    return data
+
+
+def _check_csv_header(
+    response: Response, output_model: type, *, with_header: bool
+) -> None:
+    """Refuse a CSV answer whose header names none of the resource's columns.
+
+    Args:
+        response: The CSV answer.
+        output_model: The output model of the resource.
+        with_header: Whether the answer starts with a header row.
+
+    Raises:
+        ParseError: If the answer starts with a header row that names none of
+            the model's columns, or with one the ``csv`` module cannot read,
+            or, without a header row, if it is labeled or shaped as JSON or
+            HTML.
+    """
+    if not with_header:
+        if _reads_as_json_or_html(response):
+            raise parse_error(response, "JSON or HTML, not CSV")
+        return
+    try:
+        incoming = next(_csv_records(response.text), None)
+    except csv.Error as exc:
+        raise _unreadable_csv(response, exc) from exc
+    known = {column_key(name) for name in model_columns(output_model)}
+    if incoming is not None and not any(column_key(name) in known for name in incoming):
+        raise parse_error(response, f"unknown columns {incoming!r}")
 
 
 @contextmanager

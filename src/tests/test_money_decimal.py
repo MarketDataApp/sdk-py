@@ -7,6 +7,7 @@ everywhere else. The DataFrame and JSON outputs keep the plain float parse.
 """
 
 import array
+import copy
 import csv
 import dataclasses
 import datetime
@@ -15,6 +16,7 @@ import inspect
 import json
 import math
 import pathlib
+import pickle
 import pkgutil
 import typing
 from decimal import Decimal, InvalidOperation, localcontext
@@ -347,12 +349,24 @@ def _load_fixture(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _respond(respx_mock, case: Case, body: bytes | None = None) -> None:
+def _respond(
+    respx_mock,
+    case: Case,
+    body: bytes | None = None,
+    content_type: str | None = "application/json",
+) -> None:
+    """Answer every request to a case's URL with one body.
+
+    Args:
+        respx_mock: The router.
+        case: The resource.
+        body: The body; the case's fixture as JSON when omitted.
+        content_type: The ``Content-Type`` header, or ``None`` for none.
+    """
     if body is None:
         body = json.dumps(_load_fixture(case.fixture)).encode()
-    respx_mock.get(case.url).respond(
-        content=body, headers={"content-type": "application/json"}
-    )
+    headers = {"content-type": content_type} if content_type else {}
+    respx_mock.get(case.url).respond(content=body, headers=headers)
 
 
 def _holds_decimal(value) -> bool:
@@ -684,26 +698,16 @@ def test_a_value_the_model_cannot_hold_is_a_parse_error_not_a_builtin(
 
 
 @pytest.mark.parametrize(
-    "name, change, refusal",
-    [
-        ("options.lookup", "extra", "got an unexpected keyword argument 'extra'"),
-        ("markets.status", "extra", "got an unexpected keyword argument 'extra'"),
-        ("utilities.user", "missing", "missing 1 required positional argument"),
-    ],
+    "name", ["options.expirations", "markets.status", "utilities.user"]
 )
-def test_a_body_whose_keys_the_model_does_not_take_is_a_parse_error(
-    respx_mock, client, name, change, refusal
+def test_a_body_missing_a_column_the_model_needs_is_a_parse_error(
+    respx_mock, client, name
 ):
-    """A key the model does not have, or one it lacks, used to escape as a
-    bare `TypeError` from the model's constructor (#50 review). What the SDK
-    should do with a column the API adds is #111; this pins only that the
-    refusal is an SDK exception."""
+    """A column the model needs and the body lacks is refused with an SDK
+    exception, not a bare `TypeError` from the model's constructor."""
     case = OTHER_CASES[name]
     data = _load_fixture(case.fixture)
-    if change == "extra":
-        data["extra"] = data[next(key for key in data if key != "s")]
-    else:
-        del data[next(key for key in data if key != "s")]
+    del data[next(key for key in data if key != "s")]
     _respond(respx_mock, case, json.dumps(data).encode())
 
     with pytest.raises(ParseError) as failure:
@@ -711,7 +715,490 @@ def test_a_body_whose_keys_the_model_does_not_take_is_a_parse_error(
 
     message = failure.value.message
     assert message.startswith("Response body is not a valid answer of this resource (")
-    assert refusal in message
+    assert "missing 1 required positional argument" in message
+
+
+# Every INTERNAL resource whose answer is built into a model through its
+# columns: `utilities.headers` keeps every key as a header, and
+# `utilities.user` reads only the keys it knows.
+MODEL_CASES = {
+    name: case
+    for name, case in {**MONEY_CASES, **OTHER_CASES}.items()
+    if name not in ("utilities.headers", "utilities.user")
+}
+
+
+def _undeclared_columns_logged(caplog) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if "does not declare" in record.getMessage()
+    ]
+
+
+def _add_new_column(data: dict) -> list[str] | str:
+    """Add a column no model declares to an API answer.
+
+    Args:
+        data: The answer, keyed by column name; changed in place.
+
+    Returns:
+        The column's value: one text per row when the answer's first column
+        is a list, one text otherwise.
+    """
+    first = data[next(key for key in data if key != "s")]
+    data["brandNew"] = (
+        [f"new {index}" for index in range(len(first))]
+        if isinstance(first, list)
+        else "new"
+    )
+    return data["brandNew"]
+
+
+@pytest.mark.parametrize("name", MODEL_CASES)
+def test_a_column_no_model_declares_is_kept_for_get_extra(
+    respx_mock, client, caplog, name
+):
+    """A column the API adds before the model declares it does not break the
+    call: the fields are the ones the answer builds without it, ``get_extra``
+    holds the column, a row its own value, and the column is named once at
+    DEBUG however many rows the answer has, the fan-outs' merged answer
+    included."""
+    case = MODEL_CASES[name]
+    data = _load_fixture(case.fixture)
+    _respond(respx_mock, case, json.dumps(data).encode())
+    with caplog.at_level("DEBUG", logger="marketdata.logger"):
+        expected = case.call(client, output_format=OutputFormat.INTERNAL)
+    assert _undeclared_columns_logged(caplog) == []
+
+    column = _add_new_column(data)
+    _respond(respx_mock, case, json.dumps(data).encode())
+    caplog.clear()
+    with caplog.at_level("DEBUG", logger="marketdata.logger"):
+        result = case.call(client, output_format=OutputFormat.INTERNAL)
+
+    assert result == expected
+    models = result if isinstance(result, list) else [result]
+    extras = [marketdata.get_extra(model) for model in models]
+    if isinstance(result, list) and isinstance(column, list):
+        assert extras == [{"brandNew": value} for value in column]
+    else:
+        assert extras == [{"brandNew": column}] * len(models)
+    assert _undeclared_columns_logged(caplog) == [
+        f"The API sent the columns ['brandNew'], which {type(models[0]).__name__}"
+        " does not declare; get_extra() holds them"
+    ]
+
+
+@pytest.mark.parametrize("name", MODEL_CASES)
+def test_a_column_no_model_declares_reaches_every_format(
+    respx_mock, client, tmp_path, name
+):
+    """An answer with a column the model does not declare carries it on every
+    format, the fan-outs' merge included: INTERNAL through ``get_extra``, JSON
+    and DataFrame as a column, and CSV in the file, which is the API's text
+    or, on the utilities, the file written from the decoded answer."""
+    case = MODEL_CASES[name]
+    data = _load_fixture(case.fixture)
+    _add_new_column(data)
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    result = case.call(client, output_format=OutputFormat.INTERNAL)
+    as_json = case.call(client, output_format=OutputFormat.JSON)
+    frame = case.call(client, output_format=OutputFormat.DATAFRAME)
+    if not name.startswith("utilities."):
+        first = next(key for key in data if key != "s")
+        _respond(respx_mock, case, f"{first},brandNew\r\nx,new 0\r\n".encode())
+    path = case.call(
+        client, output_format=OutputFormat.CSV, filename=tmp_path / "answer.csv"
+    )
+
+    models = result if isinstance(result, list) else [result]
+    assert all("brandNew" in marketdata.get_extra(model) for model in models)
+    assert as_json["brandNew"] == data["brandNew"]
+    assert "brandNew" in frame.columns
+    header = pathlib.Path(path).read_text(encoding="utf-8").splitlines()[0]
+    assert "brandNew" in header.split(",")
+
+
+def test_an_undeclared_value_that_is_not_a_list_goes_to_every_row(respx_mock, client):
+    """A column the model does not declare that holds one value instead of a
+    list gives that value to every row, on every format that decodes it."""
+    case = MODEL_CASES["funds.candles"]
+    data = _load_fixture(case.fixture)
+    data["brandNew"] = "new"
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    rows = case.call(client, output_format=OutputFormat.INTERNAL)
+    as_json = case.call(client, output_format=OutputFormat.JSON)
+    frame = case.call(client, output_format=OutputFormat.DATAFRAME)
+
+    assert [marketdata.get_extra(row) for row in rows] == [{"brandNew": "new"}] * 7
+    assert as_json["brandNew"] == "new"
+    assert list(frame["brandNew"]) == ["new"] * 7
+
+
+def _list_columns(data: dict) -> list[str]:
+    """Name the keys of a decoded answer that hold a list, but ``s``.
+
+    Args:
+        data: The decoded answer.
+
+    Returns:
+        The keys, in the answer's order.
+    """
+    return [
+        key for key, value in data.items() if key != "s" and isinstance(value, list)
+    ]
+
+
+def _parse_errors_on_decoded_formats(
+    client, case: Case, path: pathlib.Path
+) -> set[str]:
+    """Call a resource on every format that decodes its answer.
+
+    Args:
+        client: The client.
+        case: The resource.
+        path: The file ``utilities.status`` writes its CSV to, from the decoded
+            answer.
+
+    Returns:
+        The messages of the ``ParseError`` each call raised.
+    """
+    calls = [
+        {"output_format": OutputFormat.INTERNAL},
+        {"output_format": OutputFormat.JSON},
+        {"output_format": OutputFormat.DATAFRAME},
+    ]
+    if case is MODEL_CASES["utilities.status"]:
+        calls.append({"output_format": OutputFormat.CSV, "filename": path})
+    messages = set()
+    for kwargs in calls:
+        with pytest.raises(ParseError) as failure:
+            case.call(client, **kwargs)
+        messages.add(failure.value.message)
+    return messages
+
+
+UNEVEN_CASES = [name for name in MODEL_CASES if name != "options.lookup"]
+SHORT_CASES = [name for name in UNEVEN_CASES if "expirations" not in name]
+
+
+@pytest.mark.parametrize("name", UNEVEN_CASES)
+def test_an_undeclared_list_of_another_length_is_a_parse_error_on_every_format(
+    respx_mock, client, tmp_path, name
+):
+    """A column the model does not declare whose list has one value more than
+    the rows raises one ``ParseError`` on INTERNAL, JSON and DataFrame, and on
+    the CSV ``utilities.status`` writes from the decoded answer."""
+    case = MODEL_CASES[name]
+    data = _load_fixture(case.fixture)
+    rows = len(data[_list_columns(data)[0]])
+    data["brandNew"] = list(range(rows + 1))
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    messages = _parse_errors_on_decoded_formats(client, case, tmp_path / "a.csv")
+
+    assert len(messages) == 1
+    message = messages.pop()
+    assert "(columns of different lengths {" in message
+    assert f"'brandNew': {rows + 1}}})" in message
+
+
+@pytest.mark.parametrize("name", SHORT_CASES)
+def test_a_declared_column_of_another_length_is_a_parse_error_on_every_format(
+    respx_mock, client, tmp_path, name
+):
+    """A column the model declares that is one value short of the others
+    raises one ``ParseError`` on INTERNAL, JSON and DataFrame, and on the CSV
+    ``utilities.status`` writes from the decoded answer."""
+    case = MODEL_CASES[name]
+    data = _load_fixture(case.fixture)
+    first = _list_columns(data)[0]
+    rows = len(data[first])
+    data[first] = data[first][:-1]
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    messages = _parse_errors_on_decoded_formats(client, case, tmp_path / "a.csv")
+
+    assert len(messages) == 1
+    message = messages.pop()
+    assert "(columns of different lengths {" in message
+    assert f"{first!r}: {rows - 1}" in message
+
+
+def test_get_extra_is_empty_for_an_object_with_no_dict():
+    """``get_extra`` finds nothing on an object that has no ``__dict__`` to
+    hold an undeclared column."""
+    assert marketdata.get_extra(None) == {}
+    assert marketdata.get_extra(object()) == {}
+
+
+@pytest.mark.parametrize("name", MODEL_CASES)
+def test_an_object_with_none_of_the_model_columns_is_a_parse_error(
+    respx_mock, client, name
+):
+    """An object that carries none of the model's columns, like a proxy's JSON
+    error page, is not an answer of this resource, so no row is built from
+    what is left of it."""
+    case = MODEL_CASES[name]
+    _respond(respx_mock, case, json.dumps({"error": "upstream timeout"}).encode())
+
+    with pytest.raises(ParseError) as failure:
+        case.call(client, output_format=OutputFormat.INTERNAL)
+
+    assert failure.value.message.startswith(
+        "Response body is not a valid answer of this resource ("
+    )
+
+
+SINGLE_OBJECT_MODEL_CASES = [
+    "options.chain",
+    "options.chain human",
+    "options.expirations",
+    "options.expirations human",
+    "options.lookup",
+    "stocks.earnings",
+    "stocks.earnings human",
+]
+
+
+@pytest.mark.parametrize("name", SINGLE_OBJECT_MODEL_CASES)
+def test_a_foreign_object_is_a_parse_error_on_every_format(
+    respx_mock, client, tmp_path, name
+):
+    """A single-object resource refuses a JSON object that carries none of its
+    columns, like a proxy's JSON error page, on every format: the same
+    ``ParseError`` on the three that decode it, and on CSV the one a header
+    with none of the resource's columns gets or, without a header row, the one
+    a body that reads as JSON gets."""
+    case = MODEL_CASES[name]
+    text = json.dumps({"error": "upstream timeout"})
+    _respond(respx_mock, case, text.encode())
+
+    messages = set()
+    for output_format in (
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.DATAFRAME,
+    ):
+        with pytest.raises(ParseError) as failure:
+            case.call(client, output_format=output_format)
+        messages.add(failure.value.message)
+    with pytest.raises(ParseError) as refused:
+        case.call(
+            client, output_format=OutputFormat.CSV, filename=tmp_path / "answer.csv"
+        )
+    with pytest.raises(ParseError) as headerless:
+        case.call(
+            client,
+            output_format=OutputFormat.CSV,
+            add_headers=False,
+            filename=tmp_path / "answer.csv",
+        )
+
+    assert messages == {
+        "Response body is not a valid answer of this resource (none of this"
+        f" resource's fields): {text!r}"
+    }
+    assert refused.value.message == (
+        "Response body is not a valid answer of this resource (unknown columns"
+        f" [{text!r}]): {text!r}"
+    )
+    assert "(JSON or HTML, not CSV)" in headerless.value.message
+    assert not (tmp_path / "answer.csv").exists()
+
+
+@pytest.mark.parametrize("body", [b"[1]", b"null", b'"x"', b"5", b"true"])
+@pytest.mark.parametrize("name", SINGLE_OBJECT_MODEL_CASES)
+def test_a_body_that_is_not_an_object_is_a_parse_error_on_every_format(
+    respx_mock, client, tmp_path, name, body
+):
+    """A single-object resource refuses a JSON answer that is not an object on
+    every format, under the API's names and the human-readable ones: the same
+    ``ParseError`` on the three that decode it, and on CSV the one a header
+    with none of the resource's columns gets or, without a header row, the one
+    a JSON answer gets."""
+    case = MODEL_CASES[name]
+    _respond(respx_mock, case, body)
+
+    messages = set()
+    for output_format in (
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.DATAFRAME,
+    ):
+        with pytest.raises(ParseError) as failure:
+            case.call(client, output_format=output_format)
+        messages.add(failure.value.message)
+    with pytest.raises(ParseError) as refused:
+        case.call(
+            client, output_format=OutputFormat.CSV, filename=tmp_path / "answer.csv"
+        )
+    with pytest.raises(ParseError) as headerless:
+        case.call(
+            client,
+            output_format=OutputFormat.CSV,
+            add_headers=False,
+            filename=tmp_path / "answer.csv",
+        )
+
+    text = body.decode()
+    header = next(csv.reader([text]))
+    assert messages == {
+        "Response body is not a valid answer of this resource (not a JSON object):"
+        f" {text!r}"
+    }
+    assert refused.value.message == (
+        "Response body is not a valid answer of this resource (unknown columns"
+        f" {header!r}): {text!r}"
+    )
+    assert headerless.value.message == (
+        "Response body is not a valid answer of this resource (JSON or HTML, not"
+        f" CSV): {text!r}"
+    )
+    assert not (tmp_path / "answer.csv").exists()
+
+
+SINGLE_OBJECT_CASES = [
+    "options.chain",
+    "options.expirations",
+    "options.lookup",
+    "stocks.earnings",
+]
+FAN_OUT_CASES = ["stocks.candles", "options.quotes"]
+
+
+@pytest.mark.parametrize(
+    "body", [b"AAPL,200\r\n", b"1790740800\r\n"], ids=["a row", "one cell"]
+)
+@pytest.mark.parametrize("name", SINGLE_OBJECT_CASES + FAN_OUT_CASES)
+def test_a_csv_without_a_header_row_is_written_as_it_came(
+    respx_mock, client, tmp_path, name, body
+):
+    """Under ``add_headers=False`` an answer labeled CSV has no header row to
+    check, so the file is the API's text as it came, a lone number that also
+    reads as JSON included."""
+    case = MODEL_CASES[name]
+    _respond(respx_mock, case, body, "text/csv; charset=utf-8")
+
+    path = case.call(
+        client,
+        output_format=OutputFormat.CSV,
+        add_headers=False,
+        filename=tmp_path / "answer.csv",
+    )
+
+    assert pathlib.Path(path).read_bytes() == body
+
+
+@pytest.mark.parametrize(
+    ("body", "content_type"),
+    [
+        (b'{"error": "upstream timeout"}', None),
+        (b"<html><body>502 Bad Gateway</body></html>", "text/plain; charset=utf-8"),
+        (b"502 Bad Gateway", "text/html; charset=utf-8"),
+        (b'"x"', "application/problem+json"),
+    ],
+    ids=[
+        "a JSON object, unlabeled",
+        "an HTML page labeled text",
+        "text labeled HTML",
+        "a string labeled problem+json",
+    ],
+)
+def test_a_headerless_csv_that_reads_as_json_or_html_is_a_parse_error(
+    respx_mock, client, tmp_path, body, content_type
+):
+    """Under ``add_headers=False`` an answer labeled JSON or HTML, or whose
+    body reads as either under another label or none, is not a CSV answer, so
+    it is refused and no file is written."""
+    case = MODEL_CASES["options.chain"]
+    _respond(respx_mock, case, body, content_type)
+
+    with pytest.raises(ParseError) as refused:
+        case.call(
+            client,
+            output_format=OutputFormat.CSV,
+            add_headers=False,
+            filename=tmp_path / "answer.csv",
+        )
+
+    assert "(JSON or HTML, not CSV)" in refused.value.message
+    assert not (tmp_path / "answer.csv").exists()
+
+
+@pytest.mark.parametrize(
+    ("body", "content_type"),
+    [
+        (b"[1]", None),
+        (b'"x"', "application/json"),
+        (b"5", "application/json"),
+        (b"true", "application/json"),
+    ],
+    ids=["a list, unlabeled", "a string", "a number", "a boolean"],
+)
+@pytest.mark.parametrize("name", FAN_OUT_CASES)
+def test_a_fan_out_headerless_csv_that_reads_as_json_is_a_parse_error(
+    respx_mock, client, tmp_path, name, body, content_type
+):
+    """The fan-outs' merge refuses a headerless answer labeled JSON, or whose
+    body reads as JSON under no label, as their JSON output refuses a body
+    that is not an object."""
+    case = MODEL_CASES[name]
+    _respond(respx_mock, case, body, content_type)
+
+    with pytest.raises(ParseError) as refused:
+        case.call(
+            client,
+            output_format=OutputFormat.CSV,
+            add_headers=False,
+            filename=tmp_path / "answer.csv",
+        )
+    with pytest.raises(ParseError) as decoded:
+        case.call(client, output_format=OutputFormat.JSON)
+
+    assert "(JSON or HTML, not CSV)" in refused.value.message
+    assert "(not a JSON object)" in decoded.value.message
+    assert not (tmp_path / "answer.csv").exists()
+
+
+def test_get_extra_survives_copy_and_pickle(respx_mock, client):
+    """The columns a model does not declare live on the model itself, so a
+    copy, a deep copy and a pickled model keep them."""
+    case = MODEL_CASES["stocks.quotes"]
+    data = _load_fixture(case.fixture)
+    _add_new_column(data)
+    _respond(respx_mock, case, json.dumps(data).encode())
+
+    quote = case.call(client, output_format=OutputFormat.INTERNAL)[0]
+
+    for twin in (
+        copy.copy(quote),
+        copy.deepcopy(quote),
+        pickle.loads(pickle.dumps(quote)),
+    ):
+        assert marketdata.get_extra(twin) == {"brandNew": "new 0"}
+
+
+def test_a_csv_header_the_csv_module_cannot_read_is_a_parse_error(
+    respx_mock, client, tmp_path
+):
+    """A header past the ``csv`` module's field size limit cannot be read, so
+    the answer is refused and no file is written."""
+    case = MODEL_CASES["options.chain"]
+    _respond(respx_mock, case, b"x" * (csv.field_size_limit() + 1))
+
+    with pytest.raises(ParseError) as refused:
+        case.call(
+            client, output_format=OutputFormat.CSV, filename=tmp_path / "answer.csv"
+        )
+
+    assert refused.value.message.startswith(
+        "Response body is not a valid answer of this resource (unreadable CSV: "
+    )
+    assert not (tmp_path / "answer.csv").exists()
 
 
 @pytest.mark.parametrize("name", OTHER_DATE_KEYS.keys())

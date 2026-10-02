@@ -332,11 +332,16 @@ def test_get_options_expirations_internal_ignores_a_column_filter(respx_mock, cl
 
 
 def test_get_options_expirations_response_200_csv(respx_mock, client):
+    """A CSV answer whose header names the resource's columns is written to
+    the file as it came."""
     respx_mock.get("https://api.marketdata.app/v1/options/expirations/AAPL/").respond(
-        text="AS RECEIVED FROM API",
+        text="expirations,updated\n2026-01-16,1769000000\n",
         status_code=200,
     )
     output = client.options.expirations(
         symbol="AAPL", output_format=OutputFormat.CSV, filename="test.csv"
     )
-    assert pathlib.Path(output).read_text() == "AS RECEIVED FROM API"
+    assert (
+        pathlib.Path(output).read_text()
+        == "expirations,updated\n2026-01-16,1769000000\n"
+    )

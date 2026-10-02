@@ -14,8 +14,15 @@ from httpx import Response
 
 from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.output_handlers import get_dataframe_output_handler
+from marketdata.output_types.columns import _split_fields, _with_row_extra
 from marketdata.resources.base import BaseResource, model_errors, no_data_result
-from marketdata.utils import dict_to_csv, get_data_records, is_no_data, parse_json
+from marketdata.utils import (
+    _check_column_lengths,
+    dict_to_csv,
+    get_data_records,
+    is_no_data,
+    parse_json,
+)
 
 
 def resolve_output_params(
@@ -44,10 +51,26 @@ def render(
     as_records: bool,
     index_columns: list[str] | None = None,
 ):
-    """Turn the response into the requested output format.
+    """Turn a utilities answer into the requested output format.
 
-    ``as_records`` distinguishes column-oriented payloads (one row per entry,
-    like ``/status/``) from flat objects (``/headers/``, ``/user/``).
+    Args:
+        user_universal_params: The call's universal parameters.
+        response: The API's answer.
+        output_model: The output model of the resource.
+        as_records: Whether the answer is column-oriented, one row per entry
+            (``/status/``), rather than a flat object (``/headers/``,
+            ``/user/``).
+        index_columns: The index columns of the DataFrame.
+
+    Returns:
+        The rows or the model on INTERNAL, each row keeping the columns its
+        model does not declare for ``get_extra``; the decoded answer on JSON;
+        a DataFrame; or the path of the CSV file, written from the decoded
+        answer. The empty result for a ``no_data`` answer.
+
+    Raises:
+        ParseError: If the body is not valid JSON, a column-oriented answer
+            holds lists of different lengths, or the model refuses it.
     """
     output_format = user_universal_params.output_format
 
@@ -60,6 +83,8 @@ def render(
             response=response,
         )
     data = parse_json(response)
+    if as_records:
+        _check_column_lengths(response, data)
 
     if output_format == OutputFormat.DATAFRAME:
         handler = get_dataframe_output_handler()
@@ -69,9 +94,10 @@ def render(
 
     elif output_format == OutputFormat.INTERNAL:
         if as_records:
-            rows = get_data_records(data, exclude_keys=["s"])
+            fields, extra = _split_fields(output_model, data)
+            rows = get_data_records(fields, exclude_keys=["s"])
             with model_errors(response):
-                return [output_model(**row) for row in rows]
+                return _with_row_extra([output_model(**row) for row in rows], extra)
         with model_errors(response):
             return output_model.from_dict(data)
 

@@ -12,6 +12,7 @@ from marketdata.input_types.base import OutputFormat, UserUniversalAPIParams
 from marketdata.input_types.stocks import StocksCandlesInput
 from marketdata.internal_settings import MAX_CONCURRENT_REQUESTS
 from marketdata.output_handlers import get_dataframe_output_handler
+from marketdata.output_types.columns import _split_fields, _with_row_extra
 from marketdata.output_types.stocks_candles import (
     StockCandle,
     StockCandlesHumanReadable,
@@ -161,16 +162,20 @@ def candles(
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = _get_responses_data(responses, exact=True)
-        data = get_data_records(data, exclude_keys=["s"])
+        fields, extra = _split_fields(
+            output_model, _get_responses_data(responses, exact=True)
+        )
+        data = get_data_records(fields, exclude_keys=["s"])
 
         def _rows_alone(response: httpx.Response) -> list:
-            alone = _get_responses_data([response], exact=True)
+            alone = _split_fields(
+                output_model, _get_responses_data([response], exact=True)
+            )[0]
             rows = get_data_records(alone, exclude_keys=["s"])
             return [output_model(**row) for row in rows]
 
         with merged_model_errors(responses, _rows_alone):
-            return [output_model(**row) for row in data]
+            return _with_row_extra([output_model(**row) for row in data], extra)
 
     elif user_universal_params.output_format == OutputFormat.JSON:
         data = _get_responses_data(responses)
