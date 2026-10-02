@@ -460,3 +460,71 @@ def test_get_stocks_quotes_requests_the_quotes_endpoint(load_json, respx_mock, c
     assert request.url.path == "/v1/stocks/quotes/"
     assert request.url.params["symbols"] == "AAPL,META"
     assert "bulkquotes" not in str(request.url)
+
+
+# The 52-week keys of each answer, as the API names them, and the fields that
+# hold them.
+FIFTY_TWO_WEEK = [
+    pytest.param(
+        "stocks_quotes_response_200",
+        False,
+        ("52weekHigh", "52weekLow"),
+        ("fiftyTwoWeekHigh", "fiftyTwoWeekLow"),
+        id="plain",
+    ),
+    pytest.param(
+        "stocks_quotes_human_response_200",
+        True,
+        ("52 Week High", "52 Week Low"),
+        ("Fifty_Two_Week_High", "Fifty_Two_Week_Low"),
+        id="human",
+    ),
+]
+
+
+@pytest.mark.parametrize(("fixture", "human", "keys", "fields"), FIFTY_TWO_WEEK)
+def test_internal_quotes_carry_the_52_week_range_when_asked_for(
+    load_json, respx_mock, client, fixture, human, keys, fields
+):
+    """The 52-week keys, which no field can be named after, fill their own
+    fields as money, a whole-number price included."""
+    body = load_json(fixture)
+    rows = len(body["Symbol" if human else "symbol"])
+    body[keys[0]] = [288.62] * rows
+    body[keys[1]] = [169] * rows
+    route = respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
+        json=body, status_code=200
+    )
+
+    quotes = client.stocks.quotes(
+        "AAPL",
+        use_52_week=True,
+        use_human_readable=human,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert route.calls.last.request.url.params["52week"] == "true"
+    assert len(quotes) == rows
+    for quote in quotes:
+        high, low = (getattr(quote, field) for field in fields)
+        assert isinstance(high, Decimal) and high == Decimal("288.62")
+        assert isinstance(low, Decimal) and low == Decimal("169")
+
+
+@pytest.mark.parametrize(("fixture", "human", "keys", "fields"), FIFTY_TWO_WEEK)
+def test_internal_quotes_hold_no_52_week_range_when_not_asked_for(
+    load_json, respx_mock, client, fixture, human, keys, fields
+):
+    """Without ``use_52_week`` the answer has no 52-week keys and the fields
+    are ``None``."""
+    respx_mock.get("https://api.marketdata.app/v1/stocks/quotes/").respond(
+        json=load_json(fixture), status_code=200
+    )
+
+    quotes = client.stocks.quotes(
+        "AAPL", use_human_readable=human, output_format=OutputFormat.INTERNAL
+    )
+
+    assert quotes
+    for quote in quotes:
+        assert [getattr(quote, field) for field in fields] == [None, None]

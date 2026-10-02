@@ -99,8 +99,24 @@ OPTIONS_MONEY_HUMAN = {
 
 # The scope table of #50, model by model. Every other model holds no money.
 MONEY_FIELDS = {
-    StockQuote: {"ask", "bid", "mid", "last", "change"},
-    StockQuotesHumanReadable: {"Ask", "Bid", "Mid", "Last", "Change_Price"},
+    StockQuote: {
+        "ask",
+        "bid",
+        "mid",
+        "last",
+        "change",
+        "fiftyTwoWeekHigh",
+        "fiftyTwoWeekLow",
+    },
+    StockQuotesHumanReadable: {
+        "Ask",
+        "Bid",
+        "Mid",
+        "Last",
+        "Change_Price",
+        "Fifty_Two_Week_High",
+        "Fifty_Two_Week_Low",
+    },
     StockPrice: {"mid", "change"},
     StockPricesHumanReadable: {"Mid", "Change_Price"},
     StockCandle: {"o", "h", "l", "c"},

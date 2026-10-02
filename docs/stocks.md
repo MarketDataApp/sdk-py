@@ -155,7 +155,7 @@ Fetches stock quotes for one or more symbols. This method includes API status ch
   - `OutputFormat.INTERNAL`: Returns a list of `StockQuote` or `StockQuotesHumanReadable` objects
   - `OutputFormat.JSON`: Returns the decoded JSON as a dictionary
   - `OutputFormat.CSV`: Writes CSV to file and returns filename string
-- `use_52_week` (bool, optional): Whether to use the 52 week high and low
+- `use_52_week` (bool, optional): Adds the 52-week high and low to each quote: the `52weekHigh` and `52weekLow` columns (`52 Week High` and `52 Week Low` when human-readable), and the `fiftyTwoWeekHigh` and `fiftyTwoWeekLow` fields on `OutputFormat.INTERNAL`
 - `extended` (bool, optional): Whether to use the extended quotes
 - `date_format` (DateFormat, optional): The date format to use. Defaults to `DateFormat.UNIX`.
   - `DateFormat.TIMESTAMP`: ISO timestamp format
@@ -972,6 +972,8 @@ When using `OutputFormat.INTERNAL`, the `quotes()` method returns a list of `Sto
 - `changepct` (float): Percentage change (raw field name)
 - `volume` (int): Trading volume
 - `updated` (datetime.datetime | None): Last update timestamp
+- `fiftyTwoWeekHigh` (Decimal | None): 52-week high, the API's `52weekHigh`; `None` unless `use_52_week=True`
+- `fiftyTwoWeekLow` (Decimal | None): 52-week low, the API's `52weekLow`; `None` unless `use_52_week=True`
 
 ### StockQuotesHumanReadable Properties
 
@@ -987,6 +989,8 @@ When `use_human_readable=True`:
 - `Change_Percent` (float): Percentage change
 - `Volume` (int): Trading volume
 - `Date` (datetime.datetime | None): Last update timestamp
+- `Fifty_Two_Week_High` (Decimal | None): 52-week high, the API's `52 Week High`; `None` unless `use_52_week=True`
+- `Fifty_Two_Week_Low` (Decimal | None): 52-week low, the API's `52 Week Low`; `None` unless `use_52_week=True`
 
 ### Example Usage
 

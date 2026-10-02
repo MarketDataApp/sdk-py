@@ -54,6 +54,9 @@ def quotes(
             as_records=True,
             index_columns=["symbol", "Symbol"],
             response=response,
+            omit_fields=(
+                () if input_params.use_52_week else output_model.fifty_two_week_fields
+            ),
         )
 
     if user_universal_params.output_format == OutputFormat.DATAFRAME:

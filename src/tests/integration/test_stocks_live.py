@@ -75,6 +75,39 @@ def test_quotes_return_expected_shape(live_client: MarketDataClient):
     assert isinstance(quote.updated, datetime.datetime)
 
 
+@pytest.mark.parametrize(
+    ("human", "fields"),
+    [
+        (False, ("fiftyTwoWeekHigh", "fiftyTwoWeekLow")),
+        (True, ("Fifty_Two_Week_High", "Fifty_Two_Week_Low")),
+    ],
+    ids=["plain", "human"],
+)
+def test_quotes_carry_the_52_week_range_when_asked_for(
+    live_client: MarketDataClient, human, fields
+):
+    """INTERNAL output holds each 52-week bound as a positive Decimal or None,
+    with low <= high when both are present."""
+    quotes = live_client.stocks.quotes(
+        SYMBOL,
+        use_52_week=True,
+        use_human_readable=human,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert len(quotes) == 1
+    high, low = (getattr(quotes[0], field) for field in fields)
+    bounds = (high, low)
+    assert all(bound is None or isinstance(bound, Decimal) for bound in bounds), bounds
+    if low == 0:
+        pytest.xfail(
+            "the API answers 52weekLow 0 before the open (MarketData-App/api#474)"
+        )
+    assert all(bound is None or bound > 0 for bound in bounds), bounds
+    if high is not None and low is not None:
+        assert low <= high
+
+
 def test_daily_candles_return_expected_shape(live_client: MarketDataClient):
     candles = live_client.stocks.candles(
         SYMBOL, resolution="D", countback=5, output_format=OutputFormat.INTERNAL
