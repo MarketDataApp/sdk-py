@@ -571,7 +571,7 @@ if csv_file:
 
 ### `quotes()`
 
-Fetches options quotes for one or more option symbols. This method includes API status checking, automatic retry logic, and supports concurrent requests for multiple symbols (up to 50 concurrent requests by default). Each symbol's request retries on its own, so a failed symbol never re-sends the healthy ones. A symbol whose response body cannot be decoded raises `ParseError`, as in every other method, on every output format; in CSV output the merged file keeps the header the API sent (the requested `columns`, the human-readable names) and every row of every symbol. On the other formats the symbols are merged on the model's columns among those the API sent, in the order it sent them (the request order under `columns=`), and a symbol whose answer lacks one of them, or carries one that is not a list as long as its others, raises `ParseError` as well, since merging it would put the next symbol's values on its row.
+Fetches options quotes for one or more option symbols. This method includes API status checking, automatic retry logic, and supports concurrent requests for multiple symbols (within the client's 50 request slots). Each symbol's request retries on its own, so a failed symbol never re-sends the healthy ones. A symbol whose response body cannot be decoded raises `ParseError`, as in every other method, on every output format; in CSV output the merged file keeps the header the API sent (the requested `columns`, the human-readable names) and every row of every symbol. On the other formats the symbols are merged on the model's columns among those the API sent, in the order it sent them (the request order under `columns=`), and a symbol whose answer lacks one of them, or carries one that is not a list as long as its others, raises `ParseError` as well, since merging it would put the next symbol's values on its row.
 
 > **Note:** The `symbols` parameter can be passed as the first positional argument or as a keyword argument. All other parameters must be keyword-only.
 
@@ -608,7 +608,7 @@ Fetches options quotes for one or more option symbols. This method includes API 
 - If `output_format=OutputFormat.CSV`: A string containing the filename where CSV data was written (merged from all requested symbols)
 - Raises a `BaseMarketdataException` subclass if an error occurs (rate limits, validation errors, request failures, no valid responses received, etc.); see the [README](../README.md#error-handling)
 
-> **Note:** The method returns the requested output, an empty result when the API has no data for every symbol (`404` with `s: "no_data"`, see the [README](../README.md#no-data-is-not-an-error)), or raises. The method uses concurrent requests (up to 50 concurrent requests by default) to fetch quotes for multiple symbols efficiently.
+> **Note:** The method returns the requested output, an empty result when the API has no data for every symbol (`404` with `s: "no_data"`, see the [README](../README.md#no-data-is-not-an-error)), or raises. The method uses concurrent requests, within the client's 50 request slots (see the [README](../README.md#concurrent-requests)), to fetch quotes for multiple symbols efficiently.
 
 #### Examples
 
