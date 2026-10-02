@@ -2,6 +2,7 @@
 flight, shared by every endpoint and every fan-out, and a freed slot goes to the
 next request at once."""
 
+import collections
 import threading
 import time
 
@@ -14,6 +15,7 @@ from marketdata.exceptions import NetworkError, ServerError
 from marketdata.input_types.base import OutputFormat
 
 PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
+MARKETS_STATUS_URL = "https://api.marketdata.app/v1/markets/status/"
 FAN_OUT_URL = r".*/v1/(options/quotes|stocks/candles)/.*"
 POOL_SIZE = 50
 CALLERS = 120
@@ -161,24 +163,40 @@ def raised(outcomes):
     return [outcome for outcome in outcomes if isinstance(outcome, BaseException)]
 
 
-def free_slots(client):
-    """Count the request slots of a client that are free right now.
-
-    Takes every free slot without waiting and gives them all back, so a leaked
-    slot shows as a smaller number instead of a call that never returns.
+def connect_timeout(request):
+    """Fail as a request that never connects does.
 
     Args:
-        client: The client whose pool is read.
+        request: The request the client sent.
 
-    Returns:
-        The number of free slots.
+    Raises:
+        httpx.ConnectTimeout: Always.
     """
-    taken = 0
-    while client._request_slots.acquire(blocking=False):
-        taken += 1
-    for _ in range(taken):
-        client._request_slots.release()
-    return taken
+    raise httpx.ConnectTimeout("slow")
+
+
+def connection_refused(request):
+    """Fail as a request the server refuses does.
+
+    Args:
+        request: The request the client sent.
+
+    Raises:
+        httpx.ConnectError: Always.
+    """
+    raise httpx.ConnectError("refused")
+
+
+def unexpected_failure(request):
+    """Fail with an exception the client does not know.
+
+    Args:
+        request: The request the client sent.
+
+    Raises:
+        RuntimeError: Always.
+    """
+    raise RuntimeError("unexpected")
 
 
 def service_unavailable(request):
@@ -318,69 +336,128 @@ def test_a_freed_slot_starts_the_next_request_without_waiting_for_the_others(
 
 
 @pytest.mark.parametrize(
-    ("transport", "ends_in"),
+    ("fails", "ends_in"),
     [
-        (httpx.ConnectTimeout("slow"), NetworkError),
-        (httpx.ConnectError("refused"), NetworkError),
-        (RuntimeError("unexpected"), RuntimeError),
+        (connect_timeout, NetworkError),
+        (connection_refused, NetworkError),
+        (unexpected_failure, RuntimeError),
         (service_unavailable, ServerError),
     ],
     ids=["timeout", "connection-error", "unexpected-exception", "5xx-after-retries"],
 )
-def test_a_failed_request_gives_its_slot_back(transport, ends_in, respx_mock, client):
-    """Whatever ends a request, its slot is free before the next one starts.
+def test_calls_waiting_for_a_slot_go_on_when_the_requests_ahead_fail(
+    fails, ends_in, respx_mock, client
+):
+    """With the pool full of requests that fail, the 10 calls waiting behind them
+    still run and fail in turn.
 
     Args:
-        transport: What the mocked transport does: an exception to raise or a
-            function that builds the response.
-        ends_in: The exception the call ends in.
+        fails: What the mocked transport does with each request once the gate
+            lets it go.
+        ends_in: The exception every call ends in.
     """
-    respx_mock.get(PRICES_URL).mock(side_effect=transport)
-
-    for _ in range(POOL_SIZE + 10):
-        with pytest.raises(ends_in):
-            client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
-        assert free_slots(client) == POOL_SIZE
-
-
-def test_a_retry_holds_no_slot_while_it_backs_off(
-    load_json, respx_mock, client, monkeypatch
-):
-    """Between two attempts of one call, all 50 slots are free."""
-    body = load_json("stocks_prices_response_200")
-    free_during_backoff = []
-    monkeypatch.setattr(
-        "time.sleep", lambda *_: free_during_backoff.append(free_slots(client))
-    )
-    route = respx_mock.get(PRICES_URL).mock(
-        side_effect=[httpx.Response(503, json={}), httpx.Response(200, json=body)]
-    )
-
-    client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
-
-    assert route.call_count == 2
-    assert free_during_backoff == [POOL_SIZE]
-
-
-def test_each_client_has_its_own_pool(load_json, respx_mock, client):
-    """A client with all 50 slots taken leaves another client's slots free."""
-    body = load_json("stocks_prices_response_200")
-    gate = Gate(lambda request: httpx.Response(200, json=body))
+    gate = Gate(fails)
     respx_mock.get(PRICES_URL).mock(side_effect=gate.handle)
-    other = MarketDataClient(token="test")
 
     callers = Callers(
+        [
+            lambda: client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
+            for _ in range(POOL_SIZE + 10)
+        ]
+    )
+    assert gate.wait_for(lambda g: g.current >= POOL_SIZE), "the pool never filled"
+    settled = gate.settle()
+    gate.let_go(ENOUGH)
+    outcomes = callers.finish()
+
+    assert settled == POOL_SIZE
+    assert all(isinstance(outcome, ends_in) for outcome in outcomes)
+
+
+def test_retries_asleep_in_their_backoff_do_not_hold_up_another_call(
+    load_json, respx_mock, client, monkeypatch
+):
+    """With 50 calls asleep between two attempts, one more call still goes
+    through."""
+    body = load_json("stocks_prices_response_200")
+    attempts = collections.Counter()
+    attempts_lock = threading.Lock()
+    asleep = threading.Semaphore(0)
+    wake_up = threading.Event()
+
+    def answer(request):
+        """Refuse the first request of each ``SYM`` symbol with a 503.
+
+        Args:
+            request: The request the client sent.
+
+        Returns:
+            A 503 for the first request of a ``SYM`` symbol, a 200 otherwise.
+        """
+        symbol = request.url.params["symbols"]
+        with attempts_lock:
+            attempts[symbol] += 1
+            first = attempts[symbol] == 1
+        if first and symbol.startswith("SYM"):
+            return httpx.Response(503, json={})
+        return httpx.Response(200, json=body)
+
+    def sleep_until_woken(seconds):
+        """Stand in for the backoff: sleep until the test wakes the call up.
+
+        Args:
+            seconds: How long the retry asked to wait. Ignored.
+        """
+        asleep.release()
+        wake_up.wait(HOLD)
+
+    monkeypatch.setattr("time.sleep", sleep_until_woken)
+    respx_mock.get(PRICES_URL).mock(side_effect=answer)
+
+    retrying = Callers(
+        [
+            lambda symbol=f"SYM{index}": client.stocks.prices(
+                symbol, output_format=OutputFormat.JSON
+            )
+            for index in range(POOL_SIZE)
+        ]
+    )
+    for _ in range(POOL_SIZE):
+        assert asleep.acquire(timeout=WAIT), "a retry never reached its backoff"
+    other = Callers(
+        [lambda: client.stocks.prices("AAPL", output_format=OutputFormat.JSON)]
+    ).finish()
+    wake_up.set()
+    outcomes = retrying.finish()
+
+    assert not raised(other)
+    assert not raised(outcomes)
+
+
+def test_a_client_with_every_slot_taken_does_not_hold_up_another_client(
+    load_json, respx_mock, client
+):
+    """A client whose 50 slots are all taken leaves a second client's call free
+    to go through."""
+    prices = load_json("stocks_prices_response_200")
+    markets_status = load_json("markets_status_response_200")
+    gate = Gate(lambda request: httpx.Response(200, json=prices))
+    respx_mock.get(PRICES_URL).mock(side_effect=gate.handle)
+    respx_mock.get(MARKETS_STATUS_URL).respond(json=markets_status, status_code=200)
+    other = MarketDataClient(token="test")
+
+    saturating = Callers(
         [
             lambda: client.stocks.prices("AAPL", output_format=OutputFormat.JSON)
             for _ in range(POOL_SIZE)
         ]
     )
     assert gate.wait_for(lambda g: g.current >= POOL_SIZE), "the pool never filled"
-    taken = free_slots(client)
-    free_on_other = free_slots(other)
+    on_other = Callers(
+        [lambda: other.markets.status(output_format=OutputFormat.JSON)]
+    ).finish()
     gate.let_go(ENOUGH)
-    outcomes = callers.finish()
+    outcomes = saturating.finish()
 
-    assert taken == 0
-    assert free_on_other == POOL_SIZE
+    assert not raised(on_other)
     assert not raised(outcomes)
