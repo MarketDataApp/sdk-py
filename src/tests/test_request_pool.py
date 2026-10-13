@@ -16,6 +16,9 @@ from marketdata.input_types.base import OutputFormat
 
 PRICES_URL = "https://api.marketdata.app/v1/stocks/prices/"
 MARKETS_STATUS_URL = "https://api.marketdata.app/v1/markets/status/"
+PRICES_CSV = (
+    "symbol,mid,change,changepct,updated\nAAPL,280.02,-0.68,-0.0024,1764950546\n"
+)
 FAN_OUT_URL = r".*/v1/(options/quotes|stocks/candles)/.*"
 POOL_SIZE = 50
 CALLERS = 120
@@ -332,6 +335,75 @@ def test_a_freed_slot_starts_the_next_request_without_waiting_for_the_others(
 
     assert started, "the waiting request did not start when a slot freed"
     assert in_flight == POOL_SIZE
+    assert not raised(outcomes)
+
+
+@pytest.mark.parametrize(
+    "output_format",
+    [
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.CSV,
+        OutputFormat.DATAFRAME,
+    ],
+    ids=["internal", "json", "csv", "dataframe"],
+)
+def test_the_output_format_does_not_change_what_the_pool_allows(
+    output_format, load_json, respx_mock, client
+):
+    """Calls asking for any of the four output formats draw from the same 50
+    slots: with the pool full, the 10 beyond it wait and every call is served.
+
+    Args:
+        output_format: The output format every call asks for.
+    """
+    body = load_json("stocks_prices_response_200")
+
+    def answer(request):
+        """Answer with a body in the format the request asked for.
+
+        Args:
+            request: The request the client sent.
+
+        Returns:
+            A 200 response, CSV when the request asked for CSV and JSON
+            otherwise.
+        """
+        if request.url.params.get("format") == "csv":
+            return httpx.Response(200, text=PRICES_CSV)
+        return httpx.Response(200, json=body)
+
+    def call(index):
+        """Make one ``stocks.prices`` call in the output format of the test.
+
+        Args:
+            index: Which call of the burst this is. It names the CSV file, which
+                is created exclusively, so no two calls share one.
+
+        Returns:
+            What the call returned.
+        """
+        extra = (
+            {"filename": f"prices-{index}.csv"} if output_format.name == "CSV" else {}
+        )
+        return client.stocks.prices("AAPL", output_format=output_format, **extra)
+
+    gate = Gate(answer)
+    respx_mock.get(PRICES_URL).mock(side_effect=gate.handle)
+
+    callers = Callers(
+        [lambda index=index: call(index) for index in range(POOL_SIZE + 10)]
+    )
+    assert gate.wait_for(lambda g: g.current >= POOL_SIZE), "the pool never filled"
+    settled = gate.settle()
+    gate.let_go(ENOUGH)
+    outcomes = callers.finish()
+
+    assert settled == POOL_SIZE, (
+        f"{settled} requests in flight at once, the pool allows {POOL_SIZE}"
+    )
+    assert gate.peak <= POOL_SIZE
+    assert gate.started == POOL_SIZE + 10
     assert not raised(outcomes)
 
 
