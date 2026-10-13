@@ -359,12 +359,14 @@ def merge_csv_responses(
 
     Args:
         responses: The answers, in the order their rows go in the file.
-        known_columns: The resource's column names. A header name must match
-            one of them through ``column_key``, which also compares the
-            headers of two answers, so a different spelling of the same
-            column still merges.
+        known_columns: The resource's column names. A header must carry at
+            least one of them, matched through ``column_key``, which also
+            compares the headers of two answers, so a different spelling of
+            the same column still merges. A column of the header that matches
+            none of them is kept.
         with_header: Whether the bodies start with a header row. Without one,
-            only the row width is checked, against the first row seen.
+            only the row width is checked, against the first row seen, and an
+            answer labeled or shaped as JSON or HTML is refused.
 
     Returns:
         The first answer's header, if any, then every row of every answer,
@@ -373,10 +375,11 @@ def merge_csv_responses(
 
     Raises:
         ParseError: Naming the offending response, for a body the ``csv``
-            module cannot read, a body with no header row, a header with a
-            column the resource does not have or with other columns, or in
-            another order, than the first answer's, or a row not as wide as
-            the header.
+            module cannot read, a body with no header row, a header with none
+            of the resource's columns or with other columns, or in another
+            order, than the first answer's, an answer without a header row
+            labeled or shaped as JSON or HTML, or a row not as wide as the
+            header.
     """
     known = {column_key(name) for name in known_columns}
     header: list[str] | None = None
@@ -386,15 +389,16 @@ def merge_csv_responses(
     writer = csv.writer(output)
 
     for response in responses:
+        if not with_header and _reads_as_json_or_html(response):
+            raise parse_error(response, "JSON or HTML, not CSV")
         rows = _csv_records(response.text)
         try:
             if with_header:
                 incoming = next(rows, None)
                 if incoming is None:
                     raise parse_error(response, "no header row")
-                unknown = [name for name in incoming if column_key(name) not in known]
-                if unknown:
-                    raise parse_error(response, f"unknown columns {unknown!r}")
+                if not any(column_key(name) in known for name in incoming):
+                    raise parse_error(response, f"unknown columns {incoming!r}")
                 incoming_key = [column_key(name) for name in incoming]
                 if header is None:
                     header, header_key, width = incoming, incoming_key, len(incoming)
@@ -438,26 +442,54 @@ def _unreadable_csv(response: Response, error: csv.Error) -> ParseError:
     return parse_error(response, f"unreadable CSV: {error}")
 
 
+def _reads_as_json_or_html(response: Response) -> bool:
+    """Tell whether a CSV answer is a JSON value or an HTML page instead.
+
+    Args:
+        response: The answer.
+
+    Returns:
+        Whether its ``Content-Type`` names JSON or HTML or, under any other
+        type or none, its body, past a BOM and white space, starts with
+        ``[``, ``{`` or ``<``, or is ``null``.
+    """
+    # A one-cell CSV can be valid JSON (1790740800), so only the label tells a
+    # JSON scalar apart.
+    media_type = response.headers.get("content-type", "").partition(";")[0]
+    media_type = media_type.strip().lower()
+    if media_type.endswith(("/json", "+json")) or media_type in (
+        "text/html",
+        "application/xhtml+xml",
+    ):
+        return True
+    body = response.text.lstrip(BOM).strip()
+    return body[:1] in ("[", "{", "<") or body == "null"
+
+
 def json_answer_columns(
     responses: list[Response], answers: list[Any], keys: list[str]
 ) -> list[str]:
-    """The columns a fan-out merges from its decoded JSON answers (#90).
+    """List the columns a fan-out merges from its decoded JSON answers.
 
-    They are the ``keys`` (the model's columns) that any answer carries, keys
-    the model does not know being left out. Since every answer must carry
-    them all, a successful merge has the first answer's columns in the first
-    answer's order: under ``columns=`` the API sends the requested columns
-    only, in the order they were requested, which is also the order of the
-    empty result and of every single-request resource. Every answer must be a
-    JSON object
-    carrying all of them as lists of one length, since the merge concatenates
-    column by column and a missing or short column would shift every later
-    row into the wrong symbol or chunk. Anything else raises ``ParseError``
-    naming the offending response: a body that is not an object (``null``, a
-    list), answers with none of the keys (a proxy's JSON error page), an
-    answer missing a column another one carries, whichever it is, or a column
-    that is not a list of the same length as the others. A merge with no
-    columns would read as "no data" (#82).
+    Every answer must carry every column as a list, all of one length, since
+    the merge concatenates column by column and a missing or short column
+    would shift every later row into the wrong symbol or chunk.
+
+    Args:
+        responses: The answers, in merge order.
+        answers: Their decoded bodies.
+        keys: The model's columns.
+
+    Returns:
+        The ``keys`` any answer carries, and every other key but the status
+        flag ``s`` that holds a list, in the order the answers first carry
+        them: under ``columns=``, the order the columns were requested in.
+
+    Raises:
+        ParseError: Naming the offending response, for a body that is not a
+            JSON object, answers with none of ``keys`` (a proxy's JSON error
+            page), an answer missing a column another one carries, or a
+            column that is not a list as long as the others.
     """
     for response, answer in zip(responses, answers, strict=True):
         if not isinstance(answer, dict):
@@ -465,10 +497,12 @@ def json_answer_columns(
     known = set(keys)
     columns: list[str] = []
     for answer in answers:
-        for key in answer:
-            if key in known and key not in columns:
+        for key, value in answer.items():
+            if key not in columns and (
+                key in known or (key != "s" and isinstance(value, list))
+            ):
                 columns.append(key)
-    if not columns:
+    if not any(key in known for key in columns):
         raise parse_error(responses[0], "none of this resource's fields")
     for response, answer in zip(responses, answers):
         missing = [key for key in columns if key not in answer]
@@ -477,10 +511,35 @@ def json_answer_columns(
         not_lists = [key for key in columns if not isinstance(answer[key], list)]
         if not_lists:
             raise parse_error(response, f"columns {not_lists!r} are not lists")
-        lengths = {key: len(answer[key]) for key in columns}
-        if len(set(lengths.values())) > 1:
-            raise parse_error(response, f"columns of different lengths {lengths!r}")
+        _check_column_lengths(response, answer, columns)
     return columns
+
+
+def _check_column_lengths(
+    response: Response, answer: Any, columns: list[str] | None = None
+) -> None:
+    """Refuse a column-oriented answer whose columns differ in length.
+
+    Args:
+        response: The answer, named in the error.
+        answer: Its decoded body. A body that is not an object passes.
+        columns: The keys to compare, in the order the error lists them; by
+            default every key but the status flag ``s`` that holds a list.
+
+    Raises:
+        ParseError: If two of those keys hold lists of different lengths.
+    """
+    if not isinstance(answer, dict):
+        return
+    if columns is None:
+        columns = [
+            key
+            for key, value in answer.items()
+            if key != "s" and isinstance(value, list)
+        ]
+    lengths = {key: len(answer[key]) for key in columns}
+    if len(set(lengths.values())) > 1:
+        raise parse_error(response, f"columns of different lengths {lengths!r}")
 
 
 _ONE_DAY = datetime.timedelta(days=1)

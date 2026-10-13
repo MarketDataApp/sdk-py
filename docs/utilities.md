@@ -15,6 +15,10 @@ All three methods include automatic retry logic. They never consume API credits,
 
 These endpoints live at the API root (`/status/`, `/headers/`, `/user/`), only speak JSON and accept no query parameters. The SDK therefore sends them bare and produces every output format client-side from the decoded JSON. Of the universal parameters, only `output_format` and `filename` apply.
 
+## Columns a model does not declare
+
+With `OutputFormat.INTERNAL`, a column the API sends before the SDK declares it does not fail the call: the result is built from the columns its model declares, and `marketdata.get_extra(row)` returns the others on each row of `status()`, named as the API sent them, with the row's own value. `user()` reads only its own keys and `headers()` keeps every key as a header, so neither keeps anything there. `JSON` and `DATAFRAME` carry it as a column, and `CSV` writes it in the file. See [Columns a model does not declare](../README.md#columns-a-model-does-not-declare) in the README for how long the values last and how they are decoded.
+
 ## Methods
 
 ### `status()`

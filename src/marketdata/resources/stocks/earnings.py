@@ -10,8 +10,14 @@ from marketdata.output_types.stocks_earnings import (
     StockEarningsHumanReadable,
 )
 from marketdata.params import universal_params
-from marketdata.resources.base import BaseResource, model_errors, no_data_result
-from marketdata.utils import encode_path_segment, is_no_data, parse_json
+from marketdata.resources.base import (
+    BaseResource,
+    _check_csv_header,
+    _parse_json_object,
+    model_errors,
+    no_data_result,
+)
+from marketdata.utils import encode_path_segment, is_no_data
 
 
 @api_error_handler(service="/v1/stocks/earnings/")
@@ -60,21 +66,26 @@ def earnings(
         )
 
     if user_universal_params.output_format == OutputFormat.DATAFRAME:
-        data = parse_json(response)
+        data = _parse_json_object(response, output_model)
         handler = get_dataframe_output_handler()
         return handler(data, output_model, user_universal_params).get_result(
             index_columns=["symbol", "Symbol"]
         )
 
     elif user_universal_params.output_format == OutputFormat.INTERNAL:
-        data = parse_json(response, exact=True)
+        data = _parse_json_object(response, output_model, exact=True)
         with model_errors(response):
             return output_model.from_dict(data)
 
     elif user_universal_params.output_format == OutputFormat.JSON:
-        return parse_json(response)
+        return _parse_json_object(response, output_model)
 
     elif user_universal_params.output_format == OutputFormat.CSV:
+        _check_csv_header(
+            response,
+            output_model,
+            with_header=user_universal_params.add_headers is not False,
+        )
         return user_universal_params.write_file(response.text)
 
     # This line should never be reached due to the universal_params decorator validating the output format

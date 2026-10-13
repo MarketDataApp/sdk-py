@@ -13,6 +13,10 @@ stocks = client.stocks
 
 All methods in the stocks resource include API status checking and automatic retry logic. See the [README](../README.md) for general information about error handling, retry mechanisms, and output formats.
 
+## Columns a model does not declare
+
+With `OutputFormat.INTERNAL`, a column the API sends before the SDK declares it does not fail the call: the result is built from the columns its model declares, and `marketdata.get_extra()` returns the others, named as the API sent them: on each row of `prices()`, `quotes()`, `candles()` and `news()` the row's own value, and on `earnings()`, which returns one object, the whole column. On `candles()` every chunk must send such a column, as it must send a declared one, or the call raises `ParseError`. The `from_dict()` of `StockEarnings`, `StockPrice`, `StockQuote` and their human-readable twins keep such a key the same way. `JSON` and `DATAFRAME` carry it as a column, and `CSV` writes it in the file. See [Columns a model does not declare](../README.md#columns-a-model-does-not-declare) in the README for how long the values last and how they are decoded.
+
 ## Methods
 
 ### `prices()`
