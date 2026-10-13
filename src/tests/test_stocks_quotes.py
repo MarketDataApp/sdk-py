@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 import pytz
 
+import marketdata
 from marketdata.exceptions import ServerError
 from marketdata.input_types.base import DateFormat, OutputFormat
 from marketdata.output_types.stocks_quotes import StockQuote, StockQuotesHumanReadable
@@ -179,6 +180,53 @@ def test_stock_quotes_human_readable_from_dict():
     assert instance.Date == datetime.datetime.fromtimestamp(
         1765478200, tz=pytz.timezone("US/Eastern")
     )
+
+
+def test_stock_quote_from_dict_keeps_an_undeclared_column_for_get_extra():
+    """StockQuote.from_dict builds the quote from one row keyed by the API's
+    names and keeps a column the model does not declare for get_extra."""
+    row = {
+        "symbol": "AAPL",
+        "ask": 278.02,
+        "askSize": 100,
+        "bid": 277.97,
+        "bidSize": 100,
+        "mid": 277.995,
+        "last": 278.0188,
+        "change": -0.0112,
+        "changepct": 0.0,
+        "volume": 4964676,
+        "updated": 1765478200,
+    }
+
+    instance = StockQuote.from_dict({**row, "brandNew": 1})
+
+    assert instance == StockQuote.from_dict(row)
+    assert marketdata.get_extra(instance) == {"brandNew": 1}
+
+
+def test_stock_quotes_human_readable_from_dict_keeps_an_undeclared_column():
+    """StockQuotesHumanReadable.from_dict builds the quote from one row keyed by
+    the human-readable names and keeps a column the model does not declare for
+    get_extra."""
+    row = {
+        "Symbol": "AAPL",
+        "Ask": 278.02,
+        "Ask Size": 100,
+        "Bid": 277.97,
+        "Bid Size": 100,
+        "Mid": 277.995,
+        "Last": 278.0188,
+        "Change $": 0.51,
+        "Change %": 0.0018,
+        "Volume": 4964676,
+        "Date": 1765478200,
+    }
+
+    instance = StockQuotesHumanReadable.from_dict({**row, "brandNew": 1})
+
+    assert instance == StockQuotesHumanReadable.from_dict(row)
+    assert marketdata.get_extra(instance) == {"brandNew": 1}
 
 
 def test_get_stocks_quotes_response_200_internal(load_json, respx_mock, client):

@@ -20,6 +20,7 @@ from marketdata.exceptions import (
 from marketdata.input_types.base import DateFormat, Mode, OutputFormat
 from marketdata.input_types.filters import DeltaFilter, StrikeFilter
 from marketdata.meta import ResponseMeta, get_meta
+from marketdata.output_types.columns import get_extra
 from marketdata.types import UserRateLimits
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "ResponseMeta",
     "UserRateLimits",
     "get_meta",
+    "get_extra",
     "BaseMarketdataException",
     "MarketdataHttpError",
     "BadRequestError",

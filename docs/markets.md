@@ -13,6 +13,10 @@ markets = client.markets
 
 All methods in the markets resource include API status checking and automatic retry logic. See the [README](../README.md) for general information about error handling, retry mechanisms, and output formats.
 
+## Columns a model does not declare
+
+With `OutputFormat.INTERNAL`, a column the API sends before the SDK declares it does not fail the call: the result is built from the columns its model declares, and `marketdata.get_extra(row)` returns the others, named as the API sent them, with each row's own value. `JSON` and `DATAFRAME` carry it as a column, and `CSV` writes it in the file. See [Columns a model does not declare](../README.md#columns-a-model-does-not-declare) in the README for how long the values last and how they are decoded.
+
 ## Methods
 
 ### `status()`
