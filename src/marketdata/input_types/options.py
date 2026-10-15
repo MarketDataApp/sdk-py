@@ -35,8 +35,23 @@ class OptionsChainInput(BaseInputType):
     expiration: datetime.date | Literal["all", "ALL"] | None = Field(
         description="The expiration date to filter by", default=None
     )
-    days_to_expiration: int | None = Field(
-        description="The number of days to expiration to filter by",
+    days_to_expiration: str | int | None = Field(
+        description=(
+            "Days to expiry. A single value limits the option chain to the "
+            "expiration date closest to the value provided. A "
+            "comma-separated list (15,30,45) selects the closest expiration "
+            "for each value, deduplicated. A closed range (0-45) is "
+            "inclusive on both ends. A comparison operator is one-sided: "
+            ">=30 is inclusive of 30, <45 is exclusive of 45 (strictly "
+            "below it), matching `StrikeFilter.at_least` and "
+            "`StrikeFilter.below`; the syntax matches `strike` and "
+            "`delta`. Values are whole numbers of days, at "
+            "most 36500. Should not be used together with `from_date` and "
+            "`to_date`. Take care before combining with `weekly`, "
+            "`monthly`, `quarterly`, since that will limit the expirations "
+            "`dte` can return. If `date` is used, `dte` is relative to the "
+            "date provided"
+        ),
         alias="dte",
         default=None,
     )

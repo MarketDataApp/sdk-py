@@ -94,6 +94,160 @@ def test_chain_returns_expected_shape(live_chain: OptionsChain):
         assert not any(isinstance(v, Decimal) for v in getattr(live_chain, field))
 
 
+@pytest.fixture(scope="module")
+def live_chain_wide(live_client: MarketDataClient) -> OptionsChain:
+    # A year-wide dte range, used as the baseline the narrower dte expression
+    # forms below are checked against. Leaving `days_to_expiration` out
+    # entirely is not a usable baseline: the API returns only the nearest
+    # expiration when no expiration filter is given at all, which is already
+    # narrower than most of the filters below and would make them look like
+    # they narrowed the chain even if the server ignored them.
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration="0-365",
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+    assert isinstance(chain, OptionsChain), chain
+    return chain
+
+
+def test_chain_dte_single_value_still_limits_to_one_expiration(
+    live_client: MarketDataClient,
+):
+    # Regression: the form `dte` already had, as an int and as the equivalent
+    # string now that the parameter takes either.
+    as_int = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=30,
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+    as_str = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration="30",
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    for chain in (as_int, as_str):
+        assert isinstance(chain, OptionsChain), chain
+        assert len(chain.optionSymbol) >= 1
+        assert len(set(chain.dte)) == 1
+
+    assert set(as_int.dte) == set(as_str.dte)
+
+
+def test_chain_dte_comma_list_picks_the_closest_expiration_per_value(
+    live_client: MarketDataClient, live_chain_wide: OptionsChain
+):
+    requested_values = (15, 30, 45)
+    available = set(live_chain_wide.dte)
+
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration="15,30,45",
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert len(chain.optionSymbol) >= 1
+    distinct = set(chain.dte)
+    # More than the single nearest expiration a server that ignored the list
+    # would fall back to, and no more than the three requested values.
+    assert 2 <= len(distinct) <= 3
+
+    # For each requested value, work out which expiration(s) in the wide
+    # baseline are actually closest to it (more than one if two are tied;
+    # the API documents "closest" but not how it breaks a tie). Every
+    # expiration that came back must be one of those candidates. The field
+    # description also reads as if every requested value gets its own
+    # match, but a live run has shown a value (45, with a unique closest
+    # candidate of 43 in the baseline) go unmatched while 15 and 30 were
+    # both represented; that is a gap between the documented form and the
+    # observed one this test cannot settle on its own, so it is not
+    # asserted here, only the direction the response can prove.
+    candidates_by_value = {}
+    for value in requested_values:
+        closest_distance = min(abs(dte - value) for dte in available)
+        candidates_by_value[value] = {
+            dte for dte in available if abs(dte - value) == closest_distance
+        }
+    assert distinct <= set().union(*candidates_by_value.values())
+
+
+def test_chain_dte_closed_range_is_inclusive_on_both_ends(
+    live_client: MarketDataClient, live_chain_wide: OptionsChain
+):
+    # Anchor the upper bound on an expiration the baseline actually lists
+    # near 45 days out, rather than the literal 45: the market lists whatever
+    # days it lists, not every integer, and a bound that falls between two
+    # real expirations would prove nothing about inclusivity either way.
+    boundary = min(set(live_chain_wide.dte), key=lambda dte: abs(dte - 45))
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"0-{boundary}",
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert len(chain.optionSymbol) >= 1
+    assert all(0 <= dte <= boundary for dte in chain.dte)
+    # The contract exactly at the upper bound is retained, not excluded.
+    assert boundary in chain.dte
+    assert any(dte > boundary for dte in live_chain_wide.dte)
+    assert len(set(chain.dte)) > 1
+
+
+def test_chain_dte_at_least_operator_is_inclusive_of_the_bound(
+    live_client: MarketDataClient, live_chain_wide: OptionsChain
+):
+    boundary = min(set(live_chain_wide.dte), key=lambda dte: abs(dte - 30))
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f">={boundary}",
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert len(chain.optionSymbol) >= 1
+    assert all(dte >= boundary for dte in chain.dte)
+    # The contract exactly at the lower bound is retained, not excluded.
+    assert boundary in chain.dte
+    assert any(dte < boundary for dte in live_chain_wide.dte)
+
+
+def test_chain_dte_below_operator_is_exclusive_of_the_bound(
+    live_client: MarketDataClient, live_chain_wide: OptionsChain
+):
+    available = set(live_chain_wide.dte)
+    boundary = min(available, key=lambda dte: abs(dte - 45))
+    # The next real expiration below the bound: with it retained and the
+    # bound itself dropped, the result differs from both the unfiltered
+    # baseline and from a server that ignored the operator.
+    lower = max(dte for dte in available if dte < boundary)
+
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"<{boundary}",
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert len(chain.optionSymbol) >= 1
+    assert all(dte < boundary for dte in chain.dte)
+    # `<` is strictly exclusive, the same as `StrikeFilter.below`: the
+    # contract exactly at the bound is left out, and the next one below it
+    # is retained.
+    assert boundary not in chain.dte
+    assert lower in chain.dte
+    assert len(set(chain.dte)) > 1
+
+
 def test_quotes_return_expected_shape(
     live_client: MarketDataClient, live_chain: OptionsChain
 ):
