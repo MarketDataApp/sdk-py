@@ -1,8 +1,9 @@
-"""The ``strike`` and ``delta`` filters of ``options.chain``.
+"""The ``strike``, ``delta`` and ``dte`` filters of ``options.chain``.
 
-The API reads both as an expression: ``250`` is one value, ``250,255`` a set,
-``250-260`` an inclusive range, and ``>=250`` or ``<250`` a one-sided bound.
-``StrikeFilter`` and ``DeltaFilter`` build each shape from numbers.
+The API reads all three as an expression: ``250`` is one value, ``250,255`` a
+set, ``250-260`` an inclusive range, and ``>=250`` or ``<250`` a one-sided
+bound. ``StrikeFilter``, ``DeltaFilter`` and ``DteFilter`` build each shape
+from numbers.
 
 A number is sent as plain digits, never in exponent form: the API splits a lone
 value or a range at any minus, so ``delta=5e-05`` fails with a ``400``. A number
@@ -12,6 +13,7 @@ fail: it reads a number by its absolute value, so ``strike=-250`` answers for
 ``250``, and ``-0.5-0.5`` is not read as a range and fails with a ``400``. A
 single ``delta`` or a set of them may be negative, since the API filters delta
 on its absolute value and answers both sides. A delta outside -1 to 1 is refused.
+A ``dte`` is a whole number of days, at most 36500; one that is not is refused.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ import sys
 from decimal import Decimal
 from typing import TypeVar
 
-__all__ = ["DeltaFilter", "StrikeFilter"]
+__all__ = ["DeltaFilter", "DteFilter", "StrikeFilter"]
 
 _Filter = TypeVar("_Filter", bound="_NumericFilter")
 
@@ -125,6 +127,25 @@ def _within_one(rendered: str, argument: str) -> str:
         raise ValueError(
             f"{argument} is out of range ({rendered}): a delta is between -1 and 1"
         )
+    return rendered
+
+
+_MAX_DTE = 36500
+
+
+def _whole_days(rendered: str, argument: str) -> str:
+    """Return ``rendered``, a dte written by ``_render``, if it is a whole number
+    of days of at most ``_MAX_DTE``.
+
+    ``argument`` names the value in the error message. Raises ``ValueError`` if
+    it carries a fraction or is above the maximum.
+    """
+    as_decimal = Decimal(rendered)
+    if as_decimal != as_decimal.to_integral_value():
+        raise ValueError(f"{argument} must be a whole number of days, not {rendered}")
+    # `copy_abs` is exact under any decimal context, where `abs()` rounds to it.
+    if as_decimal.copy_abs() > _MAX_DTE:
+        raise ValueError(f"{argument} must be at most {_MAX_DTE} days, not {rendered}")
     return rendered
 
 
@@ -306,6 +327,56 @@ class DeltaFilter(_NumericFilter):
         return cls._single(value)
 
 
+class DteFilter(_NumericFilter):
+    """The ``dte`` filter of ``options.chain``, a ``str`` holding the expression.
+
+    ``DteFilter.between(0, 45)`` is ``"0-45"``. The API reads a single value as
+    the expiration closest to it, never empty, and a comma-separated list the
+    same for each value, deduplicated. A range or a bound answers every
+    expiration within it, inclusive or exclusive as the bound itself reads:
+    ``at_least`` and ``at_most`` include the value given, ``above`` and
+    ``below`` do not.
+
+    Every constructor but ``expression`` takes numbers (``int``, ``float`` or
+    ``Decimal``), sends them as plain digits, and raises ``ValueError`` for a
+    bool, a NaN, an infinity, a number a float would read as an infinity or as
+    0, a negative, a number that is not a whole number of days, or one above
+    36500.
+    """
+
+    __slots__ = ()
+
+    _WHAT = "dte"
+    _SINGLE_NEGATIVE_OK = False
+
+    @classmethod
+    def _checked(
+        cls,
+        value: object,
+        argument: str,
+        *,
+        negative_ok: bool,
+        in_a_range: bool = False,
+    ) -> str:
+        """Render ``value`` with ``_NumericFilter._checked``, then ``_whole_days``.
+
+        Returns the text. Raises ``ValueError`` as both do.
+        """
+        rendered = super()._checked(
+            value, argument, negative_ok=negative_ok, in_a_range=in_a_range
+        )
+        return _whole_days(rendered, argument)
+
+    @classmethod
+    def nearest(cls: type[_Filter], value: object) -> _Filter:
+        """Match the expiration closest to ``value``.
+
+        Returns the filter. Raises ``ValueError`` if ``value`` is refused, is
+        not a whole number of days, or is above 36500.
+        """
+        return cls._single(value)
+
+
 def _render_number(value: object, argument: str) -> str:
     """Render a bare ``strike`` or ``delta`` number the way a filter does.
 
@@ -315,3 +386,22 @@ def _render_number(value: object, argument: str) -> str:
     if argument == "delta":
         return _within_one(_render(value, argument, negative_ok=True), argument)
     return _render(value, argument, negative_ok=False)
+
+
+def _reject_fraction_of_a_day(value: object, argument: str) -> object:
+    """Return a bare ``float`` or ``Decimal`` unchanged, unless it carries a
+    fraction of a day.
+
+    Every other value, including an ``int`` (a ``bool`` included), passes
+    through unchanged: the field this renders for already accepted or refused
+    it before ``dte`` took an expression grammar, a negative or a huge integer
+    included, and still does. Raises ``ValueError``, named ``argument``, for a
+    finite fraction; a NaN or an infinity is left for the field's own ``int``
+    coercion to refuse, which it already did with a ``ValidationError``.
+    """
+    if not isinstance(value, (float, Decimal)):
+        return value
+    as_decimal = value if isinstance(value, Decimal) else Decimal(str(value))
+    if as_decimal.is_finite() and as_decimal != as_decimal.to_integral_value():
+        raise ValueError(f"{argument} must be a whole number of days, not {value}")
+    return value

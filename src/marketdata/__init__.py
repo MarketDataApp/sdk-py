@@ -18,7 +18,7 @@ from marketdata.exceptions import (
     ServerError,
 )
 from marketdata.input_types.base import DateFormat, Mode, OutputFormat
-from marketdata.input_types.filters import DeltaFilter, StrikeFilter
+from marketdata.input_types.filters import DeltaFilter, DteFilter, StrikeFilter
 from marketdata.meta import ResponseMeta, get_meta
 from marketdata.output_types.columns import get_extra
 from marketdata.types import UserRateLimits
@@ -30,6 +30,7 @@ __all__ = [
     "Mode",
     "StrikeFilter",
     "DeltaFilter",
+    "DteFilter",
     "ResponseMeta",
     "UserRateLimits",
     "get_meta",

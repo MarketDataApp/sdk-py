@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from marketdata.input_types.base import BaseInputType, BaseModelConfig
-from marketdata.input_types.filters import _render_number
+from marketdata.input_types.filters import _reject_fraction_of_a_day, _render_number
 
 
 class OptionsExpirationsInput(BaseInputType):
@@ -35,8 +35,18 @@ class OptionsChainInput(BaseInputType):
     expiration: datetime.date | Literal["all", "ALL"] | None = Field(
         description="The expiration date to filter by", default=None
     )
-    days_to_expiration: int | None = Field(
-        description="The number of days to expiration to filter by",
+    days_to_expiration: int | str | None = Field(
+        description=(
+            "Days to expiration: a number (int, float or Decimal), or an "
+            "expression built with `DteFilter` (nearest, any_of, between, "
+            "at_least, at_most, above, below, expression). A single value "
+            "limits the chain to the expiration closest to it; a "
+            "comma-separated list does the same for each value, deduplicated; "
+            "a closed range or a comparison operator returns every expiration "
+            "whose dte falls within the bounds, inclusive or exclusive as the "
+            "bound itself reads. Values are whole numbers of days, at most "
+            "36500"
+        ),
         alias="dte",
         default=None,
     )
@@ -146,6 +156,24 @@ class OptionsChainInput(BaseInputType):
         if value is None or isinstance(value, str):
             return value
         return _render_number(value, info.field_name)
+
+    @field_validator(
+        "days_to_expiration",
+        mode="before",
+        json_schema_input_type=int | str | float | Decimal | None,
+    )
+    def _reject_fractional_dte(cls, value: object) -> object:
+        """Name a fractional ``float`` or ``Decimal`` as ``dte`` in its error.
+
+        Every other value passes through as it already did when the field
+        only took an ``int``: an ``int`` (a ``bool`` included), a negative or
+        a huge one travels on to the API unchanged, and a ``str`` (a
+        `DteFilter` included) is the expression the API reads. Raises
+        ``ValueError`` for a fraction of a day; a NaN or an infinity is left
+        for the field's own ``int`` coercion, which already raised
+        ``ValidationError`` on it.
+        """
+        return _reject_fraction_of_a_day(value, "dte")
 
     @field_validator("expiration")
     def validate_expiration(

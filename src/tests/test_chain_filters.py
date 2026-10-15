@@ -8,7 +8,7 @@ from fractions import Fraction
 import pytest
 from pydantic import ValidationError
 
-from marketdata import DeltaFilter, StrikeFilter
+from marketdata import DeltaFilter, DteFilter, StrikeFilter
 from marketdata.input_types import filters
 from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.options import OptionsChainInput
@@ -540,3 +540,118 @@ def test_a_delta_is_checked_the_same_under_the_callers_decimal_context(
     message = "delta " + OUT_OF_RANGE.format(outside)
     assert str(refusal.value) == message
     assert message in str(bare_refusal.value)
+
+
+# `days_to_expiration` (`dte` on the wire) changed from an integer to the same
+# expression grammar as `strike` and `delta`: a single value, a comma-separated
+# list, a closed range, or a comparison operator. `DteFilter` builds it.
+
+
+@pytest.mark.parametrize(
+    ("built", "expression"),
+    [
+        (DteFilter.nearest(30), "30"),
+        (DteFilter.any_of(15, 30, 45), "15,30,45"),
+        (DteFilter.between(0, 45), "0-45"),
+        (DteFilter.at_least(30), ">=30"),
+        (DteFilter.at_most(45), "<=45"),
+        (DteFilter.above(30), ">30"),
+        (DteFilter.below(45), "<45"),
+    ],
+)
+def test_each_dte_constructor_renders_the_expression_the_api_reads(built, expression):
+    assert built == expression
+    assert isinstance(built, str), "it reaches the query string as a string"
+
+
+@pytest.mark.parametrize(
+    ("passed", "sent"),
+    [
+        (30, "30"),
+        # a whole `float` or `Decimal` was already coerced to an `int` before
+        # `dte` took an expression grammar, and still is
+        (30.0, "30"),
+        (Decimal("30"), "30"),
+        # a negative or a huge value reached the API unfiltered before this
+        # change, and a new client-side check must not start refusing it
+        (-5, "-5"),
+        (99999, "99999"),
+        (DteFilter.nearest(30), "30"),
+        (DteFilter.any_of(15, 30, 45), "15,30,45"),
+        (DteFilter.between(0, 45), "0-45"),
+        (DteFilter.at_least(30), ">=30"),
+        (DteFilter.at_most(45), "<=45"),
+        (DteFilter.above(30), ">30"),
+        (DteFilter.below(45), "<45"),
+        # a raw expression string is passed through as written, same as strike/delta
+        ("15,30,45", "15,30,45"),
+        (">=30", ">=30"),
+    ],
+)
+@EVERY_FORMAT
+def test_the_days_to_expiration_query_string_carries_what_the_caller_asked_for(
+    respx_mock, client, passed, sent, output_format
+):
+    respx_mock.get(url__startswith=CHAIN_URL).respond(
+        json={"s": "no_data"}, status_code=404
+    )
+
+    client.options.chain("AAPL", days_to_expiration=passed, output_format=output_format)
+
+    params = respx_mock.calls.last.request.url.params
+    assert params["dte"] == sent
+    assert params["format"] == ("csv" if output_format == OutputFormat.CSV else "json")
+
+
+def test_a_dte_that_is_not_a_whole_number_is_refused():
+    """The API counts days to expiration in whole numbers; a fraction is refused
+    before any request is made."""
+    with pytest.raises(ValueError) as refusal:
+        DteFilter.nearest(30.5)
+
+    assert str(refusal.value) == "dte must be a whole number of days, not 30.5"
+
+
+def test_a_dte_above_the_maximum_is_refused():
+    """The API accepts at most 36500 days (100 years)."""
+    with pytest.raises(ValueError) as refusal:
+        DteFilter.nearest(36501)
+
+    assert str(refusal.value) == "dte must be at most 36500 days, not 36501"
+
+
+def test_a_dte_bound_above_the_maximum_is_refused():
+    """The maximum applies to every bound a constructor builds, not only to a
+    single value."""
+    with pytest.raises(ValueError) as refusal:
+        DteFilter.at_least(36501)
+
+    assert str(refusal.value) == "dte must be at most 36500 days, not 36501"
+
+
+def test_a_dte_any_of_with_no_values_is_refused():
+    with pytest.raises(ValueError, match="at least one dte"):
+        DteFilter.any_of()
+
+
+def test_a_dte_any_of_with_a_null_element_is_refused():
+    with pytest.raises(ValueError, match="dte must be a number, not NoneType"):
+        DteFilter.any_of(30, None)
+
+
+@EVERY_FORMAT
+def test_a_bare_dte_the_api_would_misread_never_reaches_a_request(
+    respx_mock, client, output_format
+):
+    respx_mock.get(url__startswith=CHAIN_URL).respond(
+        json={"s": "no_data"}, status_code=404
+    )
+
+    with pytest.raises(ValidationError) as refusal:
+        client.options.chain(
+            "AAPL", days_to_expiration=30.5, output_format=output_format
+        )
+
+    assert "dte must be a whole number of days, not 30.5" in str(refusal.value)
+    # the client fixture makes its own startup call
+    assert not [c for c in respx_mock.calls if "/options/chain/" in str(c.request.url)]

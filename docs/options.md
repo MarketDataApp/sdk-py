@@ -189,7 +189,23 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 
 - `date` (datetime.date, optional): Filter by specific expiration date
 - `expiration` (datetime.date, optional): Filter by expiration date
-- `days_to_expiration` (int, optional): Filter by days until expiration
+- `days_to_expiration` (int | str | float | Decimal, optional): Filter by days to
+  expiration (`dte` on the wire). A number is the expiration closest to it, never
+  empty; a string is the API's expression: `"15,30,45"` for a comma-separated list,
+  each value answered by its own closest expiration, deduplicated; `"0-45"` for a
+  closed range, both ends included; `">=30"` or `"<45"` for a bound, inclusive or
+  exclusive as the operator itself reads. `DteFilter` builds all of them:
+  `DteFilter.between(0, 45)`, `DteFilter.at_least(30)`, whose single-value
+  constructor is `nearest` rather than `exact`, since the API matches the closest
+  expiration rather than an exact one. Every `DteFilter` constructor raises
+  `ValueError` for a bool, a NaN, an infinity, a number a float cannot hold, a
+  negative, a fraction of a day, or one above 36500, the API's own limit. A bare
+  number keeps the behavior the field already had before `dte` took an expression:
+  a negative or a number above 36500 still reaches the API unchanged, and only a
+  fraction of a day is refused before any request. Should not be used together
+  with `from_date` and `to_date`, and take care before combining with `weekly`,
+  `monthly` or `quarterly`, since that limits the expirations `dte` can answer.
+  Relative to `date` when `date` is given
 - `from_date` (datetime.date, optional): Filter expirations from this date
 - `to_date` (datetime.date, optional): Filter expirations to this date
 - `month` (int, optional): Filter by expiration month (1-12)
@@ -313,6 +329,25 @@ chain = client.options.chain(
     symbol="AAPL",
     strike=StrikeFilter.exact(250),
     side="call"
+)
+print(chain)
+```
+
+**Filter by days to expiration:**
+
+```python
+from marketdata import MarketDataClient, DteFilter
+
+client = MarketDataClient()
+# symbol can be passed positionally or as keyword argument
+chain = client.options.chain(
+    "AAPL",
+    days_to_expiration=DteFilter.between(0, 45)
+)
+# or
+chain = client.options.chain(
+    symbol="AAPL",
+    days_to_expiration=DteFilter.between(0, 45)
 )
 print(chain)
 ```

@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from marketdata import MarketDataClient, OutputFormat
+from marketdata import DteFilter, MarketDataClient, OutputFormat
 from marketdata.output_types.options_chain import OptionsChain
 from marketdata.output_types.options_expirations import OptionsExpirations
 from marketdata.output_types.options_lookup import OptionsLookup
@@ -135,3 +135,125 @@ def test_lookup_resolves_a_human_readable_contract(
     assert isinstance(result, OptionsLookup), result
     assert result.s == "ok"
     assert result.optionSymbol == live_chain.optionSymbol[0]
+
+
+# `dte` changed from an integer to the same expression grammar as `strike` and
+# `delta`: a single value, a comma-separated list, a closed range, or a
+# comparison operator. Each form is asserted against the shape of the decoded
+# response, with bounds chosen so an ignored filter would fail the assertion:
+# a typical chain carries weeklies (a few days out) and LEAPS (past a year),
+# so every bound below excludes contracts that exist in the unfiltered chain.
+
+
+def test_chain_filters_by_a_single_days_to_expiration_to_its_closest_expiration(
+    live_client: MarketDataClient,
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=DteFilter.nearest(30),
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert chain.s == "ok"
+    assert len(chain.optionSymbol) >= 1
+    # every contract in the answer belongs to the one expiration closest to 30
+    assert len(set(chain.dte)) == 1
+
+
+def test_chain_filters_by_a_list_of_days_to_expiration_values(
+    live_client: MarketDataClient,
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=DteFilter.any_of(15, 30, 45),
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert chain.s == "ok"
+    assert len(chain.optionSymbol) >= 1
+    # at most one expiration per value given, deduplicated
+    assert 1 <= len(set(chain.dte)) <= 3
+
+
+def test_chain_filters_by_a_closed_days_to_expiration_range(
+    live_client: MarketDataClient,
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=DteFilter.between(0, 45),
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert chain.s == "ok"
+    assert len(chain.optionSymbol) >= 1
+    assert all(0 <= dte <= 45 for dte in chain.dte)
+
+
+def test_chain_filters_by_a_days_to_expiration_at_least_bound(
+    live_client: MarketDataClient,
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=DteFilter.at_least(30),
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert chain.s == "ok"
+    assert len(chain.optionSymbol) >= 1
+    assert all(dte >= 30 for dte in chain.dte)
+
+
+def test_chain_filters_by_a_days_to_expiration_below_bound(
+    live_client: MarketDataClient,
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=DteFilter.below(45),
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert chain.s == "ok"
+    assert len(chain.optionSymbol) >= 1
+    assert all(dte < 45 for dte in chain.dte)
+
+
+def test_chain_filters_by_a_days_to_expiration_at_most_bound(
+    live_client: MarketDataClient,
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=DteFilter.at_most(45),
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert chain.s == "ok"
+    assert len(chain.optionSymbol) >= 1
+    assert all(dte <= 45 for dte in chain.dte)
+
+
+def test_chain_filters_by_a_days_to_expiration_above_bound(
+    live_client: MarketDataClient,
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=DteFilter.above(30),
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert chain.s == "ok"
+    assert len(chain.optionSymbol) >= 1
+    assert all(dte > 30 for dte in chain.dte)
