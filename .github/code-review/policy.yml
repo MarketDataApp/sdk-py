@@ -35,14 +35,14 @@ require_ci_green: true
 wait_for_checks: ["codecov/patch", "codecov/project"]
 
 proof:
-  required: true
-  # The gate fires only when a changed path matches. src/marketdata/** is the
-  # whole runtime surface, models included: PR #100 is entirely in
-  # output_types/ and its four findings were runtime defects reproduced
-  # through the client. A pull request that touches only docs/, the README,
-  # the CHANGELOG or CI can never be blocked for missing proof, whatever the
-  # model decides about it.
-  paths: ["src/marketdata/**"]
+  # Requested, not enforced: the review still judges the evidence and still
+  # asks for it under "Before merge", but missing proof no longer overrides its
+  # verdict. This is the bot's default. The gate cannot be lifted for one
+  # author only, and the pull requests of `marketdata-sdk-sync[bot]` (below)
+  # cannot carry runtime evidence from the live API: the pipeline has no API
+  # token. Their live-API tests run in this repository's CI instead, in the
+  # `Integration Tests (live)` job of every pull request.
+  required: false
 
 auto_approve: false
 auto_merge:
@@ -53,6 +53,12 @@ review_drafts: false
 # answers correctly. COLLABORATOR stays out: on a user-account repository it
 # also covers a stranger invited to this one repository.
 trusted_associations: [OWNER, MEMBER]
+
+# The SDK-sync pipeline (MarketData-App/sdk-bot) opens pull requests here as
+# the GitHub App `marketdata-sdk-sync`. An App is not a member of the
+# organisation, so without this entry its pull requests would get no review,
+# no comment and no check run.
+trusted_authors: ["marketdata-sdk-sync[bot]"]
 
 # This list does two jobs.
 #   1. It skips the whole pull request when EVERY changed file matches. A
