@@ -95,11 +95,16 @@ def test_chain_returns_expected_shape(live_chain: OptionsChain):
 
 
 @pytest.fixture(scope="module")
-def live_chain_unfiltered(live_client: MarketDataClient) -> OptionsChain:
-    # No `days_to_expiration` filter: the baseline the dte expression forms
-    # below are checked against, to show each one actually narrows the chain.
+def live_chain_wide(live_client: MarketDataClient) -> OptionsChain:
+    # A year-wide dte range, used as the baseline the narrower dte expression
+    # forms below are checked against. Leaving `days_to_expiration` out
+    # entirely is not a usable baseline: the API returns only the nearest
+    # expiration when no expiration filter is given at all, which is already
+    # narrower than most of the filters below and would make them look like
+    # they narrowed the chain even if the server ignored them.
     chain = live_client.options.chain(
         UNDERLYING,
+        days_to_expiration="0-365",
         strike_limit=2,
         output_format=OutputFormat.INTERNAL,
     )
@@ -134,7 +139,7 @@ def test_chain_dte_single_value_still_limits_to_one_expiration(
 
 
 def test_chain_dte_comma_list_picks_the_closest_expiration_per_value(
-    live_client: MarketDataClient, live_chain_unfiltered: OptionsChain
+    live_client: MarketDataClient, live_chain_wide: OptionsChain
 ):
     chain = live_client.options.chain(
         UNDERLYING,
@@ -146,13 +151,16 @@ def test_chain_dte_comma_list_picks_the_closest_expiration_per_value(
     assert isinstance(chain, OptionsChain), chain
     assert len(chain.optionSymbol) >= 1
     distinct = set(chain.dte)
-    # Three values, deduplicated: at most three distinct expirations come back.
-    assert 1 <= len(distinct) <= 3
-    assert len(distinct) < len(set(live_chain_unfiltered.dte))
+    # Three values, 15 days apart, spread across AAPL's weekly series: more
+    # than one distinct expiration comes back, deduplicated down to at most
+    # three. A server that ignored the comma list would answer with only the
+    # single nearest expiration, failing the lower bound.
+    assert 2 <= len(distinct) <= 3
+    assert len(distinct) < len(set(live_chain_wide.dte))
 
 
 def test_chain_dte_closed_range_is_inclusive_on_both_ends(
-    live_client: MarketDataClient, live_chain_unfiltered: OptionsChain
+    live_client: MarketDataClient, live_chain_wide: OptionsChain
 ):
     chain = live_client.options.chain(
         UNDERLYING,
@@ -164,11 +172,15 @@ def test_chain_dte_closed_range_is_inclusive_on_both_ends(
     assert isinstance(chain, OptionsChain), chain
     assert len(chain.optionSymbol) >= 1
     assert all(0 <= dte <= 45 for dte in chain.dte)
-    assert any(dte > 45 for dte in live_chain_unfiltered.dte)
+    assert any(dte > 45 for dte in live_chain_wide.dte)
+    # A server that ignored the range would answer with only the single
+    # nearest expiration, same as the unfiltered default; a range this wide
+    # on a liquid underlying spans more than one.
+    assert len(set(chain.dte)) > 1
 
 
 def test_chain_dte_at_least_operator_is_inclusive_of_the_bound(
-    live_client: MarketDataClient, live_chain_unfiltered: OptionsChain
+    live_client: MarketDataClient, live_chain_wide: OptionsChain
 ):
     chain = live_client.options.chain(
         UNDERLYING,
@@ -180,11 +192,11 @@ def test_chain_dte_at_least_operator_is_inclusive_of_the_bound(
     assert isinstance(chain, OptionsChain), chain
     assert len(chain.optionSymbol) >= 1
     assert all(dte >= 30 for dte in chain.dte)
-    assert any(dte < 30 for dte in live_chain_unfiltered.dte)
+    assert any(dte < 30 for dte in live_chain_wide.dte)
 
 
 def test_chain_dte_below_operator_is_inclusive_of_the_bound(
-    live_client: MarketDataClient, live_chain_unfiltered: OptionsChain
+    live_client: MarketDataClient, live_chain_wide: OptionsChain
 ):
     chain = live_client.options.chain(
         UNDERLYING,
@@ -196,7 +208,12 @@ def test_chain_dte_below_operator_is_inclusive_of_the_bound(
     assert isinstance(chain, OptionsChain), chain
     assert len(chain.optionSymbol) >= 1
     assert all(dte <= 45 for dte in chain.dte)
-    assert any(dte > 45 for dte in live_chain_unfiltered.dte)
+    assert any(dte > 45 for dte in live_chain_wide.dte)
+    # A server that ignored the operator would answer with only the single
+    # nearest expiration, which also satisfies `dte <= 45` without the
+    # filter having done anything; a bound this wide on a liquid underlying
+    # spans more than one expiration.
+    assert len(set(chain.dte)) > 1
 
 
 def test_quotes_return_expected_shape(
