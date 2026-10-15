@@ -413,37 +413,65 @@ def test_options_chain_input_days_to_expiration_alias_on_wire(
     ids=["comma_list", "closed_range", "at_least", "below"],
 )
 def test_options_chain_dte_takes_the_same_expression_forms_as_strike_and_delta(
-    load_json, respx_mock, client, passed, sent
+    load_json, respx_mock, client, tmp_path, passed, sent
 ):
     """`dte` changed from an integer to a string that reads a comma-separated
     list, a closed range, or a comparison operator, the same syntax `strike`
-    and `delta` already use."""
+    and `delta` already use. The form sent on the wire does not depend on the
+    output format asked for."""
     mock_data = load_json("options_chain_response_200")
-    respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
+    route = respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
         json=mock_data, status_code=200
     )
 
+    for output_format in (
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.DATAFRAME,
+    ):
+        client.options.chain(
+            "AAPL",
+            days_to_expiration=passed,
+            output_format=output_format,
+        )
+        assert respx_mock.calls.last.request.url.params.get("dte") == sent
+
+    route.respond(
+        text="optionSymbol,underlying,strike\nAAPL260116C00200000,AAPL,200\n",
+        status_code=200,
+    )
     client.options.chain(
         "AAPL",
         days_to_expiration=passed,
-        output_format=OutputFormat.INTERNAL,
+        output_format=OutputFormat.CSV,
+        filename=tmp_path / "chain.csv",
     )
-
-    params = respx_mock.calls.last.request.url.params
-    assert params.get("dte") == sent
+    assert respx_mock.calls.last.request.url.params.get("dte") == sent
 
 
+@pytest.mark.parametrize(
+    "output_format",
+    [
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.DATAFRAME,
+        OutputFormat.CSV,
+    ],
+    ids=["internal", "json", "dataframe", "csv"],
+)
 @pytest.mark.parametrize(
     "passed",
     [-5, 99999, "not-a-valid-expression"],
     ids=["negative_int", "over_the_documented_max", "malformed_string"],
 )
 def test_options_chain_dte_reaches_the_api_unvalidated_as_it_always_did(
-    respx_mock, client, passed
+    respx_mock, client, tmp_path, passed, output_format
 ):
     """`days_to_expiration` is an existing parameter: a value that reached the
     API before and came back a 400 must still reach it and fail the same way,
-    not with a new local `ValidationError` the wider type would add."""
+    not with a new local `ValidationError` the wider type would add. The 400
+    is raised before the output format decides how to parse a 200, so every
+    format fails it the same way."""
     respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
         json={},
         status_code=400,
@@ -453,7 +481,8 @@ def test_options_chain_dte_reaches_the_api_unvalidated_as_it_always_did(
         client.options.chain(
             "AAPL",
             days_to_expiration=passed,
-            output_format=OutputFormat.INTERNAL,
+            output_format=output_format,
+            filename=tmp_path / "chain.csv",
         )
     assert_failed_answer(
         exc_info.value, 400, "https://api.marketdata.app/v1/options/chain/AAPL/", "{}"
