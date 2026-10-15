@@ -193,8 +193,10 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   `int` or a numeric string) limits the chain to the expiration closest to it. A
   string takes the same expression syntax as `strike` and `delta`: `"15,30,45"` for
   a comma-separated list, which selects the closest expiration for each value,
-  deduplicated; `"0-45"` for a closed, inclusive range; `">=30"` or `"<45"` for a
-  bound, inclusive. Values are whole numbers of days, at most 36500. Should not be used
+  deduplicated; `"0-45"` for a closed range, inclusive on both ends. A comparison
+  operator is one-sided: `">=30"` is inclusive of 30, `"<45"` is exclusive of 45
+  (strictly below it), the same as `StrikeFilter.at_least` and `StrikeFilter.below`.
+  Values are whole numbers of days, at most 36500. Should not be used
   together with `from_date` and `to_date`. Combining it with `weekly`, `monthly` or
   `quarterly` limits the expirations it can return. With `date`, it is relative to
   the date provided
