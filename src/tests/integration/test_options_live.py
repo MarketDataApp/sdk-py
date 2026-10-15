@@ -94,6 +94,111 @@ def test_chain_returns_expected_shape(live_chain: OptionsChain):
         assert not any(isinstance(v, Decimal) for v in getattr(live_chain, field))
 
 
+@pytest.fixture(scope="module")
+def live_chain_unfiltered(live_client: MarketDataClient) -> OptionsChain:
+    # No `days_to_expiration` filter: the baseline the dte expression forms
+    # below are checked against, to show each one actually narrows the chain.
+    chain = live_client.options.chain(
+        UNDERLYING,
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+    assert isinstance(chain, OptionsChain), chain
+    return chain
+
+
+def test_chain_dte_single_value_still_limits_to_one_expiration(
+    live_client: MarketDataClient,
+):
+    # Regression: the form `dte` already had, as an int and as the equivalent
+    # string now that the parameter takes either.
+    as_int = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=30,
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+    as_str = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration="30",
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    for chain in (as_int, as_str):
+        assert isinstance(chain, OptionsChain), chain
+        assert len(chain.optionSymbol) >= 1
+        assert len(set(chain.dte)) == 1
+
+    assert set(as_int.dte) == set(as_str.dte)
+
+
+def test_chain_dte_comma_list_picks_the_closest_expiration_per_value(
+    live_client: MarketDataClient, live_chain_unfiltered: OptionsChain
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration="15,30,45",
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert len(chain.optionSymbol) >= 1
+    distinct = set(chain.dte)
+    # Three values, deduplicated: at most three distinct expirations come back.
+    assert 1 <= len(distinct) <= 3
+    assert len(distinct) < len(set(live_chain_unfiltered.dte))
+
+
+def test_chain_dte_closed_range_is_inclusive_on_both_ends(
+    live_client: MarketDataClient, live_chain_unfiltered: OptionsChain
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration="0-45",
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert len(chain.optionSymbol) >= 1
+    assert all(0 <= dte <= 45 for dte in chain.dte)
+    assert any(dte > 45 for dte in live_chain_unfiltered.dte)
+
+
+def test_chain_dte_at_least_operator_is_inclusive_of_the_bound(
+    live_client: MarketDataClient, live_chain_unfiltered: OptionsChain
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=">=30",
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert len(chain.optionSymbol) >= 1
+    assert all(dte >= 30 for dte in chain.dte)
+    assert any(dte < 30 for dte in live_chain_unfiltered.dte)
+
+
+def test_chain_dte_below_operator_is_inclusive_of_the_bound(
+    live_client: MarketDataClient, live_chain_unfiltered: OptionsChain
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration="<45",
+        strike_limit=2,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert len(chain.optionSymbol) >= 1
+    assert all(dte <= 45 for dte in chain.dte)
+    assert any(dte > 45 for dte in live_chain_unfiltered.dte)
+
+
 def test_quotes_return_expected_shape(
     live_client: MarketDataClient, live_chain: OptionsChain
 ):
