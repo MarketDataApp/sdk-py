@@ -141,6 +141,9 @@ def test_chain_dte_single_value_still_limits_to_one_expiration(
 def test_chain_dte_comma_list_picks_the_closest_expiration_per_value(
     live_client: MarketDataClient, live_chain_wide: OptionsChain
 ):
+    requested_values = (15, 30, 45)
+    available = set(live_chain_wide.dte)
+
     chain = live_client.options.chain(
         UNDERLYING,
         days_to_expiration="15,30,45",
@@ -151,68 +154,86 @@ def test_chain_dte_comma_list_picks_the_closest_expiration_per_value(
     assert isinstance(chain, OptionsChain), chain
     assert len(chain.optionSymbol) >= 1
     distinct = set(chain.dte)
-    # Three values, 15 days apart, spread across AAPL's weekly series: more
-    # than one distinct expiration comes back, deduplicated down to at most
-    # three. A server that ignored the comma list would answer with only the
-    # single nearest expiration, failing the lower bound.
-    assert 2 <= len(distinct) <= 3
-    assert len(distinct) < len(set(live_chain_wide.dte))
+    assert 1 <= len(distinct) <= 3
+
+    # For each requested value, work out which expiration(s) in the wide
+    # baseline are actually closest to it (more than one if two are tied;
+    # the API documents "closest" but not how it breaks a tie). Every
+    # expiration that came back must be one of those candidates, and every
+    # requested value must be represented by at least one of its candidates.
+    candidates_by_value = {}
+    for value in requested_values:
+        closest_distance = min(abs(dte - value) for dte in available)
+        candidates_by_value[value] = {
+            dte for dte in available if abs(dte - value) == closest_distance
+        }
+
+    for value, candidates in candidates_by_value.items():
+        assert distinct & candidates, (value, candidates, distinct)
+    assert distinct <= set().union(*candidates_by_value.values())
 
 
 def test_chain_dte_closed_range_is_inclusive_on_both_ends(
     live_client: MarketDataClient, live_chain_wide: OptionsChain
 ):
+    # Anchor the upper bound on an expiration the baseline actually lists
+    # near 45 days out, rather than the literal 45: the market lists whatever
+    # days it lists, not every integer, and a bound that falls between two
+    # real expirations would prove nothing about inclusivity either way.
+    boundary = min(set(live_chain_wide.dte), key=lambda dte: abs(dte - 45))
     chain = live_client.options.chain(
         UNDERLYING,
-        days_to_expiration="0-45",
+        days_to_expiration=f"0-{boundary}",
         strike_limit=2,
         output_format=OutputFormat.INTERNAL,
     )
 
     assert isinstance(chain, OptionsChain), chain
     assert len(chain.optionSymbol) >= 1
-    assert all(0 <= dte <= 45 for dte in chain.dte)
-    assert any(dte > 45 for dte in live_chain_wide.dte)
-    # A server that ignored the range would answer with only the single
-    # nearest expiration, same as the unfiltered default; a range this wide
-    # on a liquid underlying spans more than one.
+    assert all(0 <= dte <= boundary for dte in chain.dte)
+    # The contract exactly at the upper bound is retained, not excluded.
+    assert boundary in chain.dte
+    assert any(dte > boundary for dte in live_chain_wide.dte)
     assert len(set(chain.dte)) > 1
 
 
 def test_chain_dte_at_least_operator_is_inclusive_of_the_bound(
     live_client: MarketDataClient, live_chain_wide: OptionsChain
 ):
+    boundary = min(set(live_chain_wide.dte), key=lambda dte: abs(dte - 30))
     chain = live_client.options.chain(
         UNDERLYING,
-        days_to_expiration=">=30",
+        days_to_expiration=f">={boundary}",
         strike_limit=2,
         output_format=OutputFormat.INTERNAL,
     )
 
     assert isinstance(chain, OptionsChain), chain
     assert len(chain.optionSymbol) >= 1
-    assert all(dte >= 30 for dte in chain.dte)
-    assert any(dte < 30 for dte in live_chain_wide.dte)
+    assert all(dte >= boundary for dte in chain.dte)
+    # The contract exactly at the lower bound is retained, not excluded.
+    assert boundary in chain.dte
+    assert any(dte < boundary for dte in live_chain_wide.dte)
 
 
 def test_chain_dte_below_operator_is_inclusive_of_the_bound(
     live_client: MarketDataClient, live_chain_wide: OptionsChain
 ):
+    boundary = min(set(live_chain_wide.dte), key=lambda dte: abs(dte - 45))
     chain = live_client.options.chain(
         UNDERLYING,
-        days_to_expiration="<45",
+        days_to_expiration=f"<{boundary}",
         strike_limit=2,
         output_format=OutputFormat.INTERNAL,
     )
 
     assert isinstance(chain, OptionsChain), chain
     assert len(chain.optionSymbol) >= 1
-    assert all(dte <= 45 for dte in chain.dte)
-    assert any(dte > 45 for dte in live_chain_wide.dte)
-    # A server that ignored the operator would answer with only the single
-    # nearest expiration, which also satisfies `dte <= 45` without the
-    # filter having done anything; a bound this wide on a liquid underlying
-    # spans more than one expiration.
+    assert all(dte <= boundary for dte in chain.dte)
+    # The contract exactly at the bound is retained, not excluded: `<` reads
+    # as inclusive here per the documented contract.
+    assert boundary in chain.dte
+    assert any(dte > boundary for dte in live_chain_wide.dte)
     assert len(set(chain.dte)) > 1
 
 
