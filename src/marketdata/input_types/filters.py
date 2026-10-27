@@ -307,11 +307,16 @@ class DeltaFilter(_NumericFilter):
 
 
 def _render_number(value: object, argument: str) -> str:
-    """Render a bare ``strike`` or ``delta`` number the way a filter does.
+    """Render a bare ``strike``, ``delta`` or ``days_to_expiration`` number the
+    way a filter does.
 
     Returns the text. Raises ``ValueError`` as ``_render`` does, or for a
-    ``delta`` outside -1 to 1; a negative is accepted for ``delta``.
+    ``delta`` outside -1 to 1; a negative is accepted for ``delta`` and for
+    ``days_to_expiration``, whose API description says nothing about how a
+    negative is read, so none is refused here either.
     """
     if argument == "delta":
         return _within_one(_render(value, argument, negative_ok=True), argument)
+    if argument == "days_to_expiration":
+        return _render(value, argument, negative_ok=True)
     return _render(value, argument, negative_ok=False)

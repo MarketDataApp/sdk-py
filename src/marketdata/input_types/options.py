@@ -35,8 +35,20 @@ class OptionsChainInput(BaseInputType):
     expiration: datetime.date | Literal["all", "ALL"] | None = Field(
         description="The expiration date to filter by", default=None
     )
-    days_to_expiration: int | None = Field(
-        description="The number of days to expiration to filter by",
+    days_to_expiration: str | None = Field(
+        description=(
+            "Days to expiry, as a number (int, float or Decimal) or an "
+            'expression: a comma-separated list such as "15,30,45", a '
+            'closed range such as "0-45", or a comparison operator such as '
+            '">=30" or "<45" (the syntax matches strike and delta). A '
+            "single value answers with the expiration closest to it; a list "
+            "answers with the closest expiration to each value, "
+            "deduplicated; a range or a comparison operator answers with "
+            "every expiration within the bounds, inclusive. Values are whole "
+            "numbers of days, at most 36500. Should not be used together "
+            "with from_date and to_date, and is relative to date when date "
+            "is given"
+        ),
         alias="dte",
         default=None,
     )
@@ -132,16 +144,17 @@ class OptionsChainInput(BaseInputType):
     @field_validator(
         "strike",
         "delta",
+        "days_to_expiration",
         mode="before",
         json_schema_input_type=str | int | float | Decimal | None,
     )
     def _render_number_filter(cls, value: object, info) -> object:
         """Render a bare number as the text sent, with the checks a filter applies.
 
-        ``None`` and a ``str``, a filter included, pass through as written. The
-        fields hold that text, so they are annotated ``str``; the wider input is
-        declared here. Raises ``ValueError`` for a number ``_render_number``
-        refuses.
+        ``None`` and a ``str``, a filter or an expression included, pass
+        through as written. The fields hold that text, so they are annotated
+        ``str``; the wider input is declared here. Raises ``ValueError`` for a
+        number ``_render_number`` refuses.
         """
         if value is None or isinstance(value, str):
             return value

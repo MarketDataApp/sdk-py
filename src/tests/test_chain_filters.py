@@ -14,6 +14,8 @@ from marketdata.input_types.base import OutputFormat
 from marketdata.input_types.options import OptionsChainInput
 
 CHAIN_URL = "https://api.marketdata.app/v1/options/chain/AAPL/"
+# the field the caller passes, and the query key it is sent under on the wire
+WIRE_KEY = {"strike": "strike", "delta": "delta", "days_to_expiration": "dte"}
 EVERY_FORMAT = pytest.mark.parametrize(
     "output_format",
     [
@@ -271,6 +273,13 @@ def test_a_delta_keeps_its_sign_where_the_api_reads_the_same_rows_either_way():
         ("strike", Decimal("2.5E+2"), "250"),
         ("delta", -0.00001, "-0.00001"),
         ("delta", DeltaFilter.at_most(0.00005), "<=0.00005"),
+        # `days_to_expiration` (`dte` on the wire) reuses the same renderer, but
+        # unlike strike and delta accepts a negative bare value unrefused: the
+        # API's own description says nothing about how one is read
+        ("days_to_expiration", -30, "-30"),
+        ("days_to_expiration", 30, "30"),
+        ("days_to_expiration", Decimal("2.5E+2"), "250"),
+        ("days_to_expiration", 1e-05, "0.00001"),
     ],
 )
 @EVERY_FORMAT
@@ -284,11 +293,11 @@ def test_the_query_string_carries_what_the_caller_asked_for(
     client.options.chain("AAPL", **{field: passed}, output_format=output_format)
 
     params = respx_mock.calls.last.request.url.params
-    assert params[field] == sent
+    assert params[WIRE_KEY[field]] == sent
     assert params["format"] == ("csv" if output_format == OutputFormat.CSV else "json")
 
 
-@pytest.mark.parametrize("field", ["strike", "delta"])
+@pytest.mark.parametrize("field", ["strike", "delta", "days_to_expiration"])
 @pytest.mark.parametrize(
     "refused", [True, float("inf"), float("nan"), object(), Decimal("1E+400")]
 )
