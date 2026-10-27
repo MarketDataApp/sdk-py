@@ -117,8 +117,25 @@ def test_quotes_return_expected_shape(
     assert isinstance(quotes.openInterest[0], int)
 
 
+@pytest.fixture(scope="module")
+def available_dtes(live_client: MarketDataClient) -> list[int]:
+    """Every dte AAPL actually offers, read from a wide dte range. A call with
+    no expiration-related parameter at all answers with only the nearest
+    expiration, so it cannot stand in for the full set the tests below need
+    as their baseline."""
+    baseline = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration="0-36500",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    available = sorted(set(baseline.dte))
+    assert len(available) > 1
+    return available
+
+
 def test_chain_dte_single_value_is_the_closest_expiration(
-    live_client: MarketDataClient,
+    live_client: MarketDataClient, available_dtes: list[int]
 ):
     """2.0.0: `dte` is a string now, but a single value still answers with the
     one expiration closest to it (SDK requirements #4: the form the parameter
@@ -126,14 +143,10 @@ def test_chain_dte_single_value_is_the_closest_expiration(
     Which of two tied candidates comes back is not asserted."""
     target = 30
 
-    baseline = live_client.options.chain(
-        UNDERLYING, strike_limit=1, output_format=OutputFormat.INTERNAL
-    )
-    available = sorted(set(baseline.dte))
-    assert len(available) > 1
-
-    nearest_distance = min(abs(dte - target) for dte in available)
-    candidates = {dte for dte in available if abs(dte - target) == nearest_distance}
+    nearest_distance = min(abs(dte - target) for dte in available_dtes)
+    candidates = {
+        dte for dte in available_dtes if abs(dte - target) == nearest_distance
+    }
 
     filtered = live_client.options.chain(
         UNDERLYING,
@@ -150,21 +163,16 @@ def test_chain_dte_single_value_is_the_closest_expiration(
 
 
 def test_chain_dte_list_matches_the_closest_expiration_for_each_value(
-    live_client: MarketDataClient,
+    live_client: MarketDataClient, available_dtes: list[int]
 ):
     """A comma list answers with the closest expiration to each requested
     value, deduplicated. Which of two tied candidates comes back is not
     asserted."""
     requested = (7, 30, 60)
 
-    baseline = live_client.options.chain(
-        UNDERLYING, strike_limit=1, output_format=OutputFormat.INTERNAL
-    )
-    available = sorted(set(baseline.dte))
-
     def closest(value: int) -> set[int]:
-        nearest_distance = min(abs(dte - value) for dte in available)
-        return {dte for dte in available if abs(dte - value) == nearest_distance}
+        nearest_distance = min(abs(dte - value) for dte in available_dtes)
+        return {dte for dte in available_dtes if abs(dte - value) == nearest_distance}
 
     candidates = {value: closest(value) for value in requested}
     every_candidate = set().union(*candidates.values())
@@ -209,17 +217,14 @@ def test_chain_dte_range_returns_every_expiration_within_bounds(
 
 
 def test_chain_dte_at_least_returns_every_expiration_at_or_above_the_bound(
-    live_client: MarketDataClient,
+    live_client: MarketDataClient, available_dtes: list[int]
 ):
     """`>=30`: whether the API reads the bound as inclusive or exclusive,
-    every row answers at or above it. The unfiltered chain has rows below the
+    every row answers at or above it. AAPL offers expirations below the
     bound, so the filter is shown to have an effect."""
     bound = 30
 
-    baseline = live_client.options.chain(
-        UNDERLYING, strike_limit=1, output_format=OutputFormat.INTERNAL
-    )
-    assert any(dte < bound for dte in baseline.dte)
+    assert any(dte < bound for dte in available_dtes)
 
     filtered = live_client.options.chain(
         UNDERLYING,
@@ -233,17 +238,14 @@ def test_chain_dte_at_least_returns_every_expiration_at_or_above_the_bound(
 
 
 def test_chain_dte_below_returns_every_expiration_at_or_under_the_bound(
-    live_client: MarketDataClient,
+    live_client: MarketDataClient, available_dtes: list[int]
 ):
     """`<45`: whichever side of the bound the API includes, every row answers
-    at or under it. The unfiltered chain has rows at or above the bound, so
-    the filter is shown to have an effect."""
+    at or under it. AAPL offers expirations at or above the bound, so the
+    filter is shown to have an effect."""
     bound = 45
 
-    baseline = live_client.options.chain(
-        UNDERLYING, strike_limit=1, output_format=OutputFormat.INTERNAL
-    )
-    assert any(dte >= bound for dte in baseline.dte)
+    assert any(dte >= bound for dte in available_dtes)
 
     filtered = live_client.options.chain(
         UNDERLYING,
@@ -254,6 +256,7 @@ def test_chain_dte_below_returns_every_expiration_at_or_under_the_bound(
 
     assert len(filtered.dte) >= 1
     assert all(dte <= bound for dte in filtered.dte)
+    assert len(set(filtered.dte)) > 1
 
 
 def test_lookup_resolves_a_human_readable_contract(
