@@ -259,6 +259,49 @@ def test_chain_dte_below_returns_every_expiration_at_or_under_the_bound(
     assert len(set(filtered.dte)) > 1
 
 
+def test_chain_dte_at_most_returns_every_expiration_at_or_under_the_bound(
+    live_client: MarketDataClient, available_dtes: list[int]
+):
+    """`<=45`: whichever side of the bound the API includes, every row answers
+    at or under it. AAPL offers expirations at or above the bound, so the
+    filter is shown to have an effect."""
+    bound = 45
+
+    assert any(dte >= bound for dte in available_dtes)
+
+    filtered = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"<={bound}",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert len(filtered.dte) >= 1
+    assert all(dte <= bound for dte in filtered.dte)
+    assert len(set(filtered.dte)) > 1
+
+
+def test_chain_dte_above_returns_every_expiration_above_the_bound(
+    live_client: MarketDataClient, available_dtes: list[int]
+):
+    """`>30`: whether the API reads the bound as inclusive or exclusive, every
+    row answers at or above it. AAPL offers expirations below the bound, so
+    the filter is shown to have an effect."""
+    bound = 30
+
+    assert any(dte < bound for dte in available_dtes)
+
+    filtered = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f">{bound}",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert len(filtered.dte) >= 1
+    assert all(dte >= bound for dte in filtered.dte)
+
+
 def test_lookup_resolves_a_human_readable_contract(
     live_client: MarketDataClient, live_chain: OptionsChain
 ):

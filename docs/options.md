@@ -195,8 +195,8 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   `strike` and `delta`). A single value answers with the expiration closest to it; a set
   answers with the closest expiration to each value, deduplicated; a range or a bound
   answers with every expiration within it, inclusive. Values are whole numbers of days,
-  at most 36500. Should not be used together with `from_date` and `to_date`, and is
-  relative to `date` when `date` is given
+  at most 36500; a fractional number is refused. Should not be used together with
+  `from_date` and `to_date`, and is relative to `date` when `date` is given
 - `from_date` (datetime.date, optional): Filter expirations from this date
 - `to_date` (datetime.date, optional): Filter expirations to this date
 - `month` (int, optional): Filter by expiration month (1-12)

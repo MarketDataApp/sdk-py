@@ -279,7 +279,10 @@ def test_a_delta_keeps_its_sign_where_the_api_reads_the_same_rows_either_way():
         ("days_to_expiration", -30, "-30"),
         ("days_to_expiration", 30, "30"),
         ("days_to_expiration", Decimal("2.5E+2"), "250"),
-        ("days_to_expiration", 1e-05, "0.00001"),
+        # a whole number is sent as integral digits whether it is a float or
+        # a Decimal, the way the pre-2.0.0 `int` field did
+        ("days_to_expiration", 30.0, "30"),
+        ("days_to_expiration", Decimal("30.00"), "30"),
     ],
 )
 @EVERY_FORMAT
@@ -324,6 +327,25 @@ def test_a_negative_strike_never_reaches_a_request(respx_mock, client, output_fo
 
     with pytest.raises(ValidationError, match="cannot be negative"):
         client.options.chain("AAPL", strike=-250, output_format=output_format)
+
+    # the client fixture makes its own startup call
+    assert not [c for c in respx_mock.calls if "/options/chain/" in str(c.request.url)]
+
+
+@pytest.mark.parametrize("days_to_expiration", [0.5, -0.5, 1e-05, Decimal("30.5")])
+@EVERY_FORMAT
+def test_a_fractional_days_to_expiration_never_reaches_a_request(
+    respx_mock, client, days_to_expiration, output_format
+):
+    """``dte`` is documented as a whole number of days, at most 36500."""
+    respx_mock.get(url__startswith=CHAIN_URL).respond(
+        json={"s": "no_data"}, status_code=404
+    )
+
+    with pytest.raises(ValidationError, match="must be a whole number of days"):
+        client.options.chain(
+            "AAPL", days_to_expiration=days_to_expiration, output_format=output_format
+        )
 
     # the client fixture makes its own startup call
     assert not [c for c in respx_mock.calls if "/options/chain/" in str(c.request.url)]

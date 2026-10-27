@@ -414,22 +414,27 @@ def test_options_chain_input_days_to_expiration_alias_on_wire(
     ],
     ids=["comma_list", "closed_range", "at_least", "at_most", "above", "below"],
 )
+@pytest.mark.parametrize("output_format", list(OutputFormat))
 def test_options_chain_input_days_to_expiration_filter_forms_on_wire(
-    load_json, respx_mock, client, passed, sent
+    respx_mock, client, passed, sent, output_format
 ):
     """2.0.0: `dte` changed from an integer to a string; every form the API
     now reads (a comma list, a closed range, and each comparison operator) is
-    sent to the wire exactly as the caller wrote it."""
-    mock_data = load_json("options_chain_response_200")
+    sent to the wire exactly as the caller wrote it, on every output format.
+
+    A 404 ``no_data`` answer is read the same way on every format, so the
+    query string is checked without needing a format-specific response body.
+    """
     respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
-        json=mock_data, status_code=200
+        json={"s": "no_data"}, status_code=404
     )
 
     client.options.chain(
         "AAPL",
         days_to_expiration=passed,
-        output_format=OutputFormat.INTERNAL,
+        output_format=output_format,
     )
 
     params = respx_mock.calls.last.request.url.params
     assert params.get("dte") == sent
+    assert params["format"] == ("csv" if output_format == OutputFormat.CSV else "json")

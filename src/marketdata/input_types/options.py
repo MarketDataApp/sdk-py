@@ -45,9 +45,9 @@ class OptionsChainInput(BaseInputType):
             "answers with the closest expiration to each value, "
             "deduplicated; a range or a comparison operator answers with "
             "every expiration within the bounds, inclusive. Values are whole "
-            "numbers of days, at most 36500. Should not be used together "
-            "with from_date and to_date, and is relative to date when date "
-            "is given"
+            "numbers of days, at most 36500; a fractional number is refused. "
+            "Should not be used together with from_date and to_date, and is "
+            "relative to date when date is given"
         ),
         alias="dte",
         default=None,
