@@ -221,10 +221,14 @@ def test_chain_dte_at_least_returns_every_expiration_at_or_above_the_bound(
 ):
     """`>=30`: whether the API reads the bound as inclusive or exclusive,
     every row answers at or above it. AAPL offers expirations below the
-    bound, so the filter is shown to have an effect."""
+    bound, so the filter is shown to have an effect. Every expiration
+    strictly above the bound is unambiguously a match under either reading,
+    so the answer is checked against the complete set of those."""
     bound = 30
 
     assert any(dte < bound for dte in available_dtes)
+    strictly_above = {dte for dte in available_dtes if dte > bound}
+    assert strictly_above
 
     filtered = live_client.options.chain(
         UNDERLYING,
@@ -234,7 +238,9 @@ def test_chain_dte_at_least_returns_every_expiration_at_or_above_the_bound(
     )
 
     assert len(filtered.dte) >= 1
-    assert all(dte >= bound for dte in filtered.dte)
+    answered = set(filtered.dte)
+    assert all(dte >= bound for dte in answered)
+    assert strictly_above <= answered
 
 
 def test_chain_dte_below_returns_every_expiration_at_or_under_the_bound(
@@ -242,10 +248,14 @@ def test_chain_dte_below_returns_every_expiration_at_or_under_the_bound(
 ):
     """`<45`: whichever side of the bound the API includes, every row answers
     at or under it. AAPL offers expirations at or above the bound, so the
-    filter is shown to have an effect."""
+    filter is shown to have an effect. Every expiration strictly under the
+    bound is unambiguously a match under either reading, so the answer is
+    checked against the complete set of those."""
     bound = 45
 
     assert any(dte >= bound for dte in available_dtes)
+    strictly_under = {dte for dte in available_dtes if dte < bound}
+    assert strictly_under
 
     filtered = live_client.options.chain(
         UNDERLYING,
@@ -255,8 +265,9 @@ def test_chain_dte_below_returns_every_expiration_at_or_under_the_bound(
     )
 
     assert len(filtered.dte) >= 1
-    assert all(dte <= bound for dte in filtered.dte)
-    assert len(set(filtered.dte)) > 1
+    answered = set(filtered.dte)
+    assert all(dte <= bound for dte in answered)
+    assert strictly_under <= answered
 
 
 def test_chain_dte_at_most_returns_every_expiration_at_or_under_the_bound(
@@ -264,10 +275,14 @@ def test_chain_dte_at_most_returns_every_expiration_at_or_under_the_bound(
 ):
     """`<=45`: whichever side of the bound the API includes, every row answers
     at or under it. AAPL offers expirations at or above the bound, so the
-    filter is shown to have an effect."""
+    filter is shown to have an effect. Every expiration strictly under the
+    bound is unambiguously a match under either reading, so the answer is
+    checked against the complete set of those."""
     bound = 45
 
     assert any(dte >= bound for dte in available_dtes)
+    strictly_under = {dte for dte in available_dtes if dte < bound}
+    assert strictly_under
 
     filtered = live_client.options.chain(
         UNDERLYING,
@@ -277,8 +292,9 @@ def test_chain_dte_at_most_returns_every_expiration_at_or_under_the_bound(
     )
 
     assert len(filtered.dte) >= 1
-    assert all(dte <= bound for dte in filtered.dte)
-    assert len(set(filtered.dte)) > 1
+    answered = set(filtered.dte)
+    assert all(dte <= bound for dte in answered)
+    assert strictly_under <= answered
 
 
 def test_chain_dte_above_returns_every_expiration_above_the_bound(
@@ -286,10 +302,14 @@ def test_chain_dte_above_returns_every_expiration_above_the_bound(
 ):
     """`>30`: whether the API reads the bound as inclusive or exclusive, every
     row answers at or above it. AAPL offers expirations below the bound, so
-    the filter is shown to have an effect."""
+    the filter is shown to have an effect. Every expiration strictly above
+    the bound is unambiguously a match under either reading, so the answer
+    is checked against the complete set of those."""
     bound = 30
 
     assert any(dte < bound for dte in available_dtes)
+    strictly_above = {dte for dte in available_dtes if dte > bound}
+    assert strictly_above
 
     filtered = live_client.options.chain(
         UNDERLYING,
@@ -299,7 +319,9 @@ def test_chain_dte_above_returns_every_expiration_above_the_bound(
     )
 
     assert len(filtered.dte) >= 1
-    assert all(dte >= bound for dte in filtered.dte)
+    answered = set(filtered.dte)
+    assert all(dte >= bound for dte in answered)
+    assert strictly_above <= answered
 
 
 def test_lookup_resolves_a_human_readable_contract(

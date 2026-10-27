@@ -332,7 +332,34 @@ def test_a_negative_strike_never_reaches_a_request(respx_mock, client, output_fo
     assert not [c for c in respx_mock.calls if "/options/chain/" in str(c.request.url)]
 
 
-@pytest.mark.parametrize("days_to_expiration", [0.5, -0.5, 1e-05, Decimal("30.5")])
+@pytest.mark.parametrize(
+    "days_to_expiration",
+    [
+        0.5,
+        -0.5,
+        1e-05,
+        Decimal("30.5"),
+        # a string holding the fractional component of a list, a range or a
+        # comparison is refused the same way a bare number is, leading-dot
+        # fractions included
+        "30.5",
+        "15,30.5,45",
+        "0-45.5",
+        "0.5-45",
+        ">=30.5",
+        "<45.5",
+        ".5",
+        "0-.5",
+        ">=.5",
+        "<.5",
+        # a whole value spelled with a decimal point or an exponent is
+        # refused too, so a hand-written expression and the bare-number path
+        # never send two different spellings of the same value
+        "30.0",
+        "0-45.0",
+        "3e1",
+    ],
+)
 @EVERY_FORMAT
 def test_a_fractional_days_to_expiration_never_reaches_a_request(
     respx_mock, client, days_to_expiration, output_format
@@ -349,6 +376,24 @@ def test_a_fractional_days_to_expiration_never_reaches_a_request(
 
     # the client fixture makes its own startup call
     assert not [c for c in respx_mock.calls if "/options/chain/" in str(c.request.url)]
+
+
+@pytest.mark.parametrize(
+    "days_to_expiration",
+    ["30", "15,30,45", "0-45", ">=30", "<=45", ">30", "<45"],
+)
+def test_a_whole_days_to_expiration_string_reaches_a_request(
+    respx_mock, client, days_to_expiration
+):
+    """A component written as plain digits is not mistaken for a fraction."""
+    respx_mock.get(url__startswith=CHAIN_URL).respond(
+        json={"s": "no_data"}, status_code=404
+    )
+
+    client.options.chain("AAPL", days_to_expiration=days_to_expiration)
+
+    params = respx_mock.calls.last.request.url.params
+    assert params["dte"] == days_to_expiration
 
 
 def test_each_filter_names_its_single_value_for_what_the_api_does():

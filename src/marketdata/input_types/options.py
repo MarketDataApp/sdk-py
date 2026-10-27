@@ -6,7 +6,10 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from marketdata.input_types.base import BaseInputType, BaseModelConfig
-from marketdata.input_types.filters import _render_number
+from marketdata.input_types.filters import (
+    _reject_fractional_days_to_expiration,
+    _render_number,
+)
 
 
 class OptionsExpirationsInput(BaseInputType):
@@ -154,9 +157,13 @@ class OptionsChainInput(BaseInputType):
         ``None`` and a ``str``, a filter or an expression included, pass
         through as written. The fields hold that text, so they are annotated
         ``str``; the wider input is declared here. Raises ``ValueError`` for a
-        number ``_render_number`` refuses.
+        number ``_render_number`` refuses, or for a ``days_to_expiration``
+        string whose bare value or whose list, range or comparison holds a
+        fractional number.
         """
         if value is None or isinstance(value, str):
+            if value is not None and info.field_name == "days_to_expiration":
+                _reject_fractional_days_to_expiration(value)
             return value
         return _render_number(value, info.field_name)
 

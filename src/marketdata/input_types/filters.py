@@ -18,11 +18,19 @@ from __future__ import annotations
 
 import math
 import numbers
+import re
 import sys
 from decimal import Decimal
 from typing import TypeVar
 
 __all__ = ["DeltaFilter", "StrikeFilter"]
+
+# A number written in a `days_to_expiration` expression: a bare value, or one
+# component of a comma list, a range or a comparison. The sign and the
+# structural `,`, `-`, `>`, `<`, `=` around it are not part of the match. A
+# leading-dot fraction (`.5`) is matched too, so it is caught by the check
+# below rather than read as the digits after the dot.
+_NUMBER_IN_TEXT = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 
 _Filter = TypeVar("_Filter", bound="_NumericFilter")
 
@@ -306,6 +314,14 @@ class DeltaFilter(_NumericFilter):
         return cls._single(value)
 
 
+def _whole_days_message(shown: str) -> str:
+    """The refusal shared by the bare-number and the hand-written-text path."""
+    return (
+        f"days_to_expiration must be a whole number of days ({shown}): the "
+        "API reads dte as a count of days, not a fraction"
+    )
+
+
 def _render_number(value: object, argument: str) -> str:
     """Render a bare ``strike``, ``delta`` or ``days_to_expiration`` number the
     way a filter does.
@@ -324,9 +340,21 @@ def _render_number(value: object, argument: str) -> str:
         rendered = _render(value, argument, negative_ok=True)
         whole = Decimal(rendered).to_integral_value()
         if Decimal(rendered) != whole:
-            raise ValueError(
-                f"{argument} must be a whole number of days ({rendered}): the "
-                "API reads dte as a count of days, not a fraction"
-            )
+            raise ValueError(_whole_days_message(rendered))
         return f"{whole:f}"
     return _render(value, argument, negative_ok=False)
+
+
+def _reject_fractional_days_to_expiration(text: str) -> None:
+    """Raise ``ValueError`` if ``text``, a hand-written ``days_to_expiration``
+    expression, holds a number that is not plain digits: a bare value, or a
+    component of a comma list, a range or a comparison. A fraction
+    (``30.5``, ``.5``, ``1e-05``) and a whole value spelled with a decimal
+    point or an exponent (``30.0``, ``3e1``) are both refused, so a
+    hand-written expression and the bare-number path never send two
+    different spellings of the same value.
+    """
+    for match in _NUMBER_IN_TEXT.finditer(text):
+        token = match.group()
+        if not token.isdigit():
+            raise ValueError(_whole_days_message(token))
