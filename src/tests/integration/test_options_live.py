@@ -154,26 +154,22 @@ def test_chain_dte_comma_list_picks_the_closest_expiration_per_value(
     assert isinstance(chain, OptionsChain), chain
     assert len(chain.optionSymbol) >= 1
     distinct = set(chain.dte)
-    # More than the single nearest expiration a server that ignored the list
-    # would fall back to, and no more than the three requested values.
-    assert 2 <= len(distinct) <= 3
+    assert len(distinct) <= len(requested_values)
 
-    # For each requested value, work out which expiration(s) in the wide
-    # baseline are actually closest to it (more than one if two are tied;
-    # the API documents "closest" but not how it breaks a tie). Every
-    # expiration that came back must be one of those candidates. The field
-    # description also reads as if every requested value gets its own
-    # match, but a live run has shown a value (45, with a unique closest
-    # candidate of 43 in the baseline) go unmatched while 15 and 30 were
-    # both represented; that is a gap between the documented form and the
-    # observed one this test cannot settle on its own, so it is not
-    # asserted here, only the direction the response can prove.
+    # The closest expiration(s) to each value in the wide baseline; a tie
+    # keeps both, since the API documents "closest" but not how it breaks one.
     candidates_by_value = {}
     for value in requested_values:
         closest_distance = min(abs(dte - value) for dte in available)
         candidates_by_value[value] = {
             dte for dte in available if abs(dte - value) == closest_distance
         }
+    unmatched = {
+        value: candidates
+        for value, candidates in candidates_by_value.items()
+        if not distinct & candidates
+    }
+    assert not unmatched, (distinct, unmatched)
     assert distinct <= set().union(*candidates_by_value.values())
 
 
