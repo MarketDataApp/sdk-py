@@ -10,6 +10,7 @@ from marketdata.output_types.options_chain import OptionsChain
 from marketdata.output_types.options_expirations import OptionsExpirations
 from marketdata.output_types.options_lookup import OptionsLookup
 from marketdata.output_types.options_quotes import OptionsQuotes
+from marketdata.utils import DEFAULT_TIMEZONE
 
 UNDERLYING = "AAPL"
 
@@ -53,7 +54,7 @@ def baseline_dte_values(live_client: MarketDataClient) -> list[int]:
     expirations come back, since it limits strikes per expiration, not which
     expirations are offered.
     """
-    today = datetime.date.today()
+    today = datetime.datetime.now(DEFAULT_TIMEZONE).date()
     chain = live_client.options.chain(
         UNDERLYING,
         from_date=today,
@@ -261,7 +262,11 @@ def test_dte_at_least_excludes_every_value_below_it(
     """`dte=">=N"` returns every expiration at or above `N`. The bound is
     asserted as what holds whichever way the API reads it (inclusive or
     exclusive): every returned value is `>= N`. `N` is chosen so the smallest
-    offered value falls below it, which the filter has to leave out."""
+    offered value falls below it, which the filter has to leave out, and so
+    more than one of the baseline's offered values sits at or above it;
+    whether the value equal to `N` itself is included is not asserted, since
+    the API does not document whether the operator is inclusive at the
+    boundary."""
     threshold = baseline_dte_values[1]
     excluded = baseline_dte_values[0]
     assert excluded < threshold
@@ -271,12 +276,18 @@ def test_dte_at_least_excludes_every_value_below_it(
         days_to_expiration=f">={threshold}",
         output_format=OutputFormat.INTERNAL,
     )
+    default_chain = live_client.options.chain(
+        UNDERLYING, output_format=OutputFormat.INTERNAL
+    )
 
     assert isinstance(chain, OptionsChain), chain
+    assert isinstance(default_chain, OptionsChain), default_chain
     found = set(chain.dte)
     assert found, found
     assert all(value >= threshold for value in found), found
     assert excluded not in found
+    assert len(found) > 1, found
+    assert found != set(default_chain.dte)
 
 
 def test_dte_below_excludes_every_value_at_or_above_it(
@@ -285,7 +296,10 @@ def test_dte_below_excludes_every_value_at_or_above_it(
     """`dte="<N"` returns expirations below `N`. The bound is asserted as what
     holds whichever way the API reads it: every returned value is `<= N`. `N`
     is chosen so the largest offered value falls at or above it, which the
-    filter has to leave out."""
+    filter has to leave out, and so more than one of the baseline's offered
+    values sits at or below it; whether the value equal to `N` itself is
+    included is not asserted, since the API does not document whether the
+    operator is exclusive at the boundary."""
     threshold = baseline_dte_values[-2]
     excluded = baseline_dte_values[-1]
     assert excluded >= threshold
@@ -295,10 +309,15 @@ def test_dte_below_excludes_every_value_at_or_above_it(
         days_to_expiration=f"<{threshold}",
         output_format=OutputFormat.INTERNAL,
     )
+    default_chain = live_client.options.chain(
+        UNDERLYING, output_format=OutputFormat.INTERNAL
+    )
 
     assert isinstance(chain, OptionsChain), chain
+    assert isinstance(default_chain, OptionsChain), default_chain
     found = set(chain.dte)
     assert found, found
     assert all(value <= threshold for value in found), found
     assert excluded not in found
     assert len(found) > 1, found
+    assert found != set(default_chain.dte)

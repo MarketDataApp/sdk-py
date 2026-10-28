@@ -193,9 +193,10 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   whole number of days (at most 36500) limits the chain to the expiration
   closest to it. A string reads the same grammar as `strike` and `delta`: a
   comma-separated list (`"15,30,45"`) selects the closest expiration for each
-  value, deduplicated; a closed range (`"0-45"`) or a comparison operator
+  value, deduplicated; a closed range (`"0-45"`) returns every expiration
+  whose `dte` falls within the bounds, inclusive; a comparison operator
   (`">=30"`, `"<45"`) returns every expiration whose `dte` falls within the
-  bounds, inclusive. There is no dedicated filter-builder class for it, unlike
+  bound. There is no dedicated filter-builder class for it, unlike
   `strike` and `delta`: pass the expression as a plain string. Should not be
   used together with `from_date`/`to_date`. Combining it with `weekly`,
   `monthly` or `quarterly` can narrow which expirations it is able to return.
