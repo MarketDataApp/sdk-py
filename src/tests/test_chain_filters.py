@@ -540,3 +540,41 @@ def test_a_delta_is_checked_the_same_under_the_callers_decimal_context(
     message = "delta " + OUT_OF_RANGE.format(outside)
     assert str(refusal.value) == message
     assert message in str(bare_refusal.value)
+
+
+@pytest.mark.parametrize(
+    ("passed", "sent"),
+    [
+        (30, "30"),
+        ("30", "30"),
+        ("15,30,45", "15,30,45"),
+        ("0-45", "0-45"),
+        (">=30", ">=30"),
+        ("<45", "<45"),
+    ],
+    ids=[
+        "single_value_int",
+        "single_value_str",
+        "comma_list",
+        "closed_range",
+        "at_least",
+        "below",
+    ],
+)
+@EVERY_FORMAT
+def test_dte_forms_the_api_enumerates_reach_the_wire(
+    respx_mock, client, passed, sent, output_format
+):
+    """Every form the API's description enumerates for `dte`: a single value
+    (its own whole-number form and the equivalent text), a comma-separated
+    list, a closed range, and a comparison operator (`>=` and `<`, the two
+    the description shows)."""
+    respx_mock.get(url__startswith=CHAIN_URL).respond(
+        json={"s": "no_data"}, status_code=404
+    )
+
+    client.options.chain("AAPL", days_to_expiration=passed, output_format=output_format)
+
+    params = respx_mock.calls.last.request.url.params
+    assert params["dte"] == sent
+    assert params.get("days_to_expiration") is None

@@ -135,3 +135,118 @@ def test_lookup_resolves_a_human_readable_contract(
     assert isinstance(result, OptionsLookup), result
     assert result.s == "ok"
     assert result.optionSymbol == live_chain.optionSymbol[0]
+
+
+@pytest.fixture(scope="module")
+def dte_single_value_picks(live_client: MarketDataClient) -> dict[int, int]:
+    """The one expiration (in days) each single `dte` value actually picks.
+
+    Built from the parameter under test itself (never from an unfiltered
+    call), at three widely separated values so the later tests have anchors
+    that do not depend on the day the suite runs.
+    """
+    picks: dict[int, int] = {}
+    for requested in (1, 30, 365):
+        chain = live_client.options.chain(
+            UNDERLYING,
+            days_to_expiration=requested,
+            strike_limit=1,
+            output_format=OutputFormat.INTERNAL,
+        )
+        assert isinstance(chain, OptionsChain), chain
+        assert chain.s == "ok"
+        unique_dte = set(chain.dte)
+        assert len(unique_dte) == 1, chain.dte
+        picks[requested] = unique_dte.pop()
+    return picks
+
+
+def test_days_to_expiration_single_value_narrows_to_one_expiration(
+    dte_single_value_picks: dict[int, int],
+):
+    # A higher requested value never picks an earlier expiration than a lower
+    # one, and AAPL's chain spans both near-term and far-dated (LEAPS)
+    # expirations, so the two ends differ.
+    assert (
+        dte_single_value_picks[1]
+        <= dte_single_value_picks[30]
+        <= dte_single_value_picks[365]
+    )
+    assert dte_single_value_picks[1] != dte_single_value_picks[365]
+
+
+def test_days_to_expiration_comma_list_matches_the_single_value_union(
+    live_client: MarketDataClient, dte_single_value_picks: dict[int, int]
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration="1,30,365",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert chain.s == "ok"
+    assert set(chain.dte) == set(dte_single_value_picks.values())
+
+
+def test_days_to_expiration_closed_range_keeps_its_inclusive_bounds(
+    live_client: MarketDataClient, dte_single_value_picks: dict[int, int]
+):
+    low, high = dte_single_value_picks[1], dte_single_value_picks[365]
+
+    inclusive = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"{low}-{high}",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    assert isinstance(inclusive, OptionsChain), inclusive
+    assert inclusive.s == "ok"
+    assert low in inclusive.dte
+    assert high in inclusive.dte
+    assert all(low <= dte <= high for dte in inclusive.dte)
+
+    narrowed = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"{low}-{high - 1}",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    assert isinstance(narrowed, OptionsChain), narrowed
+    assert narrowed.s == "ok"
+    assert high not in narrowed.dte
+
+
+def test_days_to_expiration_at_least_operator_excludes_values_below_it(
+    live_client: MarketDataClient, dte_single_value_picks: dict[int, int]
+):
+    at_least = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=">=30",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(at_least, OptionsChain), at_least
+    assert at_least.s == "ok"
+    assert all(dte >= 30 for dte in at_least.dte)
+    # AAPL always has a contract expiring within days, well under 30.
+    assert dte_single_value_picks[1] not in at_least.dte
+
+
+def test_days_to_expiration_below_operator_excludes_values_at_or_above_it(
+    live_client: MarketDataClient, dte_single_value_picks: dict[int, int]
+):
+    below = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration="<45",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(below, OptionsChain), below
+    assert below.s == "ok"
+    assert all(dte < 45 for dte in below.dte)
+    # AAPL's farthest-dated (LEAPS) expiration is well beyond 45 days out.
+    assert dte_single_value_picks[365] not in below.dte

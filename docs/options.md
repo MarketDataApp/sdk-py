@@ -189,7 +189,17 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 
 - `date` (datetime.date, optional): Filter by specific expiration date
 - `expiration` (datetime.date, optional): Filter by expiration date
-- `days_to_expiration` (int, optional): Filter by days until expiration
+- `days_to_expiration` (str | int, optional): Days to expiry (sent as `dte`). A
+  single value (`30`) limits the chain to the expiration closest to it. A
+  comma-separated list (`"15,30,45"`) selects the closest expiration for each
+  value, deduplicated. A closed range (`"0-45"`) returns every expiration
+  whose dte falls within the bounds, inclusive. A comparison operator
+  (`">=30"`, `"<45"`) returns every expiration on the side of the bound it
+  names; the syntax matches `strike` and `delta`. Values are whole numbers of
+  days, at most 36500. Should not be used together with `from_date` and
+  `to_date`. Take care before combining with `weekly`, `monthly`, `quarterly`,
+  since that limits the expirations dte can return. With `date` set, dte is
+  relative to the date provided
 - `from_date` (datetime.date, optional): Filter expirations from this date
 - `to_date` (datetime.date, optional): Filter expirations to this date
 - `month` (int, optional): Filter by expiration month (1-12)
@@ -293,6 +303,24 @@ chain = client.options.chain(
     symbol="AAPL",
     expiration=datetime.date(2024, 12, 20)
 )
+print(chain)
+```
+
+**Filter by days to expiration:**
+
+```python
+from marketdata import MarketDataClient
+
+client = MarketDataClient()
+# symbol can be passed positionally or as keyword argument
+# a single value picks the expiration closest to it
+chain = client.options.chain("AAPL", days_to_expiration=30)
+# a comma-separated list picks the closest expiration for each value
+chain = client.options.chain("AAPL", days_to_expiration="15,30,45")
+# a closed range keeps every expiration within the bounds, inclusive
+chain = client.options.chain("AAPL", days_to_expiration="0-45")
+# a comparison operator keeps every expiration on the side of the bound
+chain = client.options.chain("AAPL", days_to_expiration=">=30")
 print(chain)
 ```
 
