@@ -43,6 +43,30 @@ CHAIN_LIST_FIELDS = (
 
 
 @pytest.fixture(scope="module")
+def baseline_dte_values(live_client: MarketDataClient) -> list[int]:
+    """The distinct `dte` values the chain offers today, unfiltered.
+
+    A small `strike_limit` keeps the payload down without narrowing which
+    expirations come back, since it limits strikes per expiration, not which
+    expirations are offered.
+    """
+    chain = live_client.options.chain(
+        UNDERLYING, strike_limit=1, output_format=OutputFormat.INTERNAL
+    )
+    assert isinstance(chain, OptionsChain), chain
+    values = sorted(set(chain.dte))
+    assert len(values) >= 4, values
+    return values
+
+
+def _closest(values: list[int], target: int) -> set[int]:
+    """The value(s) in ``values`` tied for the smallest distance to ``target``."""
+    distances = {value: abs(value - target) for value in values}
+    smallest = min(distances.values())
+    return {value for value, distance in distances.items() if distance == smallest}
+
+
+@pytest.fixture(scope="module")
 def live_chain(live_client: MarketDataClient) -> OptionsChain:
     # A tightly filtered chain (about 30 days out, two strikes around the
     # money) keeps the payload small; the same contracts feed the quotes and
@@ -135,3 +159,126 @@ def test_lookup_resolves_a_human_readable_contract(
     assert isinstance(result, OptionsLookup), result
     assert result.s == "ok"
     assert result.optionSymbol == live_chain.optionSymbol[0]
+
+
+def test_dte_single_value_answers_with_the_closest_expiration(
+    live_client: MarketDataClient, baseline_dte_values: list[int]
+):
+    """`dte=N` limits the chain to the expiration(s) closest to `N`. A target
+    between two offered values exercises the "closest" match rather than a
+    plain equality; which of two equally-close values comes back is not
+    asserted, since the API does not document how a tie is broken."""
+    low, high = baseline_dte_values[0], baseline_dte_values[1]
+    target = (low + high) // 2
+    candidates = _closest(baseline_dte_values, target)
+
+    chain = live_client.options.chain(
+        UNDERLYING, days_to_expiration=target, output_format=OutputFormat.INTERNAL
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    found = set(chain.dte)
+    assert found, "no contract came back for a value the chain offers nearby"
+    assert found <= candidates, found
+    assert found & candidates
+
+
+def test_dte_list_answers_with_the_closest_expiration_per_value(
+    live_client: MarketDataClient, baseline_dte_values: list[int]
+):
+    """`dte="a,b"` selects the closest expiration for each value, deduplicated.
+    The two targets are the lowest and highest values the chain offers, so
+    each is already its own closest match and their candidate sets differ,
+    which the unfiltered chain (more than two distinct values) would not."""
+    first, second = baseline_dte_values[0], baseline_dte_values[-1]
+    candidates_first = _closest(baseline_dte_values, first)
+    candidates_second = _closest(baseline_dte_values, second)
+    assert candidates_first != candidates_second
+
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"{first},{second}",
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    found = set(chain.dte)
+    assert found <= candidates_first | candidates_second, found
+    assert found & candidates_first
+    assert found & candidates_second
+    assert len(found) > 1
+
+
+def test_dte_range_answers_with_every_expiration_inside_it(
+    live_client: MarketDataClient, baseline_dte_values: list[int]
+):
+    """`dte="low-high"` is a closed range: every expiration within it, both
+    ends included. `low` and `high` are the two lowest offered values, and a
+    third, higher value the chain offers is left out of the bound on purpose
+    so the filtered answer differs from the unfiltered one."""
+    low, high, excluded = (
+        baseline_dte_values[0],
+        baseline_dte_values[1],
+        baseline_dte_values[2],
+    )
+
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"{low}-{high}",
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    found = set(chain.dte)
+    assert found, found
+    assert all(low <= value <= high for value in found), found
+    assert len(found) > 1, found
+    assert excluded not in found
+
+
+def test_dte_at_least_excludes_every_value_below_it(
+    live_client: MarketDataClient, baseline_dte_values: list[int]
+):
+    """`dte=">=N"` returns every expiration at or above `N`. The bound is
+    asserted as what holds whichever way the API reads it (inclusive or
+    exclusive): every returned value is `>= N`. `N` is chosen so the smallest
+    offered value falls below it, which the filter has to leave out."""
+    threshold = baseline_dte_values[1]
+    excluded = baseline_dte_values[0]
+    assert excluded < threshold
+
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f">={threshold}",
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    found = set(chain.dte)
+    assert found, found
+    assert all(value >= threshold for value in found), found
+    assert excluded not in found
+
+
+def test_dte_below_excludes_every_value_at_or_above_it(
+    live_client: MarketDataClient, baseline_dte_values: list[int]
+):
+    """`dte="<N"` returns expirations below `N`. The bound is asserted as what
+    holds whichever way the API reads it: every returned value is `<= N`. `N`
+    is chosen so the largest offered value falls at or above it, which the
+    filter has to leave out."""
+    threshold = baseline_dte_values[-2]
+    excluded = baseline_dte_values[-1]
+    assert excluded >= threshold
+
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"<{threshold}",
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    found = set(chain.dte)
+    assert found, found
+    assert all(value <= threshold for value in found), found
+    assert excluded not in found

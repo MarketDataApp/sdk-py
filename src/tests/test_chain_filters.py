@@ -540,3 +540,74 @@ def test_a_delta_is_checked_the_same_under_the_callers_decimal_context(
     message = "delta " + OUT_OF_RANGE.format(outside)
     assert str(refusal.value) == message
     assert message in str(bare_refusal.value)
+
+
+@pytest.mark.parametrize(
+    ("passed", "sent"),
+    [
+        # a single value (int): the SDK already sent this before the API
+        # widened `dte` to a string, so it still has to reach the wire
+        (30, "30"),
+        # a single value (str): the same form, now also accepted as text
+        ("30", "30"),
+        # a comma-separated list
+        ("15,30,45", "15,30,45"),
+        # a closed range
+        ("0-45", "0-45"),
+        # a comparison operator, at least
+        (">=30", ">=30"),
+        # a comparison operator, below
+        ("<45", "<45"),
+    ],
+)
+@EVERY_FORMAT
+def test_the_dte_query_string_carries_every_form_the_api_reads(
+    respx_mock, client, passed, sent, output_format
+):
+    """`dte` took only an int; the API widened it to a string that also reads
+    a list, a closed range and a comparison operator, the same grammar as
+    `strike` and `delta`."""
+    respx_mock.get(url__startswith=CHAIN_URL).respond(
+        json={"s": "no_data"}, status_code=404
+    )
+
+    client.options.chain("AAPL", days_to_expiration=passed, output_format=output_format)
+
+    params = respx_mock.calls.last.request.url.params
+    assert params["dte"] == sent
+    assert params["format"] == ("csv" if output_format == OutputFormat.CSV else "json")
+
+
+def test_a_negative_dte_still_reaches_the_request_unchanged(respx_mock, client):
+    """`days_to_expiration` took a plain `int` before this change, with no
+    sign check. Widening `dte` to a string adds no client-side check to an
+    existing field, so a negative int still reaches the request the way it
+    always did, for the API to answer."""
+    respx_mock.get(url__startswith=CHAIN_URL).respond(
+        json={"s": "no_data"}, status_code=404
+    )
+
+    client.options.chain(
+        "AAPL", days_to_expiration=-5, output_format=OutputFormat.INTERNAL
+    )
+
+    params = respx_mock.calls.last.request.url.params
+    assert params["dte"] == "-5"
+
+
+def test_dte_keeps_the_int_it_already_took_and_widens_to_str():
+    """`days_to_expiration` was `int | None`; the API widened `dte` to a
+    string, so the field now also takes the expression forms as `str`, and
+    an `int` still type-checks and still reaches the wire unchanged."""
+    chain_input = OptionsChainInput(symbol="AAPL", days_to_expiration=30)
+
+    assert chain_input.days_to_expiration == 30
+    assert OptionsChainInput.model_fields["days_to_expiration"].annotation == (
+        str | int | None
+    )
+
+
+def test_a_dte_expression_is_held_as_the_text_sent():
+    chain_input = OptionsChainInput(symbol="AAPL", days_to_expiration="15,30,45")
+
+    assert chain_input.days_to_expiration == "15,30,45"

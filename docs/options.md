@@ -189,7 +189,17 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 
 - `date` (datetime.date, optional): Filter by specific expiration date
 - `expiration` (datetime.date, optional): Filter by expiration date
-- `days_to_expiration` (int, optional): Filter by days until expiration
+- `days_to_expiration` (str | int, optional): Filter by days to expiration. A
+  whole number of days (at most 36500) limits the chain to the expiration
+  closest to it. A string reads the same grammar as `strike` and `delta`: a
+  comma-separated list (`"15,30,45"`) selects the closest expiration for each
+  value, deduplicated; a closed range (`"0-45"`) or a comparison operator
+  (`">=30"`, `"<45"`) returns every expiration whose `dte` falls within the
+  bounds, inclusive. There is no dedicated filter-builder class for it, unlike
+  `strike` and `delta`: pass the expression as a plain string. Should not be
+  used together with `from_date`/`to_date`. Combining it with `weekly`,
+  `monthly` or `quarterly` can narrow which expirations it is able to return.
+  With `date` set, it is relative to that date
 - `from_date` (datetime.date, optional): Filter expirations from this date
 - `to_date` (datetime.date, optional): Filter expirations to this date
 - `month` (int, optional): Filter by expiration month (1-12)
@@ -314,6 +324,24 @@ chain = client.options.chain(
     strike=StrikeFilter.exact(250),
     side="call"
 )
+print(chain)
+```
+
+**Filter by days to expiration:**
+
+```python
+from marketdata import MarketDataClient
+
+client = MarketDataClient()
+# symbol can be passed positionally or as keyword argument
+# a single value: the expiration closest to 30 days out
+chain = client.options.chain("AAPL", days_to_expiration=30)
+# a comma-separated list: the closest expiration for each value
+chain = client.options.chain("AAPL", days_to_expiration="15,30,45")
+# a closed range, inclusive
+chain = client.options.chain("AAPL", days_to_expiration="0-45")
+# a comparison operator
+chain = client.options.chain("AAPL", days_to_expiration=">=30")
 print(chain)
 ```
 
