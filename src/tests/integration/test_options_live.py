@@ -44,21 +44,43 @@ CHAIN_LIST_FIELDS = (
 
 
 @pytest.fixture(scope="module")
-def baseline_dte_values(live_client: MarketDataClient) -> list[int]:
-    """The distinct `dte` values the chain offers over the next two years.
+def reference_date() -> datetime.date:
+    """The single "as of" day every `options.chain` call below pins itself
+    to with `date=`.
+
+    `dte` is the API's count of days from the chain's as-of day to each
+    expiration (the docs: "With `date` set, it is relative to that date"),
+    computed fresh by the server on every request. Without a shared `date`,
+    the baseline call and a filtered call made moments later could straddle
+    an Eastern-date rollover and see every `dte` value shift by one,
+    misaligning the baseline with the filtered answer; pinning both calls to
+    the same day removes that race regardless of how long the test run
+    takes or when, during the day, it executes.
+    """
+    return datetime.datetime.now(DEFAULT_TIMEZONE).date()
+
+
+@pytest.fixture(scope="module")
+def baseline_dte_values(
+    live_client: MarketDataClient, reference_date: datetime.date
+) -> list[int]:
+    """The distinct `dte` values the chain offers over a window relative to
+    `reference_date`.
 
     Without a date-related filter, the chain answers with only the nearest
     expiration, so `from_date`/`to_date` (unrelated to the new `dte` string
-    forms under test) are used to pull every expiration in a wide window. A
-    small `strike_limit` keeps the payload down without narrowing which
-    expirations come back, since it limits strikes per expiration, not which
-    expirations are offered.
+    forms under test) are used to pull every expiration in a wide window,
+    anchored to `reference_date` rather than to the moment this fixture
+    happens to run so the span stays wide relative to "now" however long
+    after this change the suite is run. A small `strike_limit` keeps the
+    payload down without narrowing which expirations come back, since it
+    limits strikes per expiration, not which expirations are offered.
     """
-    today = datetime.datetime.now(DEFAULT_TIMEZONE).date()
     chain = live_client.options.chain(
         UNDERLYING,
-        from_date=today,
-        to_date=today + datetime.timedelta(days=730),
+        date=reference_date,
+        from_date=reference_date,
+        to_date=reference_date + datetime.timedelta(days=730),
         strike_limit=1,
         output_format=OutputFormat.INTERNAL,
     )
@@ -171,7 +193,9 @@ def test_lookup_resolves_a_human_readable_contract(
 
 
 def test_dte_single_value_answers_with_the_closest_expiration(
-    live_client: MarketDataClient, baseline_dte_values: list[int]
+    live_client: MarketDataClient,
+    baseline_dte_values: list[int],
+    reference_date: datetime.date,
 ):
     """`dte=N` limits the chain to the expiration(s) closest to `N`. The
     target sits between the second- and third-nearest offered values,
@@ -179,17 +203,22 @@ def test_dte_single_value_answers_with_the_closest_expiration(
     expiration the chain defaults to without a `dte` filter, and the
     filtered answer is asserted to differ from that default; which of two
     equally-close values comes back is not asserted, since the API does not
-    document how a tie is broken."""
+    document how a tie is broken. Both calls pin `date=reference_date`, the
+    same day `baseline_dte_values` used, so `dte` is computed against one
+    fixed day throughout."""
     low, high = baseline_dte_values[1], baseline_dte_values[2]
     target = (low + high + 1) // 2
     candidates = _closest(baseline_dte_values, target)
     assert baseline_dte_values[0] not in candidates
 
     chain = live_client.options.chain(
-        UNDERLYING, days_to_expiration=target, output_format=OutputFormat.INTERNAL
+        UNDERLYING,
+        days_to_expiration=target,
+        date=reference_date,
+        output_format=OutputFormat.INTERNAL,
     )
     default_chain = live_client.options.chain(
-        UNDERLYING, output_format=OutputFormat.INTERNAL
+        UNDERLYING, date=reference_date, output_format=OutputFormat.INTERNAL
     )
 
     assert isinstance(chain, OptionsChain), chain
@@ -202,13 +231,17 @@ def test_dte_single_value_answers_with_the_closest_expiration(
 
 
 def test_dte_list_answers_with_the_closest_expiration_per_value(
-    live_client: MarketDataClient, baseline_dte_values: list[int]
+    live_client: MarketDataClient,
+    baseline_dte_values: list[int],
+    reference_date: datetime.date,
 ):
     """`dte="a,b"` selects the closest expiration for each value, deduplicated.
     The two targets are the lowest and highest values the baseline window
     offers, so each is already its own closest match and their candidate
     sets differ, which the chain's unfiltered, single-expiration default
-    would not."""
+    would not. Pins `date=reference_date`, the same day `baseline_dte_values`
+    used, so `dte` is computed against the same day the candidates were
+    derived from."""
     first, second = baseline_dte_values[0], baseline_dte_values[-1]
     candidates_first = _closest(baseline_dte_values, first)
     candidates_second = _closest(baseline_dte_values, second)
@@ -217,6 +250,7 @@ def test_dte_list_answers_with_the_closest_expiration_per_value(
     chain = live_client.options.chain(
         UNDERLYING,
         days_to_expiration=f"{first},{second}",
+        date=reference_date,
         output_format=OutputFormat.INTERNAL,
     )
 
@@ -229,13 +263,17 @@ def test_dte_list_answers_with_the_closest_expiration_per_value(
 
 
 def test_dte_range_answers_with_every_expiration_inside_it(
-    live_client: MarketDataClient, baseline_dte_values: list[int]
+    live_client: MarketDataClient,
+    baseline_dte_values: list[int],
+    reference_date: datetime.date,
 ):
     """`dte="low-high"` is a closed range: every expiration within it, both
     ends included. `low` and `high` are the two lowest values the baseline
     window offers, and a third, higher value it offers is left out of the
     bound on purpose so the filtered answer differs from the chain's
-    unfiltered, single-expiration default."""
+    unfiltered, single-expiration default. Pins `date=reference_date`, the
+    same day `baseline_dte_values` used, so `dte` is computed against the
+    same day the bounds were derived from."""
     low, high, excluded = (
         baseline_dte_values[0],
         baseline_dte_values[1],
@@ -245,6 +283,7 @@ def test_dte_range_answers_with_every_expiration_inside_it(
     chain = live_client.options.chain(
         UNDERLYING,
         days_to_expiration=f"{low}-{high}",
+        date=reference_date,
         output_format=OutputFormat.INTERNAL,
     )
 
@@ -257,16 +296,20 @@ def test_dte_range_answers_with_every_expiration_inside_it(
 
 
 def test_dte_at_least_excludes_every_value_below_it(
-    live_client: MarketDataClient, baseline_dte_values: list[int]
+    live_client: MarketDataClient,
+    baseline_dte_values: list[int],
+    reference_date: datetime.date,
 ):
     """`dte=">=N"` returns every expiration at or above `N`. The bound is
     asserted as what holds whichever way the API reads it (inclusive or
     exclusive): every returned value is `>= N`. `N` is chosen so the smallest
     offered value falls below it, which the filter has to leave out, and so
     more than one of the baseline's offered values sits at or above it;
-    whether the value equal to `N` itself is included is not asserted, since
-    the API does not document whether the operator is inclusive at the
-    boundary."""
+    whether the value equal to `N` itself is included is not asserted here,
+    because nothing a live response carries can settle which of the two the
+    API actually implements at the boundary, whatever its text says. Pins
+    `date=reference_date`, the same day `baseline_dte_values` used, so `dte`
+    is computed against the same day the threshold was derived from."""
     threshold = baseline_dte_values[1]
     excluded = baseline_dte_values[0]
     assert excluded < threshold
@@ -274,10 +317,11 @@ def test_dte_at_least_excludes_every_value_below_it(
     chain = live_client.options.chain(
         UNDERLYING,
         days_to_expiration=f">={threshold}",
+        date=reference_date,
         output_format=OutputFormat.INTERNAL,
     )
     default_chain = live_client.options.chain(
-        UNDERLYING, output_format=OutputFormat.INTERNAL
+        UNDERLYING, date=reference_date, output_format=OutputFormat.INTERNAL
     )
 
     assert isinstance(chain, OptionsChain), chain
@@ -291,15 +335,20 @@ def test_dte_at_least_excludes_every_value_below_it(
 
 
 def test_dte_below_excludes_every_value_at_or_above_it(
-    live_client: MarketDataClient, baseline_dte_values: list[int]
+    live_client: MarketDataClient,
+    baseline_dte_values: list[int],
+    reference_date: datetime.date,
 ):
     """`dte="<N"` returns expirations below `N`. The bound is asserted as what
     holds whichever way the API reads it: every returned value is `<= N`. `N`
     is chosen so the largest offered value falls at or above it, which the
     filter has to leave out, and so more than one of the baseline's offered
     values sits at or below it; whether the value equal to `N` itself is
-    included is not asserted, since the API does not document whether the
-    operator is exclusive at the boundary."""
+    included is not asserted here, because nothing a live response carries
+    can settle which of the two the API actually implements at the
+    boundary, whatever its text says. Pins `date=reference_date`, the same
+    day `baseline_dte_values` used, so `dte` is computed against the same
+    day the threshold was derived from."""
     threshold = baseline_dte_values[-2]
     excluded = baseline_dte_values[-1]
     assert excluded >= threshold
@@ -307,10 +356,11 @@ def test_dte_below_excludes_every_value_at_or_above_it(
     chain = live_client.options.chain(
         UNDERLYING,
         days_to_expiration=f"<{threshold}",
+        date=reference_date,
         output_format=OutputFormat.INTERNAL,
     )
     default_chain = live_client.options.chain(
-        UNDERLYING, output_format=OutputFormat.INTERNAL
+        UNDERLYING, date=reference_date, output_format=OutputFormat.INTERNAL
     )
 
     assert isinstance(chain, OptionsChain), chain
