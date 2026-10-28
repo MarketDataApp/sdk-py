@@ -44,14 +44,22 @@ CHAIN_LIST_FIELDS = (
 
 @pytest.fixture(scope="module")
 def baseline_dte_values(live_client: MarketDataClient) -> list[int]:
-    """The distinct `dte` values the chain offers today, unfiltered.
+    """The distinct `dte` values the chain offers over the next two years.
 
-    A small `strike_limit` keeps the payload down without narrowing which
+    Without a date-related filter, the chain answers with only the nearest
+    expiration, so `from_date`/`to_date` (unrelated to the new `dte` string
+    forms under test) are used to pull every expiration in a wide window. A
+    small `strike_limit` keeps the payload down without narrowing which
     expirations come back, since it limits strikes per expiration, not which
     expirations are offered.
     """
+    today = datetime.date.today()
     chain = live_client.options.chain(
-        UNDERLYING, strike_limit=1, output_format=OutputFormat.INTERNAL
+        UNDERLYING,
+        from_date=today,
+        to_date=today + datetime.timedelta(days=730),
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
     )
     assert isinstance(chain, OptionsChain), chain
     values = sorted(set(chain.dte))
@@ -164,32 +172,42 @@ def test_lookup_resolves_a_human_readable_contract(
 def test_dte_single_value_answers_with_the_closest_expiration(
     live_client: MarketDataClient, baseline_dte_values: list[int]
 ):
-    """`dte=N` limits the chain to the expiration(s) closest to `N`. A target
-    between two offered values exercises the "closest" match rather than a
-    plain equality; which of two equally-close values comes back is not
-    asserted, since the API does not document how a tie is broken."""
-    low, high = baseline_dte_values[0], baseline_dte_values[1]
-    target = (low + high) // 2
+    """`dte=N` limits the chain to the expiration(s) closest to `N`. The
+    target sits between the second- and third-nearest offered values,
+    rounded toward the latter, so its closest candidates exclude the nearest
+    expiration the chain defaults to without a `dte` filter, and the
+    filtered answer is asserted to differ from that default; which of two
+    equally-close values comes back is not asserted, since the API does not
+    document how a tie is broken."""
+    low, high = baseline_dte_values[1], baseline_dte_values[2]
+    target = (low + high + 1) // 2
     candidates = _closest(baseline_dte_values, target)
+    assert baseline_dte_values[0] not in candidates
 
     chain = live_client.options.chain(
         UNDERLYING, days_to_expiration=target, output_format=OutputFormat.INTERNAL
     )
+    default_chain = live_client.options.chain(
+        UNDERLYING, output_format=OutputFormat.INTERNAL
+    )
 
     assert isinstance(chain, OptionsChain), chain
+    assert isinstance(default_chain, OptionsChain), default_chain
     found = set(chain.dte)
     assert found, "no contract came back for a value the chain offers nearby"
     assert found <= candidates, found
     assert found & candidates
+    assert found != set(default_chain.dte)
 
 
 def test_dte_list_answers_with_the_closest_expiration_per_value(
     live_client: MarketDataClient, baseline_dte_values: list[int]
 ):
     """`dte="a,b"` selects the closest expiration for each value, deduplicated.
-    The two targets are the lowest and highest values the chain offers, so
-    each is already its own closest match and their candidate sets differ,
-    which the unfiltered chain (more than two distinct values) would not."""
+    The two targets are the lowest and highest values the baseline window
+    offers, so each is already its own closest match and their candidate
+    sets differ, which the chain's unfiltered, single-expiration default
+    would not."""
     first, second = baseline_dte_values[0], baseline_dte_values[-1]
     candidates_first = _closest(baseline_dte_values, first)
     candidates_second = _closest(baseline_dte_values, second)
@@ -213,9 +231,10 @@ def test_dte_range_answers_with_every_expiration_inside_it(
     live_client: MarketDataClient, baseline_dte_values: list[int]
 ):
     """`dte="low-high"` is a closed range: every expiration within it, both
-    ends included. `low` and `high` are the two lowest offered values, and a
-    third, higher value the chain offers is left out of the bound on purpose
-    so the filtered answer differs from the unfiltered one."""
+    ends included. `low` and `high` are the two lowest values the baseline
+    window offers, and a third, higher value it offers is left out of the
+    bound on purpose so the filtered answer differs from the chain's
+    unfiltered, single-expiration default."""
     low, high, excluded = (
         baseline_dte_values[0],
         baseline_dte_values[1],
@@ -282,3 +301,4 @@ def test_dte_below_excludes_every_value_at_or_above_it(
     assert found, found
     assert all(value <= threshold for value in found), found
     assert excluded not in found
+    assert len(found) > 1, found
