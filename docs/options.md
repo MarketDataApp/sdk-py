@@ -189,7 +189,15 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 
 - `date` (datetime.date, optional): Filter by specific expiration date
 - `expiration` (datetime.date, optional): Filter by expiration date
-- `days_to_expiration` (int, optional): Filter by days until expiration
+- `days_to_expiration` (str | int, optional): Filter by days until expiration. A
+  number is a single value: the closest expiration to it. A string is the API's
+  expression, the same syntax as `strike` and `delta`: `"15,30,45"` picks the
+  closest expiration to each value, deduplicated; `"0-45"` is an inclusive
+  closed range; `">=30"` or `"<45"` is a one-sided bound. Values are whole
+  numbers of days, at most 36500. Should not be used together with `from_date`
+  and `to_date`. Take care before combining with `weekly`, `monthly` or
+  `quarterly`, since that limits the expirations this can return. Relative to
+  `date` when `date` is given
 - `from_date` (datetime.date, optional): Filter expirations from this date
 - `to_date` (datetime.date, optional): Filter expirations to this date
 - `month` (int, optional): Filter by expiration month (1-12)
@@ -293,6 +301,23 @@ chain = client.options.chain(
     symbol="AAPL",
     expiration=datetime.date(2024, 12, 20)
 )
+print(chain)
+```
+
+**Filter by days to expiration:**
+
+```python
+from marketdata import MarketDataClient
+
+client = MarketDataClient()
+# a single value: the expiration closest to 30 days out
+chain = client.options.chain("AAPL", days_to_expiration=30)
+# a comma-separated list: the closest expiration to each value, deduplicated
+chain = client.options.chain("AAPL", days_to_expiration="15,30,45")
+# a closed range, inclusive on both ends
+chain = client.options.chain("AAPL", days_to_expiration="0-45")
+# a comparison operator
+chain = client.options.chain("AAPL", days_to_expiration=">=30")
 print(chain)
 ```
 

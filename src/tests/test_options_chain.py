@@ -383,9 +383,31 @@ def test_options_chain_strike_limit_is_int_on_wire(load_json, respx_mock, client
     assert params.get("strikeLimit") == "10"
 
 
-def test_options_chain_input_days_to_expiration_alias_on_wire(
-    load_json, respx_mock, client
+@pytest.mark.parametrize(
+    ("passed", "sent"),
+    [
+        (30, "30"),
+        ("30", "30"),
+        ("15,30,45", "15,30,45"),
+        ("0-45", "0-45"),
+        (">=30", ">=30"),
+        ("<45", "<45"),
+    ],
+    ids=[
+        "single_int",
+        "single_str",
+        "comma_list",
+        "closed_range",
+        "at_least_operator",
+        "below_operator",
+    ],
+)
+def test_options_chain_input_days_to_expiration_forms_on_wire(
+    load_json, respx_mock, client, passed, sent
 ):
+    """`dte` now reads a string expression (2.0.0): a single value, a
+    comma-separated list, a closed range, or a comparison operator, the same
+    syntax as `strike` and `delta`. A bare int is still sent as before."""
     mock_data = load_json("options_chain_response_200")
     respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
         json=mock_data, status_code=200
@@ -393,10 +415,10 @@ def test_options_chain_input_days_to_expiration_alias_on_wire(
 
     client.options.chain(
         "AAPL",
-        days_to_expiration=30,
+        days_to_expiration=passed,
         output_format=OutputFormat.INTERNAL,
     )
 
     params = respx_mock.calls.last.request.url.params
-    assert params.get("dte") == "30"
+    assert params.get("dte") == sent
     assert params.get("days_to_expiration") is None
