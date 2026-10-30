@@ -540,3 +540,40 @@ def test_a_delta_is_checked_the_same_under_the_callers_decimal_context(
     message = "delta " + OUT_OF_RANGE.format(outside)
     assert str(refusal.value) == message
     assert message in str(bare_refusal.value)
+
+
+@pytest.mark.parametrize(
+    ("dte", "sent"),
+    [
+        (30, "30"),
+        ("30", "30"),
+        ("15,30,45", "15,30,45"),
+        ("0-45", "0-45"),
+        (">=30", ">=30"),
+        ("<45", "<45"),
+    ],
+    ids=[
+        "single_value_int",
+        "single_value_str",
+        "comma_list",
+        "closed_range",
+        "at_least",
+        "below",
+    ],
+)
+@EVERY_FORMAT
+def test_the_dte_query_string_carries_the_expression_the_api_reads(
+    respx_mock, client, dte, sent, output_format
+):
+    """2.0.0: `dte` widened from an integer to an expression string, with the
+    same syntax as `strike` and `delta`: a single value (as an int or as the
+    same digits in a str), a comma-separated list, a closed range and a
+    comparison operator."""
+    respx_mock.get(url__startswith=CHAIN_URL).respond(
+        json={"s": "no_data"}, status_code=404
+    )
+
+    client.options.chain("AAPL", days_to_expiration=dte, output_format=output_format)
+
+    params = respx_mock.calls.last.request.url.params
+    assert params["dte"] == sent
