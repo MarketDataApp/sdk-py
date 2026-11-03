@@ -4,6 +4,7 @@ import datetime
 from decimal import Decimal
 
 import pytest
+import pytz
 
 from marketdata import MarketDataClient, OutputFormat
 from marketdata.output_types.options_chain import OptionsChain
@@ -92,6 +93,116 @@ def test_chain_returns_expected_shape(live_chain: OptionsChain):
         assert all(isinstance(v, Decimal) for v in getattr(live_chain, field))
     for field in ("iv", "delta", "gamma", "theta", "vega"):
         assert not any(isinstance(v, Decimal) for v in getattr(live_chain, field))
+
+
+def test_chain_dte_single_value_keeps_only_the_closest_expiration(
+    live_chain: OptionsChain,
+):
+    """`dte` widened to a string, but a single value still answers with the
+    one expiration closest to it; `live_chain` filters with `dte=30`."""
+    assert len(set(live_chain.dte)) == 1
+
+
+def test_chain_dte_comma_list_keeps_the_closest_expiration_per_value(
+    live_client: MarketDataClient,
+):
+    targets = (7, 30, 90)
+
+    # The candidates, independent of the filtered call: for each target, every
+    # expiration actually listed by the API tied for closest to it. Neither
+    # how the API breaks a tie nor its exact `dte` arithmetic is documented,
+    # so a tie keeps every expiration that could be "the" closest one.
+    expirations = live_client.options.expirations(
+        UNDERLYING, output_format=OutputFormat.INTERNAL
+    )
+    today = datetime.datetime.now(pytz.timezone("US/Eastern")).date()
+    days_out = [(exp.date() - today).days for exp in expirations.expirations]
+    closest_per_target = []
+    for target in targets:
+        closest_distance = min(abs(dte - target) for dte in days_out)
+        closest_per_target.append(
+            {dte for dte in days_out if abs(dte - target) == closest_distance}
+        )
+    all_candidates = set().union(*closest_per_target)
+
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=",".join(str(t) for t in targets),
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert chain.s == "ok"
+    assert len(chain.optionSymbol) >= 1
+    returned = set(chain.dte)
+    # Nothing outside the candidates, and each target has at least one of
+    # its candidates represented.
+    assert returned <= all_candidates
+    assert all(candidates & returned for candidates in closest_per_target)
+    # Deduplicated, but not collapsed to a single expiration when the
+    # targets' candidates actually differ.
+    if len({frozenset(candidates) for candidates in closest_per_target}) > 1:
+        assert len(returned) > 1
+
+
+def test_chain_dte_closed_range_keeps_every_expiration_inside_the_bounds(
+    live_client: MarketDataClient,
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration="0-45",
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert chain.s == "ok"
+    assert len(chain.optionSymbol) >= 1
+    # AAPL carries expirations well past 45 days (monthlies, LEAPS); an
+    # unfiltered chain would not satisfy this bound.
+    assert all(0 <= dte <= 45 for dte in chain.dte)
+    # AAPL always carries several distinct expirations inside 0-45 days; a
+    # single expiration (what one `dte` value answers with) would not.
+    assert len(set(chain.dte)) > 1
+
+
+def test_chain_dte_at_least_excludes_shorter_dated_contracts(
+    live_client: MarketDataClient,
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=">=30",
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert chain.s == "ok"
+    assert len(chain.optionSymbol) >= 1
+    # AAPL always carries near-dated (weekly) contracts under 30 days; an
+    # unfiltered chain would not satisfy this bound.
+    assert all(dte >= 30 for dte in chain.dte)
+    # AAPL always carries several distinct expirations at or beyond 30 days;
+    # a single expiration (what one `dte` value answers with) would not.
+    assert len(set(chain.dte)) > 1
+
+
+def test_chain_dte_below_excludes_the_bound_and_longer_dated_contracts(
+    live_client: MarketDataClient,
+):
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration="<45",
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert isinstance(chain, OptionsChain), chain
+    assert chain.s == "ok"
+    assert len(chain.optionSymbol) >= 1
+    # AAPL carries expirations at and beyond 45 days (monthlies, LEAPS); an
+    # unfiltered chain would not satisfy this bound.
+    assert all(dte < 45 for dte in chain.dte)
+    # AAPL always carries several distinct expirations under 45 days; a
+    # single expiration (what one `dte` value answers with) would not.
+    assert len(set(chain.dte)) > 1
 
 
 def test_quotes_return_expected_shape(

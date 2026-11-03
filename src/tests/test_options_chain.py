@@ -400,3 +400,40 @@ def test_options_chain_input_days_to_expiration_alias_on_wire(
     params = respx_mock.calls.last.request.url.params
     assert params.get("dte") == "30"
     assert params.get("days_to_expiration") is None
+
+
+@pytest.mark.parametrize(
+    ("passed", "sent"),
+    [
+        ("30", "30"),
+        ("15,30,45", "15,30,45"),
+        ("0-45", "0-45"),
+        (">=30", ">=30"),
+        ("<45", "<45"),
+    ],
+    ids=["single_value_as_string", "comma_list", "closed_range", "at_least", "below"],
+)
+@pytest.mark.parametrize(
+    "output_format",
+    [
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.CSV,
+        OutputFormat.DATAFRAME,
+    ],
+)
+def test_options_chain_days_to_expiration_reads_the_syntax_strike_and_delta_use(
+    respx_mock, client, passed, sent, output_format
+):
+    """`dte` widened from an integer to a string: a comma-separated list, a
+    closed range, or a comparison operator, written through unchecked the
+    same way a bare `strike` or `delta` expression is."""
+    respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
+        json={"s": "no_data"}, status_code=404
+    )
+
+    client.options.chain("AAPL", days_to_expiration=passed, output_format=output_format)
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("dte") == sent
+    assert params["format"] == ("csv" if output_format == OutputFormat.CSV else "json")
