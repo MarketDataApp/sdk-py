@@ -40,10 +40,11 @@ class OptionsChainInput(BaseInputType):
             "The days to expiration to filter by: a single value (the "
             "expiration closest to it), a comma-separated list such as "
             '"15,30,45" (the closest expiration to each value, deduplicated), '
-            'or a closed range ("0-45") or a comparison operator (">=30", '
-            '"<45") for every expiration whose dte falls within the bounds, '
-            "inclusive, the same expression grammar as `strike` and `delta`. "
-            "A string is passed through as written, so the API reads it"
+            'a closed range ("0-45", inclusive at both ends), or a comparison '
+            'operator (">=30", "<45") for every expiration whose dte '
+            "satisfies it, the same expression grammar as `strike` and "
+            "`delta`. A string is passed through as written, so the API "
+            "reads it"
         ),
         alias="dte",
         default=None,

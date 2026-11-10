@@ -192,8 +192,8 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 - `days_to_expiration` (str | int, optional): Filter by days until expiration. A
   single value answers with the expiration closest to it; a string is the API's
   expression: `"15,30,45"` for the closest expiration to each value, deduplicated,
-  `"0-45"` for a closed range, or `">=30"` / `"<45"` for a bound, every expiration
-  whose dte falls within the bounds, inclusive, the same grammar as `strike` and
+  `"0-45"` for a closed range, inclusive at both ends, or `">=30"` / `"<45"` for a
+  bound, every expiration whose dte satisfies it, the same grammar as `strike` and
   `delta`. A string is passed through as written, so the API decides
 - `from_date` (datetime.date, optional): Filter expirations from this date
 - `to_date` (datetime.date, optional): Filter expirations to this date
