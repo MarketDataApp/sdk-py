@@ -400,3 +400,35 @@ def test_options_chain_input_days_to_expiration_alias_on_wire(
     params = respx_mock.calls.last.request.url.params
     assert params.get("dte") == "30"
     assert params.get("days_to_expiration") is None
+
+
+@pytest.mark.parametrize(
+    ("passed", "sent"),
+    [
+        ("15,30,45", "15,30,45"),
+        ("0-45", "0-45"),
+        (">=30", ">=30"),
+        ("<45", "<45"),
+    ],
+    ids=["comma_list", "closed_range", "at_least", "below"],
+)
+def test_options_chain_dte_expression_forms_on_wire(
+    load_json, respx_mock, client, passed, sent
+):
+    """`dte` now takes the same expression grammar as `strike` and `delta`: a
+    comma-separated list, a closed range, and a comparison operator, besides
+    the single value it already took."""
+    mock_data = load_json("options_chain_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
+        json=mock_data, status_code=200
+    )
+
+    client.options.chain(
+        "AAPL",
+        days_to_expiration=passed,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("dte") == sent
+    assert params.get("days_to_expiration") is None
