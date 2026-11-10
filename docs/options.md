@@ -193,8 +193,9 @@ Fetches the options chain for a given symbol with extensive filtering options. T
   single value answers with the expiration closest to it; a string is the API's
   expression: `"15,30,45"` for the closest expiration to each value, deduplicated,
   `"0-45"` for a closed range, inclusive at both ends, or `">=30"` / `"<45"` for a
-  bound, every expiration whose dte satisfies it, the same grammar as `strike` and
-  `delta`. A string is passed through as written, so the API decides
+  bound, every expiration whose dte satisfies it, strict for `<` and `>`, inclusive
+  for `<=` and `>=`, the same grammar as `strike` and `delta`. A string is passed
+  through as written, so the API decides
 - `from_date` (datetime.date, optional): Filter expirations from this date
 - `to_date` (datetime.date, optional): Filter expirations to this date
 - `month` (int, optional): Filter by expiration month (1-12)

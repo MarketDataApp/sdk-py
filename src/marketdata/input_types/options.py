@@ -42,9 +42,9 @@ class OptionsChainInput(BaseInputType):
             '"15,30,45" (the closest expiration to each value, deduplicated), '
             'a closed range ("0-45", inclusive at both ends), or a comparison '
             'operator (">=30", "<45") for every expiration whose dte '
-            "satisfies it, the same expression grammar as `strike` and "
-            "`delta`. A string is passed through as written, so the API "
-            "reads it"
+            "satisfies it, strict for `<` and `>`, inclusive for `<=` and "
+            "`>=`, the same expression grammar as `strike` and `delta`. A "
+            "string is passed through as written, so the API reads it"
         ),
         alias="dte",
         default=None,
