@@ -94,6 +94,149 @@ def test_chain_returns_expected_shape(live_chain: OptionsChain):
         assert not any(isinstance(v, Decimal) for v in getattr(live_chain, field))
 
 
+def test_dte_single_value_narrows_to_the_nearest_expiration(
+    live_client: MarketDataClient,
+):
+    """A single `dte` value answers with the one expiration closest to it, not
+    always the same one: two values far apart pick two different
+    expirations."""
+    near = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=1,
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    far = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=365,
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert near.s == "ok"
+    assert far.s == "ok"
+    assert len(near.dte) >= 1
+    assert len(far.dte) >= 1
+    assert len(set(near.dte)) == 1
+    assert len(set(far.dte)) == 1
+    # If the server ignored `dte`, both calls would answer with the same
+    # default (nearest) expiration; two targets picking two different
+    # expirations is what proves the value is read.
+    assert near.dte[0] != far.dte[0]
+
+
+def test_dte_comma_list_keeps_only_the_requested_expirations(
+    live_client: MarketDataClient,
+):
+    """A comma-separated `dte` list answers with the expiration closest to
+    each value, deduplicated, not the whole chain."""
+    near = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=1,
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    far = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=365,
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    near_dte, far_dte = near.dte[0], far.dte[0]
+
+    filtered = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"{near_dte},{far_dte},{far_dte}",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert filtered.s == "ok"
+    assert len(filtered.dte) >= 1
+    # Repeating `far_dte` is deduplicated to the same two expirations; if the
+    # server ignored the list it would answer with the nearest expiration
+    # alone, missing `far_dte` entirely.
+    assert set(filtered.dte) == {near_dte, far_dte}
+
+
+def test_dte_closed_range_is_inclusive_at_both_ends(live_client: MarketDataClient):
+    """A closed `dte` range such as `N-N` includes the boundary itself: an
+    expiration that is not the nearest one is kept, not excluded."""
+    far = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=180,
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    anchor = far.dte[0]
+
+    ranged = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"{anchor}-{anchor}",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert ranged.s == "ok"
+    assert len(ranged.dte) >= 1
+    # If the server ignored the range it would answer with the default
+    # (nearest) expiration instead, which is not this far-out one; if it
+    # read the range as exclusive, a single-point range would match nothing.
+    assert set(ranged.dte) == {anchor}
+
+
+def test_dte_at_least_keeps_only_expirations_at_or_beyond_the_bound(
+    live_client: MarketDataClient,
+):
+    """`>=N` returns every expiration whose `dte` is N or more, inclusive."""
+    bound = 30
+    filtered = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f">={bound}",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    # With no expiration filter at all the API answers the nearest expiration
+    # only, so `expiration="all"` is what the SDK already documents as the
+    # way to see every expiration at once.
+    unfiltered = live_client.options.chain(
+        UNDERLYING,
+        expiration="all",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert filtered.s == "ok"
+    assert len(filtered.dte) >= 1
+    assert all(dte >= bound for dte in filtered.dte)
+    # AAPL always carries an expiration under 30 days out (its weeklies), so
+    # the unfiltered answer could never pass the same bound.
+    assert any(dte < bound for dte in unfiltered.dte)
+
+
+def test_dte_below_keeps_only_expirations_short_of_the_bound(
+    live_client: MarketDataClient,
+):
+    """`<N` returns every expiration whose `dte` is strictly under N."""
+    bound = 45
+    filtered = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"<{bound}",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert filtered.s == "ok"
+    assert len(filtered.dte) >= 1
+    assert all(dte < bound for dte in filtered.dte)
+    # If the server ignored the bound it would answer with the default
+    # (nearest) expiration alone; AAPL always carries several expirations
+    # under 45 days out (its weeklies and a monthly), so more than one
+    # distinct value here is what proves the bound, not the default, is at
+    # work.
+    assert len(set(filtered.dte)) > 1
+
+
 def test_quotes_return_expected_shape(
     live_client: MarketDataClient, live_chain: OptionsChain
 ):
