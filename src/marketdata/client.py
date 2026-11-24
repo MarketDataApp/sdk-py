@@ -1,3 +1,4 @@
+import threading
 import time
 from importlib.metadata import version
 from logging import DEBUG, INFO, Logger
@@ -21,6 +22,7 @@ from marketdata.exceptions import (
 from marketdata.input_types.base import UserUniversalAPIParams
 from marketdata.internal_settings import (
     HEADER_REQUEST_ID,
+    MAX_CONCURRENT_REQUESTS,
     MAX_CREDIT_WINDOW_SECONDS,
     MAX_RETRY_ATTEMPTS,
     NO_TOKEN_VALUE,
@@ -53,6 +55,18 @@ class MarketDataClient:
         logger: Logger = None,
         max_retries: int = MAX_RETRY_ATTEMPTS,
     ):
+        """Build the client and, when it has a token, seed the credit tracker.
+
+        Args:
+            token: The API token. Falls back to the ``MARKETDATA_TOKEN``
+                setting; with neither, the client starts in demo mode.
+            logger: The logger to write to. The SDK's own when omitted.
+            max_retries: Retries after the first attempt of each request.
+
+        Raises:
+            ValueError: ``max_retries`` is negative.
+            BaseMarketdataException: The start-up ``/user/`` request failed.
+        """
         if max_retries < 0:
             raise ValueError("max_retries must be >= 0")
         self.token = token or settings.marketdata_token
@@ -75,7 +89,12 @@ class MarketDataClient:
         self.client = self._get_client()
         self.default_params = UserUniversalAPIParams()
 
-        # The private credit tracker behind the pre-flight check (#49); the
+        # One budget for every request of this client, whichever endpoint or
+        # fan-out sends it. It exists before `_setup_rate_limits`, whose
+        # `/user/` request already takes a slot.
+        self._request_slots = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
+
+        # The private credit tracker behind the pre-flight check; the
         # request-scoped numbers travel with each result (marketdata.get_meta).
         self._rate_limits = RateLimitTracker()
         self._setup_rate_limits()
@@ -298,6 +317,38 @@ class MarketDataClient:
         response_log_level: int = INFO,
         **kwargs,
     ) -> Response:
+        """Send one HTTP request and map its outcome to the SDK's exceptions.
+
+        The request holds one of the client's request slots only for the HTTP
+        exchange itself: it waits for a free slot after the pre-flight check,
+        and a retry sleeping through its backoff holds none.
+
+        Args:
+            method: The HTTP method.
+            url: The path, relative to the base URL.
+            check_rate_limits: Refuse the request when the account is known to
+                have no credits left.
+            part_of_result: Record the response's metadata in the caller's
+                scope.
+            include_api_version: Prefix the path with the API version.
+            authoritative_credits: Let this response replace the tracked credit
+                state instead of being weighed against it.
+            response_log_level: The level of the line logged for the response.
+            **kwargs: Passed to ``httpx.Client.request``.
+
+        Returns:
+            The response, including a 404 without ``errmsg``, which is the
+            API's "no data" answer.
+
+        Raises:
+            RateLimitError: The pre-flight check refused the request, or the
+                API answered 429.
+            NetworkError: There was no usable answer (a connection failure, a
+                timeout, a protocol or proxy error).
+            ParseError: The body does not match its ``Content-Encoding``.
+            MarketdataHttpError: The API answered with an error status; the
+                subclass names it.
+        """
         if self.token is NO_TOKEN_VALUE:
             check_rate_limits = False
 
@@ -311,7 +362,8 @@ class MarketDataClient:
             # No `timeout=` here: the client carries the fixed one (§10),
             # so there is one place to read it and no argument a resource
             # could use to give itself a longer bound.
-            response = self.client.request(method, url, **kwargs)
+            with self._request_slots:
+                response = self.client.request(method, url, **kwargs)
         except DecodingError as exc:
             # The API answered but the body does not match its Content-Encoding
             # (an intercepting proxy): the answer is unusable, not missing.
