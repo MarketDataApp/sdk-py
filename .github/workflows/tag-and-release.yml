@@ -58,7 +58,7 @@ jobs:
           fi
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.2.0
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           version: "latest"
 
@@ -222,7 +222,7 @@ jobs:
           path: dist/
 
       - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@v1.14.2
+        uses: pypa/gh-action-pypi-publish@v1.14.3
         with:
           repository-url: https://test.pypi.org/legacy/
           # TestPyPI only: a re-run skips what it already has, while a duplicate on PyPI still fails.
@@ -247,7 +247,7 @@ jobs:
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@v1.14.2
+        uses: pypa/gh-action-pypi-publish@v1.14.3
 
   verify:
     name: Verify the published version
@@ -256,7 +256,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.2.0
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           version: "latest"
 
