@@ -400,3 +400,79 @@ def test_options_chain_input_days_to_expiration_alias_on_wire(
     params = respx_mock.calls.last.request.url.params
     assert params.get("dte") == "30"
     assert params.get("days_to_expiration") is None
+
+
+CHAIN_CSV = "optionSymbol,underlying,strike\nAAPL260116C00200000,AAPL,200\n"
+
+
+@pytest.mark.parametrize(
+    "output_format",
+    [
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.CSV,
+        OutputFormat.DATAFRAME,
+    ],
+)
+@pytest.mark.parametrize(
+    ("passed", "sent"),
+    [
+        (30, "30"),
+        ("15,30,45", "15,30,45"),
+        ("0-45", "0-45"),
+        ("<45", "<45"),
+        ("<=45", "<=45"),
+        (">30", ">30"),
+        (">=30", ">=30"),
+    ],
+    ids=[
+        "single_value",
+        "comma_list",
+        "closed_range",
+        "below",
+        "at_most",
+        "above",
+        "at_least",
+    ],
+)
+def test_options_chain_dte_expression_forms_on_wire(
+    load_json, respx_mock, client, passed, sent, output_format
+):
+    """Send each `dte` form as written and read the answer in every format.
+
+    Args:
+        passed: The `days_to_expiration` value given to `options.chain`.
+        sent: The `dte` value the request must carry.
+        output_format: The format the call answers in.
+    """
+    mock_data = load_json("options_chain_response_200")
+    route = respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/")
+    extra = {}
+    if output_format == OutputFormat.CSV:
+        route.respond(text=CHAIN_CSV, status_code=200)
+        extra["filename"] = "chain.csv"
+    else:
+        route.respond(json=mock_data, status_code=200)
+
+    answer = client.options.chain(
+        "AAPL",
+        days_to_expiration=passed,
+        output_format=output_format,
+        **extra,
+    )
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("dte") == sent
+    assert params.get("days_to_expiration") is None
+    assert params.get("format") == (
+        "csv" if output_format == OutputFormat.CSV else "json"
+    )
+    if output_format == OutputFormat.INTERNAL:
+        assert isinstance(answer, OptionsChain)
+        assert len(answer.optionSymbol) == 75
+    elif output_format == OutputFormat.JSON:
+        assert answer == mock_data
+    elif output_format == OutputFormat.CSV:
+        assert pathlib.Path(answer).read_text() == CHAIN_CSV
+    else:
+        assert len(answer) == 75

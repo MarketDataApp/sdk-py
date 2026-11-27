@@ -1,6 +1,8 @@
 """Live tests for the options resource: chain, expirations, quotes, lookup."""
 
 import datetime
+import operator
+from collections.abc import Callable
 from decimal import Decimal
 
 import pytest
@@ -92,6 +94,158 @@ def test_chain_returns_expected_shape(live_chain: OptionsChain):
         assert all(isinstance(v, Decimal) for v in getattr(live_chain, field))
     for field in ("iv", "delta", "gamma", "theta", "vega"):
         assert not any(isinstance(v, Decimal) for v in getattr(live_chain, field))
+
+
+def test_dte_single_value_narrows_to_the_nearest_expiration(
+    live_client: MarketDataClient,
+):
+    """A single `dte` value answers with the one expiration closest to it, not
+    always the same one: two values far apart pick two different
+    expirations."""
+    near = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=1,
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    far = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=365,
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert near.s == "ok"
+    assert far.s == "ok"
+    assert len(near.dte) >= 1
+    assert len(far.dte) >= 1
+    assert len(set(near.dte)) == 1
+    assert len(set(far.dte)) == 1
+    # If the server ignored `dte`, both calls would answer with the same
+    # default (nearest) expiration; two targets picking two different
+    # expirations is what proves the value is read.
+    assert near.dte[0] != far.dte[0]
+
+
+def test_dte_comma_list_keeps_only_the_requested_expirations(
+    live_client: MarketDataClient,
+):
+    """A comma-separated `dte` list answers with the expiration closest to
+    each value, deduplicated, not the whole chain."""
+    near = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=1,
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    far = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=365,
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    near_dte, far_dte = near.dte[0], far.dte[0]
+
+    filtered = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"{near_dte},{far_dte},{far_dte}",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert filtered.s == "ok"
+    assert len(filtered.dte) >= 1
+    # Repeating `far_dte` is deduplicated to the same two expirations; if the
+    # server ignored the list it would answer with the nearest expiration
+    # alone, missing `far_dte` entirely.
+    assert set(filtered.dte) == {near_dte, far_dte}
+
+
+def test_dte_closed_range_is_inclusive_at_both_ends(live_client: MarketDataClient):
+    """A closed `dte` range such as `N-N` includes the boundary itself: an
+    expiration that is not the nearest one is kept, not excluded."""
+    far = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=180,
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    anchor = far.dte[0]
+
+    ranged = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"{anchor}-{anchor}",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert ranged.s == "ok"
+    assert len(ranged.dte) >= 1
+    # If the server ignored the range it would answer with the default
+    # (nearest) expiration instead, which is not this far-out one; if it
+    # read the range as exclusive, a single-point range would match nothing.
+    assert set(ranged.dte) == {anchor}
+
+
+@pytest.fixture(scope="module")
+def dte_bound(live_client: MarketDataClient) -> int:
+    """Return the `dte` of the AAPL expiration closest to 180 days out.
+
+    Returns:
+        A `dte` that an expiration of the chain has, so a comparison against
+        it puts that expiration exactly on the bound.
+    """
+    chain = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=180,
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+    assert chain.s == "ok"
+    return chain.dte[0]
+
+
+@pytest.mark.parametrize(
+    ("prefix", "compare", "keeps_bound"),
+    [
+        ("<", operator.lt, False),
+        ("<=", operator.le, True),
+        (">", operator.gt, False),
+        (">=", operator.ge, True),
+    ],
+    ids=["below", "at_most", "above", "at_least"],
+)
+def test_dte_comparison_at_an_expiration_on_the_bound(
+    live_client: MarketDataClient,
+    dte_bound: int,
+    prefix: str,
+    compare: Callable[[int, int], bool],
+    keeps_bound: bool,
+):
+    """Filter the chain by a `dte` comparison whose bound is an expiration.
+
+    `<` and `>` leave that expiration out, `<=` and `>=` keep it, and every
+    expiration returned satisfies the comparison. More than one expiration
+    comes back, which the nearest-expiration default the API answers with
+    when it ignores `dte` cannot do.
+
+    Args:
+        prefix: The comparison operator sent before the bound.
+        compare: The same comparison, applied to each `dte` returned.
+        keeps_bound: Whether the expiration on the bound is returned.
+    """
+    filtered = live_client.options.chain(
+        UNDERLYING,
+        days_to_expiration=f"{prefix}{dte_bound}",
+        strike_limit=1,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert filtered.s == "ok"
+    returned = set(filtered.dte)
+    assert all(compare(dte, dte_bound) for dte in returned), sorted(returned)
+    assert (dte_bound in returned) is keeps_bound, (dte_bound, sorted(returned))
+    assert len(returned) > 1, sorted(returned)
 
 
 def test_quotes_return_expected_shape(
