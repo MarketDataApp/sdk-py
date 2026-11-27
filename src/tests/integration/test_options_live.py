@@ -1,6 +1,8 @@
 """Live tests for the options resource: chain, expirations, quotes, lookup."""
 
 import datetime
+import operator
+from collections.abc import Callable
 from decimal import Decimal
 
 import pytest
@@ -185,56 +187,65 @@ def test_dte_closed_range_is_inclusive_at_both_ends(live_client: MarketDataClien
     assert set(ranged.dte) == {anchor}
 
 
-def test_dte_at_least_keeps_only_expirations_at_or_beyond_the_bound(
-    live_client: MarketDataClient,
-):
-    """`>=N` returns every expiration whose `dte` is N or more, inclusive."""
-    bound = 30
-    filtered = live_client.options.chain(
+@pytest.fixture(scope="module")
+def dte_bound(live_client: MarketDataClient) -> int:
+    """Return the `dte` of the AAPL expiration closest to 180 days out.
+
+    Returns:
+        A `dte` that an expiration of the chain has, so a comparison against
+        it puts that expiration exactly on the bound.
+    """
+    chain = live_client.options.chain(
         UNDERLYING,
-        days_to_expiration=f">={bound}",
+        days_to_expiration=180,
         strike_limit=1,
         output_format=OutputFormat.INTERNAL,
     )
-    # With no expiration filter at all the API answers the nearest expiration
-    # only, so `expiration="all"` is what the SDK already documents as the
-    # way to see every expiration at once.
-    unfiltered = live_client.options.chain(
+    assert chain.s == "ok"
+    return chain.dte[0]
+
+
+@pytest.mark.parametrize(
+    ("prefix", "compare", "keeps_bound"),
+    [
+        ("<", operator.lt, False),
+        ("<=", operator.le, True),
+        (">", operator.gt, False),
+        (">=", operator.ge, True),
+    ],
+    ids=["below", "at_most", "above", "at_least"],
+)
+def test_dte_comparison_at_an_expiration_on_the_bound(
+    live_client: MarketDataClient,
+    dte_bound: int,
+    prefix: str,
+    compare: Callable[[int, int], bool],
+    keeps_bound: bool,
+):
+    """Filter the chain by a `dte` comparison whose bound is an expiration.
+
+    `<` and `>` leave that expiration out, `<=` and `>=` keep it, and every
+    expiration returned satisfies the comparison. More than one expiration
+    comes back, which the nearest-expiration default the API answers with
+    when it ignores `dte` cannot do.
+
+    Args:
+        prefix: The comparison operator sent before the bound.
+        compare: The same comparison, applied to each `dte` returned.
+        keeps_bound: Whether the expiration on the bound is returned.
+    """
+    filtered = live_client.options.chain(
         UNDERLYING,
-        expiration="all",
+        days_to_expiration=f"{prefix}{dte_bound}",
         strike_limit=1,
         output_format=OutputFormat.INTERNAL,
     )
 
     assert filtered.s == "ok"
-    assert len(filtered.dte) >= 1
-    assert all(dte >= bound for dte in filtered.dte)
-    # AAPL always carries an expiration under 30 days out (its weeklies), so
-    # the unfiltered answer could never pass the same bound.
-    assert any(dte < bound for dte in unfiltered.dte)
-
-
-def test_dte_below_keeps_only_expirations_short_of_the_bound(
-    live_client: MarketDataClient,
-):
-    """`<N` returns every expiration whose `dte` is strictly under N."""
-    bound = 45
-    filtered = live_client.options.chain(
-        UNDERLYING,
-        days_to_expiration=f"<{bound}",
-        strike_limit=1,
-        output_format=OutputFormat.INTERNAL,
-    )
-
-    assert filtered.s == "ok"
-    assert len(filtered.dte) >= 1
-    assert all(dte < bound for dte in filtered.dte)
-    # If the server ignored the bound it would answer with the default
-    # (nearest) expiration alone; AAPL always carries several expirations
-    # under 45 days out (its weeklies and a monthly), so more than one
-    # distinct value here is what proves the bound, not the default, is at
-    # work.
-    assert len(set(filtered.dte)) > 1
+    returned = set(filtered.dte)
+    assert all(compare(dte, dte_bound) for dte in returned), sorted(returned)
+    assert (dte_bound in returned) is keeps_bound, (dte_bound, sorted(returned))
+    assert len(returned) > 1, sorted(returned)
 
 
 def test_quotes_return_expected_shape(
