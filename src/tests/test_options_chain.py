@@ -476,3 +476,68 @@ def test_options_chain_dte_expression_forms_on_wire(
         assert pathlib.Path(answer).read_text() == CHAIN_CSV
     else:
         assert len(answer) == 75
+
+
+@pytest.mark.parametrize(
+    "output_format",
+    [
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.CSV,
+        OutputFormat.DATAFRAME,
+    ],
+)
+@pytest.mark.parametrize("model", ["bsm", "bjs", "crr", "baw"])
+def test_options_chain_model_forms_on_wire(
+    load_json, respx_mock, client, model, output_format
+):
+    """3.0.0: each `model` value is sent on the wire as written, in every
+    output format, on a historical request (`date` required alongside it).
+
+    Args:
+        model: The `model` value given to `options.chain`.
+        output_format: The format the call answers in.
+    """
+    mock_data = load_json("options_chain_response_200")
+    route = respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/")
+    extra = {}
+    if output_format == OutputFormat.CSV:
+        route.respond(text=CHAIN_CSV, status_code=200)
+        extra["filename"] = "chain.csv"
+    else:
+        route.respond(json=mock_data, status_code=200)
+
+    answer = client.options.chain(
+        "AAPL",
+        date="2024-12-31",
+        model=model,
+        output_format=output_format,
+        **extra,
+    )
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("model") == model
+    assert params.get("date") == "2024-12-31"
+    if output_format == OutputFormat.INTERNAL:
+        assert isinstance(answer, OptionsChain)
+    elif output_format == OutputFormat.JSON:
+        assert answer == mock_data
+    elif output_format == OutputFormat.CSV:
+        assert pathlib.Path(answer).read_text() == CHAIN_CSV
+    else:
+        assert len(answer) == 75
+
+
+def test_options_chain_without_model_sends_no_model_param(
+    load_json, respx_mock, client
+):
+    """Regression: omitting `model` must not add it to the request."""
+    mock_data = load_json("options_chain_response_200")
+    respx_mock.get("https://api.marketdata.app/v1/options/chain/AAPL/").respond(
+        json=mock_data, status_code=200
+    )
+
+    client.options.chain("AAPL", date="2024-12-31", output_format=OutputFormat.INTERNAL)
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("model") is None

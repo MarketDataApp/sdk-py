@@ -1167,3 +1167,35 @@ def test_every_resource_renders_no_data_as_an_empty_result(
     client.default_params.output_format = OutputFormat.INTERNAL
 
     assert call(client) == empty
+
+
+TOKEN_URL = "https://api.marketdata.app/v1/user/token/"
+
+
+@pytest.mark.parametrize(
+    ("status", "exception_class"),
+    [
+        (400, BadRequestError),
+        (401, AuthenticationError),
+        (403, ForbiddenError),
+        (429, RateLimitError),
+        (500, InternalError),
+        (502, ServerError),
+        (418, MarketdataHttpError),
+    ],
+)
+@pytest.mark.parametrize("envelope", ["json", "csv"])
+def test_delete_token_status_maps_to_its_exception(
+    respx_mock, client, status, exception_class, envelope
+):
+    """`DELETE /v1/user/token/` follows the same status taxonomy as every GET
+    resource (#62): the HTTP method must not change which exception a status
+    raises."""
+    respx_mock.delete(TOKEN_URL).mock(return_value=error_response(status, envelope))
+
+    with pytest.raises(exception_class) as exc_info:
+        client.utilities.delete_token(output_format=OutputFormat.JSON)
+
+    error = exc_info.value
+    assert_failed_answer(error, status, TOKEN_URL, ERROR_BODY["errmsg"])
+    assert error.exception_type == exception_class.__name__

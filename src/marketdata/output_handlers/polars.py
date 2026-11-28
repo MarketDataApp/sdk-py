@@ -123,7 +123,7 @@ class PolarsOutputHandler(BaseOutputHandler):
         return self._convert_timestamp_columns(result, date_columns, date_format)
 
     def _get_result(self, *args, **kwargs) -> pl.DataFrame:
-        self.data.pop("s", None)
+        self.data = {k: v for k, v in self.data.items() if k != "s"}
         df = self._initialize_dataframe()
         return df
 

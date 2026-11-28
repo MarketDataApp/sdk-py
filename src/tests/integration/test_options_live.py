@@ -8,6 +8,7 @@ from decimal import Decimal
 import pytest
 
 from marketdata import MarketDataClient, OutputFormat
+from marketdata.exceptions import BadRequestError
 from marketdata.output_types.options_chain import OptionsChain
 from marketdata.output_types.options_expirations import OptionsExpirations
 from marketdata.output_types.options_lookup import OptionsLookup
@@ -248,6 +249,79 @@ def test_dte_comparison_at_an_expiration_on_the_bound(
     assert len(returned) > 1, sorted(returned)
 
 
+MODEL_PINNED_DATE = datetime.date(2026, 6, 15)
+# `bsm` prices every contract European-style, with no early-exercise value;
+# an American method priced against it is the one pair guaranteed to diverge
+# on a deep ITM put with months left (the premium of being able to exercise
+# early), whichever of the two is the one under test.
+MODEL_BASELINE = "bsm"
+MODEL_BASELINE_FOR_ITSELF = "bjs"
+
+
+def _deepest_itm_put_chain(live_client: MarketDataClient, model: str) -> OptionsChain:
+    """A historical, `model`-priced chain of deep ITM puts, the pair most
+    likely to carry early-exercise value: time for it to matter (`dte=180`)
+    and a few strikes deep enough in the money."""
+    chain = live_client.options.chain(
+        UNDERLYING,
+        date=MODEL_PINNED_DATE,
+        days_to_expiration=180,
+        side="put",
+        range="itm",
+        strike_limit=10,
+        model=model,
+        output_format=OutputFormat.INTERNAL,
+    )
+    assert chain.s == "ok"
+    assert chain.optionSymbol, "no ITM put in the chain to price"
+    return chain
+
+
+def _greeks_by_symbol(chain: OptionsChain) -> dict[str, tuple]:
+    return dict(
+        zip(
+            chain.optionSymbol,
+            zip(chain.iv, chain.delta, chain.gamma, chain.theta, chain.vega),
+        )
+    )
+
+
+@pytest.mark.parametrize("model", ["bsm", "bjs", "crr", "baw"])
+def test_chain_model_reaches_the_pricing_engine(
+    live_client: MarketDataClient, model: str
+):
+    """3.0.0: `model` prices a historical chain with a named pricing model.
+    Comparing it against a model built on different assumptions (`bsm`,
+    European-style, against anything but itself) must show at least one
+    contract whose greeks differ: the nearest-expiration default the API
+    would answer with if it ignored `model` could not, since both calls ask
+    for the same filtered contracts and only `model` differs between them.
+    """
+    other = MODEL_BASELINE if model != MODEL_BASELINE else MODEL_BASELINE_FOR_ITSELF
+    tested = _greeks_by_symbol(_deepest_itm_put_chain(live_client, model))
+    baseline = _greeks_by_symbol(_deepest_itm_put_chain(live_client, other))
+
+    common = set(tested) & set(baseline)
+    assert common, "no contract in common between the two model calls"
+    assert any(tested[symbol] != baseline[symbol] for symbol in common), (
+        tested,
+        baseline,
+    )
+
+
+def test_chain_model_without_date_is_a_bad_request(live_client: MarketDataClient):
+    """3.0.0: the API's documentation says `model` requires the historical
+    `date` parameter and rejects its absence with a 400."""
+    with pytest.raises(BadRequestError) as exc_info:
+        live_client.options.chain(
+            UNDERLYING,
+            model="bjs",
+            strike_limit=1,
+            output_format=OutputFormat.INTERNAL,
+        )
+    assert exc_info.value.status_code == 400
+
+
 def test_quotes_return_expected_shape(
     live_client: MarketDataClient, live_chain: OptionsChain
 ):
@@ -269,6 +343,64 @@ def test_quotes_return_expected_shape(
     assert isinstance(quotes.bid[0], Decimal)
     assert isinstance(quotes.ask[0], Decimal)
     assert isinstance(quotes.openInterest[0], int)
+
+
+def test_quotes_model_without_date_or_range_is_a_bad_request(
+    live_client: MarketDataClient, live_chain: OptionsChain
+):
+    """3.0.0: the API's documentation says `model` requires `date`, `from` or
+    `to`, and rejects a quotes request carrying none of them with a 400."""
+    option_symbol = live_chain.optionSymbol[0]
+    with pytest.raises(BadRequestError) as exc_info:
+        live_client.options.quotes(
+            option_symbol, model="bjs", output_format=OutputFormat.INTERNAL
+        )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.parametrize("model", ["bsm", "bjs", "crr", "baw"])
+def test_quotes_model_reaches_the_pricing_engine(
+    live_client: MarketDataClient, model: str
+):
+    """3.0.0: see `test_chain_model_reaches_the_pricing_engine`; the same
+    deep ITM put, priced under `model` and under a model built on different
+    assumptions, must disagree on at least one greek for the same historical
+    date."""
+    other = MODEL_BASELINE if model != MODEL_BASELINE else MODEL_BASELINE_FOR_ITSELF
+    contracts = _deepest_itm_put_chain(live_client, model)
+    deepest = contracts.strike.index(max(contracts.strike))
+    option_symbol = contracts.optionSymbol[deepest]
+
+    tested = live_client.options.quotes(
+        option_symbol,
+        date=MODEL_PINNED_DATE,
+        model=model,
+        output_format=OutputFormat.INTERNAL,
+    )
+    baseline = live_client.options.quotes(
+        option_symbol,
+        date=MODEL_PINNED_DATE,
+        model=other,
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    assert tested.s == "ok"
+    assert baseline.s == "ok"
+    tested_greeks = (
+        tested.iv[0],
+        tested.delta[0],
+        tested.gamma[0],
+        tested.theta[0],
+        tested.vega[0],
+    )
+    baseline_greeks = (
+        baseline.iv[0],
+        baseline.delta[0],
+        baseline.gamma[0],
+        baseline.theta[0],
+        baseline.vega[0],
+    )
+    assert tested_greeks != baseline_greeks
 
 
 def test_lookup_resolves_a_human_readable_contract(

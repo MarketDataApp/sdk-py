@@ -1,10 +1,12 @@
 """Shared plumbing for the utilities resource.
 
-The three utilities endpoints live at the API root, take no query parameters
-(``/status/`` and ``/headers/`` answer 404 to any) and only speak JSON, so
-they bypass the ``universal_params`` machinery: the only universal parameters
-that apply are ``output_format`` and ``filename``, and every output format is
-produced client-side from the decoded JSON.
+``status()``, ``headers()`` and ``user()`` live at the API root, take no
+query parameters (``/status/`` and ``/headers/`` answer 404 to any) and only
+speak JSON; ``delete_token()`` lives at the versioned ``/v1/user/token/`` and
+sends a bare ``DELETE``. All four bypass the ``universal_params`` machinery:
+the only universal parameters that apply are ``output_format`` and
+``filename``, and every output format is produced client-side from the
+decoded JSON.
 """
 
 from pathlib import Path
