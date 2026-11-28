@@ -615,8 +615,11 @@ def get_data_records(data: dict, exclude_keys: list[str] = None) -> list[dict]:
 
     values = []
     max_len = max(
-        len(v) if hasattr(v, "__iter__") and not isinstance(v, (str, bytes)) else 1
-        for v in (data[k] for k in keys)
+        (
+            len(v) if hasattr(v, "__iter__") and not isinstance(v, (str, bytes)) else 1
+            for v in (data[k] for k in keys)
+        ),
+        default=1,
     )
 
     for k in keys:

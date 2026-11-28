@@ -59,6 +59,27 @@ class OptionsChainInput(BaseInputType):
         default=None,
         alias="to",
     )
+    model: str | None = Field(
+        description=(
+            "The pricing model of `iv` and the greeks on a historical "
+            "request (the `date` parameter): `bsm`, `bjs`, `crr` or `baw`. "
+            "`bsm` (Black-Scholes-Merton) "
+            "prices every contract. `bjs` (Bjerksund-Stensland 2002), `crr` "
+            "(Cox-Ross-Rubinstein binomial tree) and `baw` "
+            "(Barone-Adesi-Whaley) price the American contracts, and the "
+            "European contracts keep `bsm`. If omitted, American contracts "
+            "use `bjs` and European contracts use `bsm`, with broker "
+            "conventions: a contract without a bid is priced from half its "
+            "ask, a contract priced at or below the model's lowest price "
+            "gets the greeks of an option without time value, a contract on "
+            "its expiration day gets its greeks at expiration, and delta "
+            "stays between -1 and 1. A named model returns its own output "
+            "instead: those contracts get null values, and delta is the "
+            "model's own. Without `date`, the request is rejected with a "
+            "400"
+        ),
+        default=None,
+    )
     month: int | None = Field(description="The month to filter by", default=None)
     year: int | None = Field(description="The year to filter by", default=None)
     weekly: bool | None = Field(
@@ -194,6 +215,27 @@ class OptionsQuotesInput(BaseInputType):
         description="End of date range, exclusive (ISO 8601, unix, or spreadsheet)",
         default=None,
         alias="to",
+    )
+    model: str | None = Field(
+        description=(
+            "The pricing model of `iv` and the greeks on a historical "
+            "request (`date`, `from` or `to`): `bsm`, `bjs`, `crr` or `baw`. "
+            "`bsm` (Black-Scholes-Merton) "
+            "prices every contract. `bjs` (Bjerksund-Stensland 2002), `crr` "
+            "(Cox-Ross-Rubinstein binomial tree) and `baw` "
+            "(Barone-Adesi-Whaley) price the American contracts, and the "
+            "European contracts keep `bsm`. If omitted, American contracts "
+            "use `bjs` and European contracts use `bsm`, with broker "
+            "conventions: a contract without a bid is priced from half its "
+            "ask, a contract priced at or below the model's lowest price "
+            "gets the greeks of an option without time value, a contract on "
+            "its expiration day gets its greeks at expiration, and delta "
+            "stays between -1 and 1. A named model returns its own output "
+            "instead: those contracts get null values, and delta is the "
+            "model's own. Without `date`, `from` or `to`, the request is "
+            "rejected with a 400"
+        ),
+        default=None,
     )
 
     @field_validator("symbols")

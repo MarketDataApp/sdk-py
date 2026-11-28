@@ -224,8 +224,8 @@ The SDK provides access to different market data resources:
   - Methods: `status()`
   - See [Markets Documentation](docs/markets.md) for detailed usage
 
-- **Utilities**: API service status, request headers echo (with the IP the API detected) and the account's credit counters
-  - Methods: `status()`, `headers()`, `user()`
+- **Utilities**: API service status, request headers echo (with the IP the API detected), the account's credit counters, and revoking the account's own API token
+  - Methods: `status()`, `headers()`, `user()`, `delete_token()`
   - See [Utilities Documentation](docs/utilities.md) for detailed usage
 
 > **Note:** For stocks, options, and funds resources, the `symbol`, `symbols`, or `lookup` parameter (depending on the method) can be passed as the first positional argument or as a keyword argument. All other parameters must be keyword-only. For markets resource, all parameters must be keyword-only.
@@ -294,7 +294,7 @@ For detailed information about return types and object structures for each resou
 - [Options Documentation](docs/options.md) - Object types: `OptionsExpirations`, `OptionsChain`, `OptionsQuotes`, `OptionsLookup`
 - [Funds Documentation](docs/funds.md) - Object type: `FundsCandle`
 - [Markets Documentation](docs/markets.md) - Object type: `MarketStatus`
-- [Utilities Documentation](docs/utilities.md) - Object types: `ServiceStatus`, `RequestHeaders`, `User`
+- [Utilities Documentation](docs/utilities.md) - Object types: `ServiceStatus`, `RequestHeaders`, `User`, `TokenDeleted`
 
 You can specify the output format when calling resource methods:
 
@@ -369,7 +369,7 @@ quotes = client.stocks.quotes("AAPL", output_format=OutputFormat.INTERNAL)
 marketdata.get_extra(quotes[0])      # the row's value of each column StockQuote lacks
 ```
 
-- **Which results:** every `OutputFormat.INTERNAL` result built from an answer's columns, the merged answers of `stocks.candles()` and `options.quotes()` included, and a model built with `from_dict()` on `StockEarnings`, `StockPrice`, `StockQuote` and their human-readable twins. A single-object result (`options.chain()`, `options.expirations()`, `options.lookup()`, `options.quotes()`, `stocks.earnings()`) holds each column whole; a list result (`stocks.quotes()`, `stocks.prices()`, `stocks.candles()`, `stocks.news()`, `funds.candles()`, `markets.status()`, `utilities.status()`) gives each row its own value. `utilities.user()` and `utilities.headers()` keep nothing there: the first reads only its own keys, the second keeps every key as a header.
+- **Which results:** every `OutputFormat.INTERNAL` result built from an answer's columns, the merged answers of `stocks.candles()` and `options.quotes()` included, and a model built with `from_dict()` on `StockEarnings`, `StockPrice`, `StockQuote` and their human-readable twins. A single-object result (`options.chain()`, `options.expirations()`, `options.lookup()`, `options.quotes()`, `stocks.earnings()`) holds each column whole; a list result (`stocks.quotes()`, `stocks.prices()`, `stocks.candles()`, `stocks.news()`, `funds.candles()`, `markets.status()`, `utilities.status()`) gives each row its own value. `utilities.user()`, `utilities.headers()` and `utilities.delete_token()` keep nothing there: the first and third read only their own keys, the second keeps every key as a header.
 - **The values:** decoded as the rest of the answer, so a number with a fraction is a `Decimal` on the resources whose money is. Each answer that brings such a column names it once at DEBUG on `marketdata.logger`.
 - **How long they last:** as long as the object, which holds them itself, like the response metadata: they survive `copy.copy()`, `copy.deepcopy()` and `pickle`. They are not fields, so `==`, the repr and `dataclasses.fields()` ignore them, and a model built by hand, or from an answer without such a column, returns `{}`.
 - **The other formats:** `JSON` and `DATAFRAME` carry the column by the API's name and `CSV` writes it in the file. On `stocks.candles()` and `options.quotes()` every chunk or symbol must carry it, as it must carry a declared column: an answer without it fails the call with `ParseError`, on every format.

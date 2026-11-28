@@ -203,6 +203,18 @@ Fetches the options chain for a given symbol with extensive filtering options. T
 - `weekly` (bool, optional): Filter for weekly expirations
 - `monthly` (bool, optional): Filter for monthly expirations
 - `quarterly` (bool, optional): Filter for quarterly expirations
+- `model` (`"bsm"`, `"bjs"`, `"crr"`, `"baw"`, optional): The pricing model of `iv`
+  and the greeks on a historical request (the `date` parameter). `bsm`
+  (Black-Scholes-Merton) prices every contract. `bjs` (Bjerksund-Stensland 2002),
+  `crr` (Cox-Ross-Rubinstein binomial tree) and `baw` (Barone-Adesi-Whaley) price
+  the American contracts, and the European contracts keep `bsm`. If omitted,
+  American contracts use `bjs` and European contracts use `bsm`, with broker
+  conventions: a contract without a bid is priced from half its ask, a contract
+  priced at or below the model's lowest price gets the greeks of an option
+  without time value, a contract on its expiration day gets its greeks at
+  expiration, and delta stays between -1 and 1. A named model returns its own
+  output instead: those contracts get null values, and delta is the model's own.
+  Without `date`, the request is rejected with a `400`
 
 **Strike Filters:**
 
@@ -316,6 +328,22 @@ chain = client.options.chain("AAPL", days_to_expiration="15,30,45")
 chain = client.options.chain("AAPL", days_to_expiration="0-45")
 # a comparison operator
 chain = client.options.chain("AAPL", days_to_expiration=">=30")
+print(chain)
+```
+
+**Price a historical chain with a named model:**
+
+```python
+import datetime
+from marketdata import MarketDataClient
+
+client = MarketDataClient()
+# model requires a historical `date`
+chain = client.options.chain(
+    "AAPL",
+    date=datetime.date(2024, 12, 31),
+    model="crr",
+)
 print(chain)
 ```
 
@@ -623,6 +651,24 @@ Fetches options quotes for one or more option symbols. This method includes API 
 - `mode` (Mode, optional): The data feed mode to use (`Mode.LIVE`, `Mode.CACHED`, `Mode.DELAYED`)
 - `filename` (str | Path, optional): File path for CSV output (only used with `output_format=OutputFormat.CSV`). Must end with `.csv`, directory must exist, and file must not already exist. If not provided, a timestamped file is created in `output/` directory (the directory is automatically created if it doesn't exist).
 
+**Historical Parameters:**
+
+- `date` (datetime.date, optional): Historical end-of-day quote date (ISO 8601, unix, or spreadsheet)
+- `from_date` (datetime.date, optional): Start of date range, inclusive (ISO 8601, unix, or spreadsheet)
+- `to_date` (datetime.date, optional): End of date range, exclusive (ISO 8601, unix, or spreadsheet)
+- `model` (`"bsm"`, `"bjs"`, `"crr"`, `"baw"`, optional): The pricing model of `iv`
+  and the greeks on a historical request (`date`, `from_date` or `to_date`). `bsm`
+  (Black-Scholes-Merton) prices every contract. `bjs` (Bjerksund-Stensland 2002),
+  `crr` (Cox-Ross-Rubinstein binomial tree) and `baw` (Barone-Adesi-Whaley) price
+  the American contracts, and the European contracts keep `bsm`. If omitted,
+  American contracts use `bjs` and European contracts use `bsm`, with broker
+  conventions: a contract without a bid is priced from half its ask, a contract
+  priced at or below the model's lowest price gets the greeks of an option
+  without time value, a contract on its expiration day gets its greeks at
+  expiration, and delta stays between -1 and 1. A named model returns its own
+  output instead: those contracts get null values, and delta is the model's own.
+  Without `date`, `from_date` or `to_date`, the request is rejected with a `400`
+
 #### Returns
 
 - If `output_format=OutputFormat.DATAFRAME`: A pandas or polars DataFrame with options quotes data (indexed by optionSymbol/Symbol). The DataFrame is automatically processed:
@@ -745,6 +791,22 @@ quotes = client.options.quotes(
     mode=Mode.LIVE,
     columns=["optionSymbol", "strike", "bid", "ask", "volume"]
 )
+```
+
+**Price a historical quote with a named model:**
+
+```python
+import datetime
+from marketdata import MarketDataClient
+
+client = MarketDataClient()
+# model requires date, from_date or to_date
+quotes = client.options.quotes(
+    "AAPL240120C00150000",
+    date=datetime.date(2024, 12, 31),
+    model="baw",
+)
+print(quotes)
 ```
 
 ## OptionsExpirations Object

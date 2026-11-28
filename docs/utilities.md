@@ -1,6 +1,6 @@
 # Utilities Resource
 
-The `utilities` resource exposes the three service endpoints of the API: the live status of every API service, an echo of the request headers as the API received them, and the authenticated account's credit counters.
+The `utilities` resource exposes four endpoints: the live status of every API service, an echo of the request headers as the API received them, the authenticated account's credit counters, and revoking the account's own API token.
 
 ## Accessing the Utilities Resource
 
@@ -11,13 +11,13 @@ client = MarketDataClient()
 utilities = client.utilities
 ```
 
-All three methods include automatic retry logic. They never consume API credits, and `status()` and `headers()` work without a token (demo mode). See the [README](../README.md) for general information about error handling, retry mechanisms, and output formats.
+All four methods include automatic retry logic. `status()`, `headers()` and `user()` never consume API credits, and `status()` and `headers()` work without a token (demo mode); `delete_token()` requires a token and goes through the same pre-flight credit check as every other `/v1/` endpoint. See the [README](../README.md) for general information about error handling, retry mechanisms, and output formats.
 
-These endpoints live at the API root (`/status/`, `/headers/`, `/user/`), only speak JSON and accept no query parameters. The SDK therefore sends them bare and produces every output format client-side from the decoded JSON. Of the universal parameters, only `output_format` and `filename` apply.
+`status()`, `headers()` and `user()` live at the API root (`/status/`, `/headers/`, `/user/`), only speak JSON and accept no query parameters. The SDK therefore sends them bare and produces every output format client-side from the decoded JSON. `delete_token()` lives at the versioned `/v1/user/token/` and sends a bare `DELETE`, with the same JSON-only, client-side rendering. Of the universal parameters, only `output_format` and `filename` apply to any of the four.
 
 ## Columns a model does not declare
 
-With `OutputFormat.INTERNAL`, a column the API sends before the SDK declares it does not fail the call: the result is built from the columns its model declares, and `marketdata.get_extra(row)` returns the others on each row of `status()`, named as the API sent them, with the row's own value. `user()` reads only its own keys and `headers()` keeps every key as a header, so neither keeps anything there. `JSON` and `DATAFRAME` carry it as a column, and `CSV` writes it in the file. See [Columns a model does not declare](../README.md#columns-a-model-does-not-declare) in the README for how long the values last and how they are decoded.
+With `OutputFormat.INTERNAL`, a column the API sends before the SDK declares it does not fail the call: the result is built from the columns its model declares, and `marketdata.get_extra(row)` returns the others on each row of `status()`, named as the API sent them, with the row's own value. `user()` reads only its own keys and `headers()` keeps every key as a header, so neither keeps anything there. `delete_token()`'s only field is the status flag `s`, which every model in the SDK keeps out of `get_extra` and out of `DATAFRAME`/`CSV`, so there is nothing left for either of those two formats to carry. `JSON` and `DATAFRAME` carry it as a column, and `CSV` writes it in the file. See [Columns a model does not declare](../README.md#columns-a-model-does-not-declare) in the README for how long the values last and how they are decoded.
 
 ## Methods
 
@@ -96,4 +96,25 @@ Same as `status()`: `output_format` and `filename`.
 user = client.utilities.user(output_format=OutputFormat.INTERNAL)
 print(user)
 # User: 99997/100000 credits remaining, options data: realtime
+```
+
+### `delete_token()`
+
+Revokes the authenticated account's API token. Requires a token. The token used to make the call is unusable for any further request once it answers; a fresh one is needed to use the SDK again.
+
+#### Parameters
+
+Same as `status()`: `output_format` and `filename`.
+
+#### Returns
+
+- `TokenDeleted`: `s` (str), the API's success flag. It is the only field this envelope carries, so `DATAFRAME` and `CSV` (which keep `s` out like every other resource) have nothing left to show: a one-row, no-column DataFrame on pandas, an empty DataFrame on polars (which has no row with zero columns), and an empty CSV file.
+- Raises `AuthenticationError` without a valid token (`401`), and the usual taxonomy otherwise; see the [README](../README.md#error-handling).
+
+#### Example
+
+```python
+deleted = client.utilities.delete_token(output_format=OutputFormat.INTERNAL)
+print(deleted)
+# Token Deleted: ok
 ```

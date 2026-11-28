@@ -1315,6 +1315,76 @@ def test_options_quotes_input_date_param_on_wire(load_json, respx_mock, client):
     assert params.get("date") == "2026-04-15"
 
 
+@pytest.mark.parametrize(
+    "output_format",
+    [
+        OutputFormat.INTERNAL,
+        OutputFormat.JSON,
+        OutputFormat.CSV,
+        OutputFormat.DATAFRAME,
+    ],
+)
+@pytest.mark.parametrize("model", ["bsm", "bjs", "crr", "baw"])
+def test_options_quotes_model_forms_on_wire(
+    load_json, respx_mock, client, model, output_format
+):
+    """3.0.0: each `model` value is sent on the wire as written, in every
+    output format, on a historical request (`date` required alongside it).
+
+    Args:
+        model: The `model` value given to `options.quotes`.
+        output_format: The format the call answers in.
+    """
+    mock_data = load_json("options_quotes_response_200")
+    route = respx_mock.get(CALL_URL)
+    extra = {}
+    if output_format == OutputFormat.CSV:
+        route.respond(text=f"{CSV_HEADER}\r\n{CALL_ROW}\r\n", status_code=200)
+        extra["filename"] = "quotes.csv"
+    else:
+        route.respond(json=mock_data, status_code=200)
+
+    answer = client.options.quotes(
+        symbols="AAPL271217C00255000",
+        date="2026-04-15",
+        model=model,
+        output_format=output_format,
+        **extra,
+    )
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("model") == model
+    assert params.get("date") == "2026-04-15"
+    if output_format == OutputFormat.INTERNAL:
+        assert isinstance(answer, OptionsQuotes)
+    elif output_format == OutputFormat.JSON:
+        assert answer == mock_data
+    elif output_format == OutputFormat.CSV:
+        assert (
+            pathlib.Path(answer).read_bytes()
+            == f"{CSV_HEADER}\r\n{CALL_ROW}\r\n".encode()
+        )
+    else:
+        assert len(answer) == 1
+
+
+def test_options_quotes_without_model_sends_no_model_param(
+    load_json, respx_mock, client
+):
+    """Regression: omitting `model` must not add it to the request."""
+    mock_data = load_json("options_quotes_response_200")
+    respx_mock.get(CALL_URL).respond(json=mock_data, status_code=200)
+
+    client.options.quotes(
+        symbols="AAPL271217C00255000",
+        date="2026-04-15",
+        output_format=OutputFormat.INTERNAL,
+    )
+
+    params = respx_mock.calls.last.request.url.params
+    assert params.get("model") is None
+
+
 def test_options_quotes_input_from_after_to_raises():
     with pytest.raises(MinMaxDateValidationError):
         OptionsQuotesInput(
